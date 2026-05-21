@@ -1,0 +1,23 @@
+name: Keep API Warm
+
+# Pings the Render backend every 14 minutes during IST market hours
+# so the free-tier server never spins down mid-session.
+# Schedule is UTC: IST market hours 9:00 AM–3:30 PM = UTC 3:30–10:00
+
+on:
+  schedule:
+    - cron: "0,14,28,42,56 3-9 * * 1-5"   # every ~14 min, Mon–Fri, 3–9 UTC
+    - cron: "10 10 * * 1-5"               # final ping at 3:40 PM IST
+  workflow_dispatch:                       # allow manual trigger
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wake up Render API
+        run: |
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://samvex-api.onrender.com/api/ping)
+          echo "Ping status: $STATUS"
+          if [ "$STATUS" != "200" ]; then
+            echo "Warning: API returned $STATUS"
+          fi

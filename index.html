@@ -1,0 +1,633 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Samvex LLP — Trading Dashboard</title>
+  <style>
+    /* ── Reset & tokens ──────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:           #0f1117;
+      --bg-card:      #181c27;
+      --bg-card-2:    #1e2336;
+      --border:       #2a2f45;
+      --text:         #e2e8f0;
+      --text-muted:   #8892a4;
+      --accent:       #4f8ef7;
+      --green:        #22c55e;
+      --green-dim:    #16422b;
+      --red:          #ef4444;
+      --red-dim:      #3d1515;
+      --yellow:       #f59e0b;
+      --shadow:       0 4px 24px rgba(0,0,0,.45);
+      --radius:       10px;
+    }
+    [data-theme="light"] {
+      --bg:           #f0f4f8;
+      --bg-card:      #ffffff;
+      --bg-card-2:    #f7f9fc;
+      --border:       #dde3ec;
+      --text:         #1a202c;
+      --text-muted:   #5a6a7e;
+      --shadow:       0 4px 24px rgba(0,0,0,.10);
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      font-size: 13px;
+      min-height: 100vh;
+    }
+
+    /* ── Ticker tape ─────────────────────────────────────────────── */
+    .ticker-wrap {
+      background: var(--bg-card);
+      border-bottom: 1px solid var(--border);
+      overflow: hidden;
+      padding: 6px 0;
+    }
+    .ticker-track {
+      display: flex;
+      gap: 40px;
+      white-space: nowrap;
+      animation: scroll-left 35s linear infinite;
+    }
+    .ticker-wrap:hover .ticker-track { animation-play-state: paused; }
+    @keyframes scroll-left {
+      0%   { transform: translateX(0); }
+      100% { transform: translateX(-50%); }
+    }
+    .tick-item { display: inline-flex; gap: 8px; font-size: 12px; }
+    .tick-name { color: var(--text-muted); }
+    .tick-price { font-weight: 600; }
+
+    /* ── Header ──────────────────────────────────────────────────── */
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 24px;
+      background: var(--bg-card);
+      border-bottom: 1px solid var(--border);
+    }
+    .brand { display: flex; align-items: center; gap: 10px; }
+    .brand-logo {
+      width: 34px; height: 34px;
+      background: linear-gradient(135deg, #4f8ef7, #7c3aed);
+      border-radius: 8px;
+      display: grid; place-items: center;
+      font-weight: 800; font-size: 15px; color: #fff;
+    }
+    .brand-name { font-size: 16px; font-weight: 700; }
+    .brand-sub  { font-size: 11px; color: var(--text-muted); }
+
+    .header-indices { display: flex; gap: 20px; }
+    .idx-card {
+      background: var(--bg-card-2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 8px 16px;
+      text-align: right;
+      min-width: 140px;
+    }
+    .idx-label { font-size: 11px; color: var(--text-muted); font-weight: 600; letter-spacing:.5px; }
+    .idx-price { font-size: 17px; font-weight: 700; }
+    .idx-change { font-size: 12px; font-weight: 600; }
+
+    .header-right { display: flex; align-items: center; gap: 12px; }
+    #clock { font-size: 12px; color: var(--text-muted); }
+    #market-badge {
+      font-size: 11px; font-weight: 700; letter-spacing: .5px;
+      padding: 3px 10px; border-radius: 20px;
+    }
+    .badge-open  { background: var(--green-dim); color: var(--green); }
+    .badge-closed{ background: var(--red-dim);   color: var(--red);   }
+
+    .theme-btn {
+      background: var(--bg-card-2); border: 1px solid var(--border);
+      color: var(--text); border-radius: 6px; padding: 5px 10px; cursor: pointer;
+      font-size: 16px;
+    }
+    .theme-btn:hover { border-color: var(--accent); }
+
+    /* ── Main grid ───────────────────────────────────────────────── */
+    main { padding: 20px 24px; }
+
+    /* ── Top summary cards ───────────────────────────────────────── */
+    .summary-row {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 14px;
+      margin-bottom: 20px;
+    }
+    .summary-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px;
+      box-shadow: var(--shadow);
+    }
+    .summary-card .label { font-size: 11px; color: var(--text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: .5px; margin-bottom: 6px; }
+    .summary-card .value { font-size: 22px; font-weight: 800; }
+    .summary-card .sub   { font-size: 12px; color: var(--text-muted); margin-top: 4px; }
+
+    /* ── Two-column scanner layout ───────────────────────────────── */
+    .scanner-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+    }
+
+    .panel {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+    .panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 18px;
+      border-bottom: 1px solid var(--border);
+    }
+    .panel-title {
+      display: flex; align-items: center; gap: 8px;
+      font-size: 14px; font-weight: 700;
+    }
+    .dot { width: 9px; height: 9px; border-radius: 50%; }
+    .dot-green { background: var(--green); box-shadow: 0 0 6px var(--green); }
+    .dot-red   { background: var(--red);   box-shadow: 0 0 6px var(--red);   }
+
+    .refresh-btn {
+      background: var(--bg-card-2); border: 1px solid var(--border);
+      color: var(--text-muted); border-radius: 6px;
+      padding: 4px 10px; cursor: pointer; font-size: 12px;
+    }
+    .refresh-btn:hover { color: var(--text); border-color: var(--accent); }
+
+    /* ── Criteria chips ──────────────────────────────────────────── */
+    .criteria-row {
+      display: flex; flex-wrap: wrap; gap: 6px;
+      padding: 10px 18px;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg-card-2);
+    }
+    .chip {
+      font-size: 10px; font-weight: 600;
+      padding: 3px 8px; border-radius: 20px;
+      border: 1px solid;
+    }
+    .chip-green { color: var(--green); border-color: var(--green); background: var(--green-dim); }
+    .chip-red   { color: var(--red);   border-color: var(--red);   background: var(--red-dim);   }
+    .chip-blue  { color: var(--accent); border-color: var(--accent); background: #1a2a4a; }
+
+    /* ── Stock table ─────────────────────────────────────────────── */
+    table { width: 100%; border-collapse: collapse; }
+    thead th {
+      padding: 8px 18px;
+      text-align: left;
+      font-size: 11px; font-weight: 700; letter-spacing: .5px;
+      color: var(--text-muted); text-transform: uppercase;
+      background: var(--bg-card-2);
+      border-bottom: 1px solid var(--border);
+    }
+    thead th:last-child { text-align: right; }
+    tbody tr {
+      border-bottom: 1px solid var(--border);
+      transition: background .15s;
+    }
+    tbody tr:last-child { border-bottom: none; }
+    tbody tr:hover { background: var(--bg-card-2); }
+    tbody td { padding: 11px 18px; vertical-align: middle; }
+    tbody td:last-child { text-align: right; }
+
+    .sym {
+      font-weight: 700; font-size: 13px;
+      color: var(--accent); letter-spacing: .3px;
+    }
+    .price { font-weight: 600; }
+    .pill {
+      display: inline-block;
+      padding: 2px 8px; border-radius: 20px;
+      font-size: 11px; font-weight: 700;
+    }
+    .pill-green  { background: var(--green-dim); color: var(--green); }
+    .pill-red    { background: var(--red-dim);   color: var(--red);   }
+    .pill-yellow { background: #2a1e00;           color: var(--yellow);}
+    .pill-orange { background: #2d1a00;           color: #fb923c;     }
+
+    /* Potential / confidence cell */
+    .pot-wrap { display: flex; flex-direction: column; gap: 3px; }
+    .pot-value { font-size: 13px; font-weight: 800; }
+    .pot-high   { color: var(--green); }
+    .pot-med    { color: var(--yellow); }
+    .conf-badge {
+      display: inline-block; font-size: 9px; font-weight: 700;
+      letter-spacing: .5px; padding: 1px 6px; border-radius: 20px;
+      text-transform: uppercase;
+    }
+    .conf-HIGH { background: var(--green-dim); color: var(--green); }
+    .conf-MED  { background: #2a1e00;          color: var(--yellow); }
+    .chip-orange { color: #fb923c; border-color: #fb923c; background: #2d1a00; }
+
+    .vol-bar-wrap { display: flex; align-items: center; gap: 6px; }
+    .vol-bar {
+      height: 5px; border-radius: 3px; min-width: 4px;
+      background: var(--accent); opacity: .7;
+      transition: width .4s;
+    }
+    .vol-label { font-size: 11px; font-weight: 700; }
+
+    .inst-value { font-size: 11px; color: var(--text-muted); }
+
+    /* ── Empty / loading state ───────────────────────────────────── */
+    .empty-state {
+      padding: 40px 18px;
+      text-align: center;
+      color: var(--text-muted);
+      font-size: 13px;
+    }
+    .spinner {
+      width: 28px; height: 28px;
+      border: 3px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin .7s linear infinite;
+      margin: 0 auto 12px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Footer ──────────────────────────────────────────────────── */
+    footer {
+      text-align: center;
+      padding: 18px;
+      font-size: 11px;
+      color: var(--text-muted);
+      border-top: 1px solid var(--border);
+      margin-top: 24px;
+    }
+
+    /* ── Responsive ──────────────────────────────────────────────── */
+    @media (max-width: 900px) {
+      .scanner-grid { grid-template-columns: 1fr; }
+      .summary-row  { grid-template-columns: 1fr 1fr; }
+      .header-indices { display: none; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ── Ticker tape ──────────────────────────────────────────────── -->
+<div class="ticker-wrap">
+  <div class="ticker-track" id="ticker-track">
+    <!-- duplicated server-side to create seamless loop; JS fills it -->
+  </div>
+</div>
+
+<!-- ── Header ───────────────────────────────────────────────────── -->
+<header>
+  <div class="brand">
+    <div class="brand-logo">S</div>
+    <div>
+      <div class="brand-name">Samvex LLP</div>
+      <div class="brand-sub">Intraday Scanner Dashboard</div>
+    </div>
+  </div>
+
+  <div class="header-indices" id="header-indices">
+    <div class="idx-card" id="idx-nifty">
+      <div class="idx-label">NIFTY 50</div>
+      <div class="idx-price">—</div>
+      <div class="idx-change">—</div>
+    </div>
+    <div class="idx-card" id="idx-banknifty">
+      <div class="idx-label">BANK NIFTY</div>
+      <div class="idx-price">—</div>
+      <div class="idx-change">—</div>
+    </div>
+  </div>
+
+  <div class="header-right">
+    <div id="clock">—</div>
+    <div id="market-badge" class="badge-closed">MARKET CLOSED</div>
+    <button class="theme-btn" onclick="toggleTheme()" title="Toggle theme">☀</button>
+  </div>
+</header>
+
+<!-- ── Main ─────────────────────────────────────────────────────── -->
+<main>
+
+  <!-- Summary row -->
+  <div class="summary-row">
+    <div class="summary-card">
+      <div class="label">Top Gainer</div>
+      <div class="value" id="top-gainer-sym" style="color:var(--green)">—</div>
+      <div class="sub" id="top-gainer-val">Loading…</div>
+    </div>
+    <div class="summary-card">
+      <div class="label">Top Loser</div>
+      <div class="value" id="top-loser-sym" style="color:var(--red)">—</div>
+      <div class="sub" id="top-loser-val">Loading…</div>
+    </div>
+    <div class="summary-card">
+      <div class="label">Bullish Setups</div>
+      <div class="value" id="bullish-count" style="color:var(--green)">—</div>
+      <div class="sub">F&O stocks with upside potential</div>
+    </div>
+    <div class="summary-card">
+      <div class="label">Bearish Setups</div>
+      <div class="value" id="bearish-count" style="color:var(--red)">—</div>
+      <div class="sub">F&O stocks with downside potential</div>
+    </div>
+  </div>
+
+  <!-- Scanner panels -->
+  <div class="scanner-grid">
+
+    <!-- ── Bullish Stocks ──────────────────────────────────────── -->
+    <div class="panel">
+      <div class="panel-header">
+        <div class="panel-title">
+          <span class="dot dot-green"></span>
+          Bullish Stocks
+        </div>
+        <button class="refresh-btn" onclick="loadBullish()">↺ Refresh</button>
+      </div>
+      <div class="criteria-row">
+        <span class="chip chip-green">&lt;1% Gap Up</span>
+        <span class="chip chip-green">≥2× Volume</span>
+        <span class="chip chip-green">&lt;1% First Candle</span>
+        <span class="chip chip-blue">≥₹100 Cr Inst.</span>
+        <span class="chip chip-orange">≥2% by 11AM</span>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Symbol</th>
+            <th>Price</th>
+            <th>Gap</th>
+            <th>Volume</th>
+            <th>Value (Cr)</th>
+            <th>Potential ▾</th>
+          </tr>
+        </thead>
+        <tbody id="bullish-body">
+          <tr><td colspan="6"><div class="empty-state"><div class="spinner"></div>Loading…</div></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- ── Bearish Stocks ──────────────────────────────────────── -->
+    <div class="panel">
+      <div class="panel-header">
+        <div class="panel-title">
+          <span class="dot dot-red"></span>
+          Bearish Stocks
+        </div>
+        <button class="refresh-btn" onclick="loadBearish()">↺ Refresh</button>
+      </div>
+      <div class="criteria-row">
+        <span class="chip chip-red">&lt;1% Gap Down</span>
+        <span class="chip chip-red">≥2× Volume</span>
+        <span class="chip chip-red">&lt;1% First Candle</span>
+        <span class="chip chip-blue">≥₹100 Cr Inst.</span>
+        <span class="chip chip-orange">≥2% by 11AM</span>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Symbol</th>
+            <th>Price</th>
+            <th>Gap</th>
+            <th>Volume</th>
+            <th>Value (Cr)</th>
+            <th>Potential ▾</th>
+          </tr>
+        </thead>
+        <tbody id="bearish-body">
+          <tr><td colspan="6"><div class="empty-state"><div class="spinner"></div>Loading…</div></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+  </div>
+</main>
+
+<footer>
+  Samvex LLP &nbsp;·&nbsp; Data via Yahoo Finance &nbsp;·&nbsp;
+  Screener refreshes every 5 min during market hours &nbsp;·&nbsp;
+  <span id="last-updated">—</span>
+</footer>
+
+<!-- ── Scripts ──────────────────────────────────────────────────── -->
+<script>
+  // Auto-detect environment: localhost uses dev server, production uses Render
+  const API = (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1")
+    ? "http://localhost:5050"
+    : "https://samvex-api.onrender.com";
+
+  // ── Clock ──────────────────────────────────────────────────────
+  function updateClock() {
+    const now = new Date();
+    const ist = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
+    const hh = String(ist.getHours()).padStart(2,"0");
+    const mm = String(ist.getMinutes()).padStart(2,"0");
+    const ss = String(ist.getSeconds()).padStart(2,"0");
+    document.getElementById("clock").textContent = `${hh}:${mm}:${ss} IST`;
+  }
+  setInterval(updateClock, 1000);
+  updateClock();
+
+  // ── Theme ─────────────────────────────────────────────────────
+  function toggleTheme() {
+    const html = document.documentElement;
+    const next = html.dataset.theme === "dark" ? "light" : "dark";
+    html.dataset.theme = next;
+    document.querySelector(".theme-btn").textContent = next === "dark" ? "☀" : "🌙";
+  }
+
+  // ── Helpers ───────────────────────────────────────────────────
+  const fmt = n => "₹" + Number(n).toLocaleString("en-IN");
+  const sign = n => n >= 0 ? "+" : "";
+
+  function changeClass(pct) {
+    return pct >= 0 ? "green" : "red";
+  }
+
+  function volBar(ratio) {
+    // cap bar at 10x for display purposes
+    const pct = Math.min((ratio / 10) * 100, 100);
+    return `<div class="vol-bar-wrap">
+      <div class="vol-bar" style="width:${pct}px"></div>
+      <span class="vol-label" style="color:var(--accent)">${ratio}×</span>
+    </div>`;
+  }
+
+  function potentialCell(s, direction) {
+    const arrow = direction === "bullish" ? "▲" : "▼";
+    const cls   = s.confidence === "HIGH" ? "pot-high" : "pot-med";
+    const align = s.aligned
+      ? `<span style="color:var(--green);font-size:10px;">✓ aligned</span>`
+      : `<span style="color:var(--red);font-size:10px;">✗ misaligned</span>`;
+    return `<div class="pot-wrap">
+      <span class="pot-value ${cls}">${arrow} ${s.projected_pct}%</span>
+      <span style="display:flex;gap:4px;align-items:center;">
+        <span class="conf-badge conf-${s.confidence}">${s.confidence}</span>
+        ${align}
+        <span style="color:var(--text-muted);font-size:10px;">ADR ${s.adr_pct}%</span>
+      </span>
+    </div>`;
+  }
+
+  function renderRows(data, tbody, direction) {
+    const el = document.getElementById(tbody);
+    if (!data || data.length === 0) {
+      el.innerHTML = `<tr><td colspan="6">
+        <div class="empty-state">
+          No stocks matched all 5 criteria right now.<br>
+          <small>Gap · 2× volume · first candle &lt;1% · ≥₹100 Cr · ≥2% potential by 11 AM</small>
+        </div></td></tr>`;
+      return;
+    }
+    const color = direction === "bullish" ? "green" : "red";
+    el.innerHTML = data.map((s) => `
+      <tr>
+        <td><span class="sym">${s.symbol}</span></td>
+        <td class="price">${fmt(s.price)}</td>
+        <td><span class="pill pill-${color}">${sign(s.gap_pct)}${s.gap_pct}%</span></td>
+        <td>${volBar(s.volume_ratio)}</td>
+        <td class="inst-value">₹${s.traded_value_crores} Cr</td>
+        <td>${potentialCell(s, direction)}</td>
+      </tr>`).join("");
+  }
+
+  // ── Market index cards ────────────────────────────────────────
+  async function loadMarket() {
+    try {
+      const res = await fetch(`${API}/api/market`);
+      const data = await res.json();
+
+      const nifty = data["NIFTY 50"];
+      const bank  = data["BANK NIFTY"];
+
+      if (nifty) {
+        const el = document.getElementById("idx-nifty");
+        const c = changeClass(nifty.change_pct);
+        el.querySelector(".idx-price").textContent = nifty.price.toLocaleString("en-IN");
+        el.querySelector(".idx-change").innerHTML =
+          `<span style="color:var(--${c})">${sign(nifty.change_pct)}${nifty.change_pct}%</span>`;
+      }
+      if (bank) {
+        const el = document.getElementById("idx-banknifty");
+        const c = changeClass(bank.change_pct);
+        el.querySelector(".idx-price").textContent = bank.price.toLocaleString("en-IN");
+        el.querySelector(".idx-change").innerHTML =
+          `<span style="color:var(--${c})">${sign(bank.change_pct)}${bank.change_pct}%</span>`;
+      }
+    } catch (_) {}
+  }
+
+  // ── Status badge ──────────────────────────────────────────────
+  async function loadStatus() {
+    try {
+      const res  = await fetch(`${API}/api/status`);
+      const data = await res.json();
+      const badge = document.getElementById("market-badge");
+      if (data.market_open) {
+        badge.textContent = "MARKET OPEN";
+        badge.className = "badge-open";
+      } else {
+        badge.textContent = "MARKET CLOSED";
+        badge.className = "badge-closed";
+      }
+    } catch (_) {}
+  }
+
+  // ── Bullish ───────────────────────────────────────────────────
+  async function loadBullish() {
+    document.getElementById("bullish-body").innerHTML =
+      `<tr><td colspan="6"><div class="empty-state"><div class="spinner"></div>Scanning…</div></td></tr>`;
+    try {
+      const res  = await fetch(`${API}/api/bullish`);
+      const data = await res.json();
+      renderRows(data, "bullish-body", "bullish");
+      document.getElementById("bullish-count").textContent = data.length;
+
+      // update top gainer
+      if (data.length) {
+        const top = data[0];
+        document.getElementById("top-gainer-sym").textContent = top.symbol;
+        document.getElementById("top-gainer-val").textContent =
+          `+${top.gap_pct}%  ₹${top.price}`;
+      }
+    } catch (e) {
+      document.getElementById("bullish-body").innerHTML =
+        `<tr><td colspan="6"><div class="empty-state">API offline — start api.py</div></td></tr>`;
+    }
+  }
+
+  // ── Bearish ───────────────────────────────────────────────────
+  async function loadBearish() {
+    document.getElementById("bearish-body").innerHTML =
+      `<tr><td colspan="6"><div class="empty-state"><div class="spinner"></div>Scanning…</div></td></tr>`;
+    try {
+      const res  = await fetch(`${API}/api/bearish`);
+      const data = await res.json();
+      renderRows(data, "bearish-body", "bearish");
+      document.getElementById("bearish-count").textContent = data.length;
+
+      if (data.length) {
+        const top = data[0];
+        document.getElementById("top-loser-sym").textContent = top.symbol;
+        document.getElementById("top-loser-val").textContent =
+          `${top.gap_pct}%  ₹${top.price}`;
+      }
+    } catch (e) {
+      document.getElementById("bearish-body").innerHTML =
+        `<tr><td colspan="6"><div class="empty-state">API offline — start api.py</div></td></tr>`;
+    }
+  }
+
+  // ── Ticker tape ───────────────────────────────────────────────
+  const TICKERS = [
+    "RELIANCE","TCS","INFY","HDFCBANK","ICICIBANK","SBIN","AXISBANK",
+    "BAJFINANCE","KOTAKBANK","LT","WIPRO","HCLTECH","SUNPHARMA",
+    "TATAMOTORS","TATASTEEL","NTPC","POWERGRID","COALINDIA",
+  ];
+
+  async function loadTicker() {
+    // We'll just show the index values we already fetched
+    // and a static list of watched names
+    const track = document.getElementById("ticker-track");
+    const items = TICKERS.map(s =>
+      `<span class="tick-item"><span class="tick-name">${s}</span><span class="tick-price">—</span></span>`
+    );
+    // Duplicate for seamless loop
+    track.innerHTML = [...items, ...items].join("");
+  }
+
+  // ── Last updated ──────────────────────────────────────────────
+  function stampUpdated() {
+    const now = new Date();
+    document.getElementById("last-updated").textContent =
+      "Last updated: " + now.toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata" });
+  }
+
+  // ── Auto-refresh every 5 min ──────────────────────────────────
+  async function refreshAll() {
+    await Promise.all([loadMarket(), loadStatus(), loadBullish(), loadBearish()]);
+    stampUpdated();
+  }
+
+  // ── Boot ──────────────────────────────────────────────────────
+  loadTicker();
+  refreshAll();
+  setInterval(refreshAll, 5 * 60 * 1000);
+</script>
+</body>
+</html>
