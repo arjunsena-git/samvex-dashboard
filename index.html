@@ -426,7 +426,7 @@
 </main>
 
 <footer>
-  Samvex LLP &nbsp;·&nbsp; Data via Yahoo Finance &nbsp;·&nbsp;
+  Samvex LLP &nbsp;·&nbsp; <span id="data-source-label">Data via Yahoo Finance (15-min delay)</span> &nbsp;·&nbsp;
   Screener refreshes every 5 min during market hours &nbsp;·&nbsp;
   <span id="last-updated">—</span>
 </footer>
@@ -555,14 +555,19 @@
       }
 
       const dBadge = document.getElementById("data-badge");
+      const srcLabel = document.getElementById("data-source-label");
       if (data.is_live) {
-        dBadge.textContent = "LIVE";
-        dBadge.className   = "badge-live";
-        dBadge.title       = "Real-time data via Upstox";
+        dBadge.textContent  = "LIVE";
+        dBadge.className    = "badge-live";
+        dBadge.title        = "Real-time data via Upstox";
+        srcLabel.textContent = "Data via Upstox (real-time)";
+        srcLabel.style.color = "var(--accent)";
       } else {
-        dBadge.textContent = "15-MIN DELAY";
-        dBadge.className   = "badge-delayed";
-        dBadge.title       = "Delayed data via Yahoo Finance — activate live data at /auth/login";
+        dBadge.textContent  = "15-MIN DELAY";
+        dBadge.className    = "badge-delayed";
+        dBadge.title        = "Delayed data via Yahoo Finance";
+        srcLabel.textContent = "Data via Yahoo Finance (15-min delay)";
+        srcLabel.style.color = "";
       }
     } catch (_) {}
   }
