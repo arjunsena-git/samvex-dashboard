@@ -105,6 +105,12 @@
     }
     .badge-open  { background: var(--green-dim); color: var(--green); }
     .badge-closed{ background: var(--red-dim);   color: var(--red);   }
+    #data-badge {
+      font-size: 10px; font-weight: 700; letter-spacing: .5px;
+      padding: 3px 9px; border-radius: 20px;
+    }
+    .badge-live    { background: #1a2a4a; color: var(--accent); border: 1px solid var(--accent); }
+    .badge-delayed { background: #2a1e00; color: var(--yellow);  border: 1px solid var(--yellow); }
 
     .theme-btn {
       background: var(--bg-card-2); border: 1px solid var(--border);
@@ -314,6 +320,7 @@
 
   <div class="header-right">
     <div id="clock">—</div>
+    <div id="data-badge" class="badge-delayed">15-MIN DELAY</div>
     <div id="market-badge" class="badge-closed">MARKET CLOSED</div>
     <button class="theme-btn" onclick="toggleTheme()" title="Toggle theme">☀</button>
   </div>
@@ -537,13 +544,25 @@
     try {
       const res  = await fetch(`${API}/api/status`);
       const data = await res.json();
-      const badge = document.getElementById("market-badge");
+
+      const mBadge = document.getElementById("market-badge");
       if (data.market_open) {
-        badge.textContent = "MARKET OPEN";
-        badge.className = "badge-open";
+        mBadge.textContent = "MARKET OPEN";
+        mBadge.className   = "badge-open";
       } else {
-        badge.textContent = "MARKET CLOSED";
-        badge.className = "badge-closed";
+        mBadge.textContent = "MARKET CLOSED";
+        mBadge.className   = "badge-closed";
+      }
+
+      const dBadge = document.getElementById("data-badge");
+      if (data.is_live) {
+        dBadge.textContent = "LIVE";
+        dBadge.className   = "badge-live";
+        dBadge.title       = "Real-time data via Upstox";
+      } else {
+        dBadge.textContent = "15-MIN DELAY";
+        dBadge.className   = "badge-delayed";
+        dBadge.title       = "Delayed data via Yahoo Finance — activate live data at /auth/login";
       }
     } catch (_) {}
   }

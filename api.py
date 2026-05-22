@@ -1,4 +1,4 @@
-from flask import Flask, jsonify
+from flask import Flask, jsonify, redirect, request as flask_req
 from flask_cors import CORS
 import yfinance as yf
 import pandas as pd
@@ -7,6 +7,10 @@ import pytz
 import time
 import math
 import threading
+import os
+import io
+import gzip
+import requests as _http
 
 app = Flask(__name__)
 CORS(app)
@@ -43,24 +47,170 @@ FNO_STOCKS = [
     "AUBANK.NS", "IDBI.NS", "KFINTECH.NS", "CDSL.NS",
 ]
 
-# ── In-memory cache (5-minute TTL) ────────────────────────────────
+# ── In-memory cache ────────────────────────────────────────────────
 _cache: dict = {}
-_batch_lock = threading.Lock()   # prevents duplicate downloads on simultaneous requests
-CACHE_TTL = 300  # seconds
+_batch_lock  = threading.Lock()
+CACHE_TTL    = 300   # 5 min for Yahoo batch + daily data
+LIVE_TTL     = 60    # 1 min for Upstox live quotes
 
 
-def _cached(key, fn, *args):
+def _cached(key, fn, *args, ttl=CACHE_TTL):
     now = time.time()
     if key in _cache:
         data, ts = _cache[key]
-        if now - ts < CACHE_TTL:
+        if now - ts < ttl:
             return data
     result = fn(*args)
     _cache[key] = (result, now)
     return result
 
 
-# ── Batch data fetch (single HTTP session for all stocks) ──────────
+# ── Upstox OAuth + live data ───────────────────────────────────────
+UPSTOX_API_KEY    = os.environ.get("UPSTOX_API_KEY", "")
+UPSTOX_API_SECRET = os.environ.get("UPSTOX_API_SECRET", "")
+UPSTOX_REDIRECT   = "https://samvex-api.onrender.com/oauth/callback"
+UPSTOX_BASE       = "https://api.upstox.com/v2"
+
+_upstox_token   = {"access_token": None, "expires_at": 0.0}
+_instrument_map = {}   # "RELIANCE" → "NSE_EQ|INE002A01018"
+
+
+def _is_live():
+    return bool(_upstox_token["access_token"] and time.time() < _upstox_token["expires_at"])
+
+
+def _upstox_headers():
+    return {
+        "Authorization": f"Bearer {_upstox_token['access_token']}",
+        "Accept": "application/json",
+    }
+
+
+def _load_instrument_map():
+    """Download Upstox NSE instruments CSV and build symbol → key mapping."""
+    global _instrument_map
+    if _instrument_map:
+        return _instrument_map
+    try:
+        r = _http.get(
+            "https://assets.upstox.com/market-quote/instruments/exchange/NSE.csv.gz",
+            timeout=30,
+        )
+        with gzip.open(io.BytesIO(r.content), "rt") as f:
+            df = pd.read_csv(f)
+
+        cols    = df.columns.tolist()
+        sym_col = next((c for c in ["tradingsymbol", "trading_symbol"] if c in cols), None)
+        key_col = "instrument_key" if "instrument_key" in cols else None
+        ser_col = next((c for c in ["series", "instrument_type"] if c in cols), None)
+
+        if not sym_col or not key_col:
+            print(f"[Upstox] Unexpected CSV columns: {cols[:15]}")
+            return _instrument_map
+
+        eq = df[df[ser_col] == "EQ"] if ser_col else df
+        _instrument_map = dict(zip(eq[sym_col].astype(str), eq[key_col].astype(str)))
+        print(f"[Upstox] Loaded {len(_instrument_map)} NSE EQ instrument keys")
+    except Exception as e:
+        print(f"[Upstox] Instrument map error: {e}")
+    return _instrument_map
+
+
+def _sym_to_key(symbol):
+    """Yahoo .NS symbol → Upstox instrument_key (None if not found)."""
+    imap = _load_instrument_map()
+    return imap.get(symbol.replace(".NS", ""))
+
+
+def _fetch_live_quotes():
+    """Single batch call → live OHLCV for all F&O stocks."""
+    imap = _load_instrument_map()
+    keys, key_to_sym = [], {}
+    for sym in FNO_STOCKS:
+        base = sym.replace(".NS", "")
+        key  = imap.get(base)
+        if key:
+            keys.append(key)
+            key_to_sym[key] = sym
+
+    results = {}
+    for i in range(0, len(keys), 100):
+        chunk = keys[i:i + 100]
+        try:
+            r = _http.get(
+                f"{UPSTOX_BASE}/market-quote/quotes",
+                params={"instrument_key": ",".join(chunk)},
+                headers=_upstox_headers(),
+                timeout=20,
+            )
+            if r.status_code == 200:
+                for k, v in r.json().get("data", {}).items():
+                    sym = key_to_sym.get(k)
+                    if sym:
+                        results[sym] = v
+            else:
+                print(f"[Upstox] Quotes HTTP {r.status_code}: {r.text[:200]}")
+        except Exception as e:
+            print(f"[Upstox] Quotes error chunk {i}: {e}")
+
+    return results or None
+
+
+def _fetch_first_candle_live(instrument_key):
+    """Fetch today's 1-min candles; aggregate first 5 into a synthetic 5-min candle."""
+    try:
+        r = _http.get(
+            f"{UPSTOX_BASE}/historical-candle/intraday/{instrument_key}/1minute",
+            headers=_upstox_headers(),
+            timeout=10,
+        )
+        if r.status_code != 200:
+            return None
+        candles = r.json().get("data", {}).get("candles", [])
+        if not candles:
+            return None
+        # Each candle: [timestamp, open, high, low, close, volume, oi]
+        candles.sort(key=lambda x: x[0])
+        first5 = candles[:5]
+        return {
+            "open":  float(first5[0][1]),
+            "high":  max(float(c[2]) for c in first5),
+            "low":   min(float(c[3]) for c in first5),
+            "close": float(first5[-1][4]),
+        }
+    except Exception:
+        return None
+
+
+# ── Yahoo Finance batch (daily only when Upstox is live) ──────────
+def _fetch_daily_only():
+    tickers = " ".join(FNO_STOCKS)
+    return yf.download(
+        tickers=tickers,
+        interval="1d", period="15d",
+        group_by="ticker", auto_adjust=False,
+        threads=True, progress=False,
+    )
+
+
+def _get_daily_batch():
+    """Daily Yahoo data for ADR — 5-min cache, single download at a time."""
+    now = time.time()
+    if "daily_only" in _cache:
+        data, ts = _cache["daily_only"]
+        if now - ts < CACHE_TTL:
+            return data
+    with _batch_lock:
+        if "daily_only" in _cache:
+            data, ts = _cache["daily_only"]
+            if now - ts < CACHE_TTL:
+                return data
+        result = _fetch_daily_only()
+        _cache["daily_only"] = (result, time.time())
+        return result
+
+
+# ── Yahoo Finance full batch (intraday + daily, fallback path) ─────
 def _fetch_batch():
     tickers = " ".join(FNO_STOCKS)
     intraday = yf.download(
@@ -78,8 +228,23 @@ def _fetch_batch():
     return intraday, daily
 
 
+def _get_batch():
+    now = time.time()
+    if "batch" in _cache:
+        data, ts = _cache["batch"]
+        if now - ts < CACHE_TTL:
+            return data
+    with _batch_lock:
+        if "batch" in _cache:
+            data, ts = _cache["batch"]
+            if now - ts < CACHE_TTL:
+                return data
+        result = _fetch_batch()
+        _cache["batch"] = (result, time.time())
+        return result
+
+
 def _get_ticker_df(batch, ticker):
-    """Safely extract a single ticker DataFrame from a batch download."""
     try:
         if isinstance(batch.columns, pd.MultiIndex):
             df = batch[ticker].dropna(how="all")
@@ -92,17 +257,6 @@ def _get_ticker_df(batch, ticker):
 
 # ── Intraday move potential (time-agnostic) ────────────────────────
 def compute_move_potential(intraday, daily, direction, paced_vol_ratio):
-    """
-    Answers: "How much more can this stock move today?"
-
-    Logic:
-      1. ADR (10-day avg daily range) = total capacity for the day
-      2. Subtract what's already been used (gap + intraday move so far)
-      3. Remaining capacity x volume conviction x alignment factor
-      4. Gate: ADR must be >= 2% (stock must be naturally volatile enough)
-
-    This is time-agnostic — works equally at 9:20 AM or 2:00 PM.
-    """
     today_open    = float(intraday["Open"].iloc[0])
     prev_close    = float(daily["Close"].iloc[-2])
     current_price = float(intraday["Close"].iloc[-1])
@@ -110,13 +264,11 @@ def compute_move_potential(intraday, daily, direction, paced_vol_ratio):
 
     gap_pct = abs((today_open - prev_close) / prev_close * 100)
 
-    # 10-day ADR = stock's average daily move capacity
     lookback = daily.iloc[-11:-1] if len(daily) >= 11 else daily.iloc[:-1]
     adr_pct  = float(
         ((lookback["High"] - lookback["Low"]) / lookback["Close"]).mean() * 100
     ) if len(lookback) > 0 else 2.0
 
-    # How much has the stock already moved from today's open?
     if direction == "bullish":
         aligned       = first_close > today_open
         session_high  = float(intraday["High"].max())
@@ -126,23 +278,12 @@ def compute_move_potential(intraday, daily, direction, paced_vol_ratio):
         session_low   = float(intraday["Low"].min())
         used_intraday = max((today_open - session_low) / today_open * 100, 0)
 
-    # Total range consumed so far (gap + intraday move)
-    total_used = gap_pct + used_intraday
-
-    # Remaining range = ADR capacity minus what's already used
-    # A stock near its daily range limit has less upside left
-    remaining = max(adr_pct - total_used, 0.0)
-
-    # Volume conviction: paced ratio adjusted boost (up to +40%)
-    vol_boost = 1.0 + min(max(paced_vol_ratio - 2, 0) * 0.10, 0.40)
-
-    # Alignment: first candle in same direction as gap = conviction signal
+    total_used   = gap_pct + used_intraday
+    remaining    = max(adr_pct - total_used, 0.0)
+    vol_boost    = 1.0 + min(max(paced_vol_ratio - 2, 0) * 0.10, 0.40)
     align_factor = 1.15 if aligned else 0.80
+    potential    = remaining * vol_boost * align_factor
 
-    # Final potential = remaining range × conviction × alignment
-    potential = remaining * vol_boost * align_factor
-
-    # ADR gate: if stock historically moves < 2%/day, scale down
     if adr_pct < 2.0:
         potential *= (adr_pct / 2.0)
 
@@ -155,7 +296,79 @@ def compute_move_potential(intraday, daily, direction, paced_vol_ratio):
     }
 
 
-# ── Per-stock analysis ─────────────────────────────────────────────
+# ── Live analysis (Upstox quotes + Yahoo daily ADR) ────────────────
+def _analyze_live(symbol, quote, daily_batch, direction, elapsed_min):
+    daily = _get_ticker_df(daily_batch, symbol)
+    if daily is None or len(daily) < 2:
+        return None
+    try:
+        ohlc          = quote.get("ohlc", {})
+        today_open    = float(ohlc.get("open", 0))
+        today_high    = float(ohlc.get("high", 0))
+        today_low     = float(ohlc.get("low", 0))
+        current_price = float(quote.get("last_price", 0))
+        today_volume  = float(quote.get("volume", 0))
+        prev_close    = float(quote.get("prev_close_price") or daily["Close"].iloc[-2])
+        prev_day_vol  = float(daily["Volume"].iloc[-2])
+
+        if today_open <= 0 or current_price <= 0:
+            return None
+
+        gap_pct         = (today_open - prev_close) / prev_close * 100
+        traded_value_cr = (today_volume * current_price) / 1e7
+
+        MARKET_MINS     = 375.0
+        volume_paced    = (today_volume / elapsed_min) * MARKET_MINS
+        paced_vol_ratio = volume_paced / prev_day_vol if prev_day_vol > 0 else 0
+
+        gap_ok = (0 < gap_pct < 1) if direction == "bullish" else (-1 < gap_pct < 0)
+        if not (gap_ok and paced_vol_ratio >= 2 and traded_value_cr >= 100):
+            return None
+
+        # Only fetch 1-min candles for stocks passing the quick filter
+        ikey              = _sym_to_key(symbol)
+        first_close       = today_open
+        first_candle_move = 0.0
+        if ikey:
+            fc = _fetch_first_candle_live(ikey)
+            if fc:
+                first_candle_move = abs((fc["close"] - fc["open"]) / fc["open"] * 100)
+                first_close       = fc["close"]
+
+        if first_candle_move >= 1.0:
+            return None
+
+        # Synthetic intraday DataFrame for compute_move_potential
+        intraday = pd.DataFrame({
+            "Open":   [today_open,  today_open],
+            "High":   [today_high,  today_high],
+            "Low":    [today_low,   today_low],
+            "Close":  [first_close, current_price],
+            "Volume": [today_volume, today_volume],
+        })
+
+        pot = compute_move_potential(intraday, daily, direction, paced_vol_ratio)
+        if pot["projected_pct"] < 2.0:
+            return None
+
+        return {
+            "symbol":              symbol.replace(".NS", ""),
+            "price":               round(current_price, 2),
+            "gap_pct":             round(gap_pct, 2),
+            "first_candle_move":   round(first_candle_move, 2),
+            "volume_ratio":        round(paced_vol_ratio, 2),
+            "traded_value_crores": round(traded_value_cr, 2),
+            "projected_pct":       pot["projected_pct"],
+            "adr_pct":             pot["adr_pct"],
+            "confidence":          pot["confidence"],
+            "aligned":             pot["aligned"],
+        }
+    except Exception as e:
+        print(f"[Live] Analyze error {symbol}: {e}")
+        return None
+
+
+# ── Yahoo Finance analysis (delayed fallback) ──────────────────────
 def _analyze(symbol, intraday_batch, daily_batch, direction, elapsed_min):
     intraday = _get_ticker_df(intraday_batch, symbol)
     daily    = _get_ticker_df(daily_batch,    symbol)
@@ -173,24 +386,17 @@ def _analyze(symbol, intraday_batch, daily_batch, direction, elapsed_min):
         first_candle_move = abs((first_close - today_open) / today_open * 100)
         traded_value_cr   = (today_volume * current_price) / 1e7
 
-        # Paced volume: project current volume rate to full 375-min trading day
-        # This makes the 2× condition fair whether checked at 9:20 AM or 2:00 PM
-        MARKET_MINS   = 375.0
-        volume_paced  = (today_volume / elapsed_min) * MARKET_MINS
+        MARKET_MINS     = 375.0
+        volume_paced    = (today_volume / elapsed_min) * MARKET_MINS
         paced_vol_ratio = volume_paced / prev_day_volume if prev_day_volume > 0 else 0
 
-        # Condition 1: gap < 1% in right direction
         gap_ok = (0 < gap_pct < 1) if direction == "bullish" else (-1 < gap_pct < 0)
-        # Condition 2: volume pace >= 2× previous day (time-fair comparison)
-        # Condition 3: first 5-min candle body < 1%
-        # Condition 4: >= ₹100 Cr total traded value
         if not (gap_ok
                 and paced_vol_ratio >= 2
                 and first_candle_move < 1
                 and traded_value_cr >= 100):
             return None
 
-        # Condition 5: remaining intraday move potential >= 2%
         pot = compute_move_potential(intraday, daily, direction, paced_vol_ratio)
         if pot["projected_pct"] < 2.0:
             return None
@@ -200,7 +406,7 @@ def _analyze(symbol, intraday_batch, daily_batch, direction, elapsed_min):
             "price":               round(current_price, 2),
             "gap_pct":             round(gap_pct, 2),
             "first_candle_move":   round(first_candle_move, 2),
-            "volume_ratio":        round(paced_vol_ratio, 2),   # show paced ratio
+            "volume_ratio":        round(paced_vol_ratio, 2),
             "traded_value_crores": round(traded_value_cr, 2),
             "projected_pct":       pot["projected_pct"],
             "adr_pct":             pot["adr_pct"],
@@ -211,35 +417,33 @@ def _analyze(symbol, intraday_batch, daily_batch, direction, elapsed_min):
         return None
 
 
-def _get_batch():
-    """Return cached batch, ensuring only one download runs at a time."""
-    now = time.time()
-    if "batch" in _cache:
-        data, ts = _cache["batch"]
-        if now - ts < CACHE_TTL:
-            return data
-    with _batch_lock:
-        # double-check: another thread may have populated it while we waited
-        if "batch" in _cache:
-            data, ts = _cache["batch"]
-            if now - ts < CACHE_TTL:
-                return data
-        result = _fetch_batch()
-        _cache["batch"] = (result, time.time())
-        return result
-
-
+# ── Screener ───────────────────────────────────────────────────────
 def _screen(direction):
-    intraday_batch, daily_batch = _get_batch()
     ist = pytz.timezone("Asia/Kolkata")
     now = datetime.now(ist)
-    open_dt = now.replace(hour=9, minute=15, second=0, microsecond=0)
+    open_dt     = now.replace(hour=9, minute=15, second=0, microsecond=0)
     elapsed_min = max(5.0, (now - open_dt).total_seconds() / 60)
-    results = []
-    for symbol in FNO_STOCKS:
-        r = _analyze(symbol, intraday_batch, daily_batch, direction, elapsed_min)
-        if r:
-            results.append(r)
+    results     = []
+
+    if _is_live():
+        live_quotes = _cached("live_quotes", _fetch_live_quotes, ttl=LIVE_TTL)
+        daily_batch = _get_daily_batch()
+        if live_quotes and daily_batch is not None:
+            for symbol in FNO_STOCKS:
+                q = live_quotes.get(symbol)
+                if q:
+                    r = _analyze_live(symbol, q, daily_batch, direction, elapsed_min)
+                    if r:
+                        results.append(r)
+
+    if not results:
+        # Fallback: Yahoo Finance delayed data
+        intraday_batch, daily_batch = _get_batch()
+        for symbol in FNO_STOCKS:
+            r = _analyze(symbol, intraday_batch, daily_batch, direction, elapsed_min)
+            if r:
+                results.append(r)
+
     results.sort(key=lambda x: x["projected_pct"], reverse=True)
     return results[:5]
 
@@ -270,7 +474,22 @@ TICKER_SYMBOLS = [
     "NTPC.NS", "POWERGRID.NS", "COALINDIA.NS", "ADANIENT.NS",
 ]
 
+
 def _fetch_ticker():
+    if _is_live():
+        live_quotes = _cached("live_quotes", _fetch_live_quotes, ttl=LIVE_TTL)
+        if live_quotes:
+            result = []
+            for sym in TICKER_SYMBOLS:
+                q = live_quotes.get(sym)
+                if q:
+                    price = round(float(q.get("last_price", 0)), 2)
+                    prev  = float(q.get("prev_close_price") or price)
+                    chg   = round((price - prev) / prev * 100, 2) if prev > 0 else 0
+                    result.append({"symbol": sym.replace(".NS", ""), "price": price, "change_pct": chg})
+            if result:
+                return result
+
     intraday_batch, daily_batch = _get_batch()
     result = []
     for sym in TICKER_SYMBOLS:
@@ -282,17 +501,88 @@ def _fetch_ticker():
             price      = round(float(intra["Close"].iloc[-1]), 2)
             prev_close = float(daily["Close"].iloc[-2])
             change_pct = round((price - prev_close) / prev_close * 100, 2)
-            result.append({
-                "symbol":     sym.replace(".NS", ""),
-                "price":      price,
-                "change_pct": change_pct,
-            })
+            result.append({"symbol": sym.replace(".NS", ""), "price": price, "change_pct": change_pct})
         except Exception:
             pass
     return result
 
 
 # ── Routes ─────────────────────────────────────────────────────────
+
+@app.route("/auth/login")
+def auth_login():
+    if not UPSTOX_API_KEY:
+        return jsonify({"error": "UPSTOX_API_KEY not set on server"}), 500
+    url = (
+        f"https://api.upstox.com/v2/login/authorization/dialog"
+        f"?response_type=code"
+        f"&client_id={UPSTOX_API_KEY}"
+        f"&redirect_uri={UPSTOX_REDIRECT}"
+    )
+    return redirect(url)
+
+
+@app.route("/oauth/callback")
+def oauth_callback():
+    code = flask_req.args.get("code")
+    if not code:
+        return jsonify({"error": "No auth code in callback"}), 400
+
+    resp = _http.post(
+        f"{UPSTOX_BASE}/login/authorization/token",
+        data={
+            "code":          code,
+            "client_id":     UPSTOX_API_KEY,
+            "client_secret": UPSTOX_API_SECRET,
+            "redirect_uri":  UPSTOX_REDIRECT,
+            "grant_type":    "authorization_code",
+        },
+        headers={
+            "Content-Type": "application/x-www-form-urlencoded",
+            "Accept": "application/json",
+        },
+        timeout=15,
+    )
+    if resp.status_code != 200:
+        return jsonify({"error": "Token exchange failed", "detail": resp.text}), 400
+
+    token_data = resp.json()
+    _upstox_token["access_token"] = token_data.get("access_token")
+    _upstox_token["expires_at"]   = time.time() + 23 * 3600  # valid ~23 hrs
+
+    # Warm up instrument map in background
+    threading.Thread(target=_load_instrument_map, daemon=True).start()
+
+    return """
+    <!DOCTYPE html>
+    <html>
+    <head><title>Samvex — Authenticated</title>
+    <style>
+      body { font-family: sans-serif; text-align: center; padding: 80px;
+             background: #0f1117; color: #e2e8f0; }
+      h2   { color: #22c55e; font-size: 28px; margin-bottom: 16px; }
+      p    { color: #8892a4; font-size: 15px; }
+    </style></head>
+    <body>
+      <h2>&#10003; Live Data Active</h2>
+      <p>Upstox authenticated successfully.</p>
+      <p>The Samvex dashboard is now receiving real-time market data.</p>
+      <p style="margin-top:32px;font-size:13px;">You can close this tab.</p>
+    </body>
+    </html>
+    """
+
+
+@app.route("/auth/status")
+def auth_status():
+    expires_in = max(0, int((_upstox_token["expires_at"] - time.time()) / 60)) if _is_live() else 0
+    return jsonify({
+        "is_live":        _is_live(),
+        "data_source":    "upstox_live" if _is_live() else "yahoo_delayed",
+        "expires_in_min": expires_in,
+    })
+
+
 @app.route("/api/bullish")
 def bullish():
     return jsonify(_cached("bullish", _screen, "bullish"))
@@ -307,7 +597,7 @@ def market():
 
 @app.route("/api/ticker")
 def ticker():
-    return jsonify(_cached("ticker", _fetch_ticker))
+    return jsonify(_cached("ticker", _fetch_ticker, ttl=LIVE_TTL))
 
 @app.route("/api/status")
 def status():
@@ -323,6 +613,8 @@ def status():
         "time":        now.strftime("%H:%M:%S IST"),
         "market_open": is_open,
         "date":        now.strftime("%d-%b-%Y"),
+        "is_live":     _is_live(),
+        "data_source": "upstox_live" if _is_live() else "yahoo_delayed",
     })
 
 @app.route("/api/ping")
