@@ -73,6 +73,13 @@ UPSTOX_BASE       = "https://api.upstox.com/v2"
 
 _upstox_token   = {"access_token": None, "expires_at": 0.0}
 _instrument_map = {}   # "RELIANCE" → "NSE_EQ|INE002A01018"
+SET_TOKEN_SECRET = os.environ.get("SET_TOKEN_SECRET", "")
+
+# Load pre-set token from env (set via Render dashboard for today's session)
+_env_token = os.environ.get("UPSTOX_ACCESS_TOKEN", "")
+if _env_token:
+    _upstox_token["access_token"] = _env_token
+    _upstox_token["expires_at"]   = time.time() + 23 * 3600
 
 
 def _is_live():
@@ -570,6 +577,34 @@ def oauth_callback():
       <p style="margin-top:32px;font-size:13px;">You can close this tab.</p>
     </body>
     </html>
+    """
+
+
+@app.route("/auth/set-token")
+def set_token():
+    """Daily token refresh: /auth/set-token?secret=XXX&token=YYY"""
+    secret = flask_req.args.get("secret", "")
+    token  = flask_req.args.get("token", "")
+    if not SET_TOKEN_SECRET or secret != SET_TOKEN_SECRET:
+        return jsonify({"error": "Unauthorized"}), 403
+    if not token:
+        return jsonify({"error": "token param required"}), 400
+    _upstox_token["access_token"] = token
+    _upstox_token["expires_at"]   = time.time() + 23 * 3600
+    # Invalidate screener cache so next request uses live data immediately
+    for k in ("bullish", "bearish", "live_quotes", "ticker"):
+        _cache.pop(k, None)
+    threading.Thread(target=_load_instrument_map, daemon=True).start()
+    return """
+    <!DOCTYPE html><html>
+    <head><title>Samvex — Token Updated</title>
+    <style>body{font-family:sans-serif;text-align:center;padding:80px;
+    background:#0f1117;color:#e2e8f0;}h2{color:#22c55e;}p{color:#8892a4;}</style>
+    </head><body>
+      <h2>&#10003; Live Data Active</h2>
+      <p>Token accepted. Dashboard is now on real-time Upstox data.</p>
+      <p style="margin-top:24px;font-size:13px;">You can close this tab.</p>
+    </body></html>
     """
 
 
