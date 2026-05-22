@@ -70,6 +70,7 @@ UPSTOX_API_KEY    = os.environ.get("UPSTOX_API_KEY", "")
 UPSTOX_API_SECRET = os.environ.get("UPSTOX_API_SECRET", "")
 UPSTOX_REDIRECT   = "https://samvex-api.onrender.com/oauth/callback"
 UPSTOX_BASE       = "https://api.upstox.com/v2"
+FRONTEND_URL      = os.environ.get("FRONTEND_URL", "")
 
 _upstox_token   = {"access_token": None, "expires_at": 0.0}
 _instrument_map = {}   # "RELIANCE" → "NSE_EQ|INE002A01018"
@@ -560,21 +561,31 @@ def oauth_callback():
     # Warm up instrument map in background
     threading.Thread(target=_load_instrument_map, daemon=True).start()
 
-    return """
+    # Clear screener cache so next load uses live data immediately
+    for k in ("bullish", "bearish", "live_quotes", "ticker"):
+        _cache.pop(k, None)
+
+    redirect_url = FRONTEND_URL if FRONTEND_URL else None
+    redirect_script = (
+        f'<p id="msg" style="color:#8892a4;font-size:13px;">Redirecting to dashboard…</p>'
+        f'<script>setTimeout(()=>{{window.location.href="{redirect_url}";}},1800);</script>'
+    ) if redirect_url else '<p style="margin-top:32px;font-size:13px;color:#8892a4;">You can close this tab and return to the dashboard.</p>'
+
+    return f"""
     <!DOCTYPE html>
     <html>
     <head><title>Samvex — Authenticated</title>
     <style>
-      body { font-family: sans-serif; text-align: center; padding: 80px;
-             background: #0f1117; color: #e2e8f0; }
-      h2   { color: #22c55e; font-size: 28px; margin-bottom: 16px; }
-      p    { color: #8892a4; font-size: 15px; }
+      body {{ font-family: sans-serif; text-align: center; padding: 80px;
+             background: #0f1117; color: #e2e8f0; }}
+      h2   {{ color: #22c55e; font-size: 28px; margin-bottom: 16px; }}
+      p    {{ color: #8892a4; font-size: 15px; }}
     </style></head>
     <body>
       <h2>&#10003; Live Data Active</h2>
       <p>Upstox authenticated successfully.</p>
       <p>The Samvex dashboard is now receiving real-time market data.</p>
-      <p style="margin-top:32px;font-size:13px;">You can close this tab.</p>
+      {redirect_script}
     </body>
     </html>
     """

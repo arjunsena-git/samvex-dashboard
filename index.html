@@ -119,6 +119,20 @@
     }
     .theme-btn:hover { border-color: var(--accent); }
 
+    .connect-btn {
+      display: inline-flex; align-items: center; gap: 6px;
+      background: linear-gradient(135deg, #4f8ef7, #7c3aed);
+      color: #fff; font-size: 11px; font-weight: 700; letter-spacing: .5px;
+      padding: 5px 13px; border-radius: 20px; text-decoration: none;
+      cursor: pointer; white-space: nowrap;
+      animation: connect-pulse 2s ease-in-out infinite;
+    }
+    .connect-btn:hover { opacity: .85; animation: none; }
+    @keyframes connect-pulse {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(79,142,247,.45); }
+      50%       { box-shadow: 0 0 0 7px rgba(79,142,247,0); }
+    }
+
     /* ── Main grid ───────────────────────────────────────────────── */
     main { padding: 20px 24px; }
 
@@ -320,6 +334,7 @@
 
   <div class="header-right">
     <div id="clock">—</div>
+    <a id="connect-btn" class="connect-btn" href="#" target="_blank" style="display:none">&#9889; Connect Upstox</a>
     <div id="data-badge" class="badge-delayed">15-MIN DELAY</div>
     <div id="market-badge" class="badge-closed">MARKET CLOSED</div>
     <button class="theme-btn" onclick="toggleTheme()" title="Toggle theme">☀</button>
@@ -539,6 +554,42 @@
     } catch (_) {}
   }
 
+  // ── Toast notification ────────────────────────────────────────
+  function showToast(msg, color = "#22c55e") {
+    const t = document.createElement("div");
+    t.textContent = msg;
+    t.style.cssText = `position:fixed;bottom:24px;right:24px;background:${color};color:#fff;
+      padding:10px 18px;border-radius:8px;font-size:13px;font-weight:600;z-index:9999;
+      box-shadow:0 4px 16px rgba(0,0,0,.3);transition:opacity .5s;`;
+    document.body.appendChild(t);
+    setTimeout(() => { t.style.opacity = "0"; setTimeout(() => t.remove(), 500); }, 3500);
+  }
+
+  // ── Live auth polling (30s when not authenticated) ────────────
+  let _livePoller = null;
+  let _wasLive    = false;
+
+  function startLivePolling() {
+    if (_livePoller) return;
+    _livePoller = setInterval(async () => {
+      try {
+        const res  = await fetch(`${API}/auth/status`);
+        const data = await res.json();
+        if (data.is_live) {
+          clearInterval(_livePoller);
+          _livePoller = null;
+          await loadStatus();
+          showToast("⚡ Live data connected!");
+          refreshAll();
+        }
+      } catch (_) {}
+    }, 30000);
+  }
+
+  function stopLivePolling() {
+    if (_livePoller) { clearInterval(_livePoller); _livePoller = null; }
+  }
+
   // ── Status badge ──────────────────────────────────────────────
   async function loadStatus() {
     try {
@@ -554,18 +605,25 @@
         mBadge.className   = "badge-closed";
       }
 
-      const dBadge = document.getElementById("data-badge");
-      const srcLabel = document.getElementById("data-source-label");
+      const connectBtn = document.getElementById("connect-btn");
+      const dBadge     = document.getElementById("data-badge");
+      const srcLabel   = document.getElementById("data-source-label");
+
       if (data.is_live) {
-        dBadge.textContent  = "LIVE";
-        dBadge.className    = "badge-live";
-        dBadge.title        = "Real-time data via Upstox";
+        connectBtn.style.display = "none";
+        stopLivePolling();
+        dBadge.textContent   = "LIVE";
+        dBadge.className     = "badge-live";
+        dBadge.title         = "Real-time data via Upstox";
         srcLabel.textContent = "Data via Upstox (real-time)";
         srcLabel.style.color = "var(--accent)";
       } else {
-        dBadge.textContent  = "15-MIN DELAY";
-        dBadge.className    = "badge-delayed";
-        dBadge.title        = "Delayed data via Yahoo Finance";
+        connectBtn.href          = `${API}/auth/login`;
+        connectBtn.style.display = "inline-flex";
+        startLivePolling();
+        dBadge.textContent   = "15-MIN DELAY";
+        dBadge.className     = "badge-delayed";
+        dBadge.title         = "Delayed data via Yahoo Finance";
         srcLabel.textContent = "Data via Yahoo Finance (15-min delay)";
         srcLabel.style.color = "";
       }
