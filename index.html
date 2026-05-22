@@ -620,7 +620,12 @@
 
   // ── Auto-refresh every 5 min ──────────────────────────────────
   async function refreshAll() {
-    await Promise.all([loadMarket(), loadStatus(), loadBullish(), loadBearish()]);
+    // market + status run in parallel (lightweight)
+    await Promise.all([loadMarket(), loadStatus()]);
+    // bullish runs first — populates the 5-min batch cache on the backend
+    await loadBullish();
+    // bearish now hits the warm cache instantly instead of triggering a second download
+    await loadBearish();
     stampUpdated();
   }
 

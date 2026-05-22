@@ -6,6 +6,7 @@ from datetime import datetime
 import pytz
 import time
 import math
+import threading
 
 app = Flask(__name__)
 CORS(app)
@@ -44,6 +45,7 @@ FNO_STOCKS = [
 
 # ── In-memory cache (5-minute TTL) ────────────────────────────────
 _cache: dict = {}
+_batch_lock = threading.Lock()   # prevents duplicate downloads on simultaneous requests
 CACHE_TTL = 300  # seconds
 
 
@@ -201,8 +203,26 @@ def _analyze(symbol, intraday_batch, daily_batch, direction):
         return None
 
 
+def _get_batch():
+    """Return cached batch, ensuring only one download runs at a time."""
+    now = time.time()
+    if "batch" in _cache:
+        data, ts = _cache["batch"]
+        if now - ts < CACHE_TTL:
+            return data
+    with _batch_lock:
+        # double-check: another thread may have populated it while we waited
+        if "batch" in _cache:
+            data, ts = _cache["batch"]
+            if now - ts < CACHE_TTL:
+                return data
+        result = _fetch_batch()
+        _cache["batch"] = (result, time.time())
+        return result
+
+
 def _screen(direction):
-    intraday_batch, daily_batch = _cached("batch", _fetch_batch)
+    intraday_batch, daily_batch = _get_batch()
     results = []
     for symbol in FNO_STOCKS:
         r = _analyze(symbol, intraday_batch, daily_batch, direction)
