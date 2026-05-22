@@ -594,21 +594,24 @@
   }
 
   // ── Ticker tape ───────────────────────────────────────────────
-  const TICKERS = [
-    "RELIANCE","TCS","INFY","HDFCBANK","ICICIBANK","SBIN","AXISBANK",
-    "BAJFINANCE","KOTAKBANK","LT","WIPRO","HCLTECH","SUNPHARMA",
-    "TATAMOTORS","TATASTEEL","NTPC","POWERGRID","COALINDIA",
-  ];
-
   async function loadTicker() {
-    // We'll just show the index values we already fetched
-    // and a static list of watched names
     const track = document.getElementById("ticker-track");
-    const items = TICKERS.map(s =>
-      `<span class="tick-item"><span class="tick-name">${s}</span><span class="tick-price">—</span></span>`
-    );
-    // Duplicate for seamless loop
-    track.innerHTML = [...items, ...items].join("");
+    try {
+      const res  = await fetch(`${API}/api/ticker`);
+      const data = await res.json();
+      if (!data.length) return;
+      const items = data.map(s => {
+        const up    = s.change_pct >= 0;
+        const color = up ? "var(--green)" : "var(--red)";
+        const arrow = up ? "▲" : "▼";
+        return `<span class="tick-item">
+          <span class="tick-name">${s.symbol}</span>
+          <span class="tick-price">₹${s.price.toLocaleString("en-IN")}</span>
+          <span style="color:${color};font-size:11px;">${arrow} ${Math.abs(s.change_pct)}%</span>
+        </span>`;
+      });
+      track.innerHTML = [...items, ...items].join("");
+    } catch (_) {}
   }
 
   // ── Last updated ──────────────────────────────────────────────
@@ -620,17 +623,13 @@
 
   // ── Auto-refresh every 5 min ──────────────────────────────────
   async function refreshAll() {
-    // market + status run in parallel (lightweight)
     await Promise.all([loadMarket(), loadStatus()]);
-    // bullish runs first — populates the 5-min batch cache on the backend
     await loadBullish();
-    // bearish now hits the warm cache instantly instead of triggering a second download
-    await loadBearish();
+    await Promise.all([loadBearish(), loadTicker()]);
     stampUpdated();
   }
 
   // ── Boot ──────────────────────────────────────────────────────
-  loadTicker();
   refreshAll();
   setInterval(refreshAll, 5 * 60 * 1000);
 </script>

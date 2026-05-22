@@ -262,6 +262,36 @@ def _fetch_market():
     return result
 
 
+# ── Ticker prices ─────────────────────────────────────────────────
+TICKER_SYMBOLS = [
+    "RELIANCE.NS", "TCS.NS", "INFY.NS", "HDFCBANK.NS", "ICICIBANK.NS",
+    "SBIN.NS", "AXISBANK.NS", "BAJFINANCE.NS", "KOTAKBANK.NS", "LT.NS",
+    "WIPRO.NS", "HCLTECH.NS", "SUNPHARMA.NS", "TATASTEEL.NS",
+    "NTPC.NS", "POWERGRID.NS", "COALINDIA.NS", "ADANIENT.NS",
+]
+
+def _fetch_ticker():
+    intraday_batch, daily_batch = _get_batch()
+    result = []
+    for sym in TICKER_SYMBOLS:
+        try:
+            intra = _get_ticker_df(intraday_batch, sym)
+            daily = _get_ticker_df(daily_batch, sym)
+            if intra is None or daily is None or len(daily) < 2:
+                continue
+            price      = round(float(intra["Close"].iloc[-1]), 2)
+            prev_close = float(daily["Close"].iloc[-2])
+            change_pct = round((price - prev_close) / prev_close * 100, 2)
+            result.append({
+                "symbol":     sym.replace(".NS", ""),
+                "price":      price,
+                "change_pct": change_pct,
+            })
+        except Exception:
+            pass
+    return result
+
+
 # ── Routes ─────────────────────────────────────────────────────────
 @app.route("/api/bullish")
 def bullish():
@@ -274,6 +304,10 @@ def bearish():
 @app.route("/api/market")
 def market():
     return jsonify(_cached("market", _fetch_market))
+
+@app.route("/api/ticker")
+def ticker():
+    return jsonify(_cached("ticker", _fetch_ticker))
 
 @app.route("/api/status")
 def status():
