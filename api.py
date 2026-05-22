@@ -90,68 +90,65 @@ def _get_ticker_df(batch, ticker):
         return None
 
 
-# ── Projection model ───────────────────────────────────────────────
-def compute_target_potential(intraday, daily, direction):
-    ist = pytz.timezone("Asia/Kolkata")
-    now = datetime.now(ist)
+# ── Intraday move potential (time-agnostic) ────────────────────────
+def compute_move_potential(intraday, daily, direction, paced_vol_ratio):
+    """
+    Answers: "How much more can this stock move today?"
 
-    today_open = float(intraday["Open"].iloc[0])
-    prev_close = float(daily["Close"].iloc[-2])
-    gap_pct    = (today_open - prev_close) / prev_close * 100
-    abs_gap    = abs(gap_pct)
+    Logic:
+      1. ADR (10-day avg daily range) = total capacity for the day
+      2. Subtract what's already been used (gap + intraday move so far)
+      3. Remaining capacity x volume conviction x alignment factor
+      4. Gate: ADR must be >= 2% (stock must be naturally volatile enough)
 
-    # ADR (10-day)
+    This is time-agnostic — works equally at 9:20 AM or 2:00 PM.
+    """
+    today_open    = float(intraday["Open"].iloc[0])
+    prev_close    = float(daily["Close"].iloc[-2])
+    current_price = float(intraday["Close"].iloc[-1])
+    first_close   = float(intraday["Close"].iloc[0])
+
+    gap_pct = abs((today_open - prev_close) / prev_close * 100)
+
+    # 10-day ADR = stock's average daily move capacity
     lookback = daily.iloc[-11:-1] if len(daily) >= 11 else daily.iloc[:-1]
     adr_pct  = float(
         ((lookback["High"] - lookback["Low"]) / lookback["Close"]).mean() * 100
     ) if len(lookback) > 0 else 2.0
 
-    # First-candle alignment & early move
-    n           = min(3, len(intraday))
-    first_close = float(intraday["Close"].iloc[0])
+    # How much has the stock already moved from today's open?
     if direction == "bullish":
-        aligned    = first_close > today_open
-        extreme    = float(intraday["High"].iloc[:n].max())
-        early_move = max((extreme - today_open) / today_open * 100, 0)
+        aligned       = first_close > today_open
+        session_high  = float(intraday["High"].max())
+        used_intraday = max((session_high - today_open) / today_open * 100, 0)
     else:
-        aligned    = first_close < today_open
-        extreme    = float(intraday["Low"].iloc[:n].min())
-        early_move = max((today_open - extreme) / today_open * 100, 0)
+        aligned       = first_close < today_open
+        session_low   = float(intraday["Low"].min())
+        used_intraday = max((today_open - session_low) / today_open * 100, 0)
 
-    open_dt   = now.replace(hour=9,  minute=15, second=0, microsecond=0)
-    target_dt = now.replace(hour=11, minute=0,  second=0, microsecond=0)
-    elapsed_min   = max(5.0, (now - open_dt).total_seconds()   / 60)
-    remaining_min = max(0.0, (target_dt - now).total_seconds() / 60)
+    # Total range consumed so far (gap + intraday move)
+    total_used = gap_pct + used_intraday
 
-    total_so_far = abs_gap + early_move
+    # Remaining range = ADR capacity minus what's already used
+    # A stock near its daily range limit has less upside left
+    remaining = max(adr_pct - total_used, 0.0)
 
-    if remaining_min == 0:
-        morning_bars = intraday.iloc[:21]
-        if direction == "bullish":
-            achieved = max((float(morning_bars["High"].max()) - today_open) / today_open * 100, 0)
-        else:
-            achieved = max((today_open - float(morning_bars["Low"].min())) / today_open * 100, 0)
-        projected_raw = achieved
-    else:
-        velocity   = total_so_far / elapsed_min
-        time_factor = min(elapsed_min / 30, 1.0)
-        decay       = 0.28 + 0.07 * (1 - time_factor)
-        projected_raw = total_so_far + velocity * remaining_min * decay
+    # Volume conviction: paced ratio adjusted boost (up to +40%)
+    vol_boost = 1.0 + min(max(paced_vol_ratio - 2, 0) * 0.10, 0.40)
 
-    prev_vol  = max(float(daily["Volume"].iloc[-2]), 1)
-    today_vol = float(intraday["Volume"].sum())
-    vol_ratio = today_vol / prev_vol
-    vol_boost = 1.0 + min(max(vol_ratio - 2, 0) * 0.075, 0.30)
+    # Alignment: first candle in same direction as gap = conviction signal
+    align_factor = 1.15 if aligned else 0.80
 
-    projected = min(projected_raw * vol_boost, adr_pct * 1.5)
-    if not aligned:
-        projected *= 0.65
-    if adr_pct < 1.5:
-        projected *= (adr_pct / 2.0)
+    # Final potential = remaining range × conviction × alignment
+    potential = remaining * vol_boost * align_factor
 
-    confidence = "HIGH" if projected >= 3.0 else "MED" if projected >= 2.0 else "LOW"
+    # ADR gate: if stock historically moves < 2%/day, scale down
+    if adr_pct < 2.0:
+        potential *= (adr_pct / 2.0)
+
+    confidence = "HIGH" if potential >= 3.0 else "MED" if potential >= 2.0 else "LOW"
     return {
-        "projected_pct": round(projected, 2),
+        "projected_pct": round(potential, 2),
         "adr_pct":       round(adr_pct, 2),
         "aligned":       aligned,
         "confidence":    confidence,
@@ -159,7 +156,7 @@ def compute_target_potential(intraday, daily, direction):
 
 
 # ── Per-stock analysis ─────────────────────────────────────────────
-def _analyze(symbol, intraday_batch, daily_batch, direction):
+def _analyze(symbol, intraday_batch, daily_batch, direction, elapsed_min):
     intraday = _get_ticker_df(intraday_batch, symbol)
     daily    = _get_ticker_df(daily_batch,    symbol)
     if intraday is None or daily is None or len(daily) < 2:
@@ -172,18 +169,29 @@ def _analyze(symbol, intraday_batch, daily_batch, direction):
         current_price   = float(intraday["Close"].iloc[-1])
         today_volume    = float(intraday["Volume"].sum())
 
-        gap_pct          = (today_open - prev_close) / prev_close * 100
+        gap_pct           = (today_open - prev_close) / prev_close * 100
         first_candle_move = abs((first_close - today_open) / today_open * 100)
-        volume_ratio     = today_volume / prev_day_volume if prev_day_volume > 0 else 0
-        traded_value_cr  = (today_volume * current_price) / 1e7
+        traded_value_cr   = (today_volume * current_price) / 1e7
 
-        # Conditions 1–4
+        # Paced volume: project current volume rate to full 375-min trading day
+        # This makes the 2× condition fair whether checked at 9:20 AM or 2:00 PM
+        MARKET_MINS   = 375.0
+        volume_paced  = (today_volume / elapsed_min) * MARKET_MINS
+        paced_vol_ratio = volume_paced / prev_day_volume if prev_day_volume > 0 else 0
+
+        # Condition 1: gap < 1% in right direction
         gap_ok = (0 < gap_pct < 1) if direction == "bullish" else (-1 < gap_pct < 0)
-        if not (gap_ok and volume_ratio >= 2 and first_candle_move < 1 and traded_value_cr >= 100):
+        # Condition 2: volume pace >= 2× previous day (time-fair comparison)
+        # Condition 3: first 5-min candle body < 1%
+        # Condition 4: >= ₹100 Cr total traded value
+        if not (gap_ok
+                and paced_vol_ratio >= 2
+                and first_candle_move < 1
+                and traded_value_cr >= 100):
             return None
 
-        # Condition 5
-        pot = compute_target_potential(intraday, daily, direction)
+        # Condition 5: remaining intraday move potential >= 2%
+        pot = compute_move_potential(intraday, daily, direction, paced_vol_ratio)
         if pot["projected_pct"] < 2.0:
             return None
 
@@ -192,7 +200,7 @@ def _analyze(symbol, intraday_batch, daily_batch, direction):
             "price":               round(current_price, 2),
             "gap_pct":             round(gap_pct, 2),
             "first_candle_move":   round(first_candle_move, 2),
-            "volume_ratio":        round(volume_ratio, 2),
+            "volume_ratio":        round(paced_vol_ratio, 2),   # show paced ratio
             "traded_value_crores": round(traded_value_cr, 2),
             "projected_pct":       pot["projected_pct"],
             "adr_pct":             pot["adr_pct"],
@@ -223,9 +231,13 @@ def _get_batch():
 
 def _screen(direction):
     intraday_batch, daily_batch = _get_batch()
+    ist = pytz.timezone("Asia/Kolkata")
+    now = datetime.now(ist)
+    open_dt = now.replace(hour=9, minute=15, second=0, microsecond=0)
+    elapsed_min = max(5.0, (now - open_dt).total_seconds() / 60)
     results = []
     for symbol in FNO_STOCKS:
-        r = _analyze(symbol, intraday_batch, daily_batch, direction)
+        r = _analyze(symbol, intraday_batch, daily_batch, direction, elapsed_min)
         if r:
             results.append(r)
     results.sort(key=lambda x: x["projected_pct"], reverse=True)
