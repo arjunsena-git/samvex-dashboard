@@ -109,12 +109,16 @@ if _disk_token:
     _upstox_token["access_token"] = _disk_token
     _upstox_token["expires_at"]   = _disk_expires
     print("[Token] Restored from disk")
+    threading.Thread(target=_load_instrument_map, daemon=True).start()
+    threading.Thread(target=_load_futures_map, daemon=True).start()
 else:
     _env_token = os.environ.get("UPSTOX_ACCESS_TOKEN", "")
     if _env_token:
         _upstox_token["access_token"] = _env_token
         _upstox_token["expires_at"]   = time.time() + 23 * 3600
         print("[Token] Loaded from env var")
+        threading.Thread(target=_load_instrument_map, daemon=True).start()
+        threading.Thread(target=_load_futures_map, daemon=True).start()
 
 
 def _is_live():
@@ -662,6 +666,34 @@ def _screen(direction):
 
 # ── Market index data ──────────────────────────────────────────────
 def _fetch_market():
+    # When live, use Upstox for real-time index prices
+    if _is_live():
+        try:
+            r = _http.get(
+                f"{UPSTOX_BASE}/market-quote/quotes",
+                params={"instrument_key": "NSE_INDEX|Nifty 50,NSE_INDEX|Nifty Bank"},
+                headers=_upstox_headers(),
+                timeout=10,
+            )
+            if r.status_code == 200:
+                result = {}
+                for k, v in r.json().get("data", {}).items():
+                    lp = float(v.get("last_price", 0) or 0)
+                    pc = float(v.get("prev_close_price", 0) or (v.get("ohlc") or {}).get("close", 0) or 0)
+                    if lp <= 0:
+                        continue
+                    chg = round((lp - pc) / pc * 100, 2) if pc > 0 else 0
+                    if "Nifty 50" in k:
+                        result["NIFTY 50"]   = {"price": round(lp, 2), "change_pct": chg}
+                    elif "Nifty Bank" in k:
+                        result["BANK NIFTY"] = {"price": round(lp, 2), "change_pct": chg}
+                if result:
+                    print(f"[Market] Upstox indices: {list(result.keys())}")
+                    return result
+        except Exception as e:
+            print(f"[Market] Upstox index error: {e}")
+
+    # Fallback: Yahoo Finance delayed data
     indices = {"NIFTY 50": "^NSEI", "BANK NIFTY": "^NSEBANK"}
     result  = {}
     for name, sym in indices.items():
@@ -768,7 +800,7 @@ def oauth_callback():
     threading.Thread(target=_load_futures_map, daemon=True).start()
 
     # Clear screener cache so next load uses live data immediately
-    for k in ("bullish", "bearish", "live_quotes", "ticker", "oi_buildup"):
+    for k in ("bullish", "bearish", "live_quotes", "ticker", "oi_buildup", "market"):
         _cache.pop(k, None)
 
     redirect_url = FRONTEND_URL if FRONTEND_URL else None
@@ -810,7 +842,7 @@ def set_token():
     _upstox_token["expires_at"]   = time.time() + 23 * 3600
     _save_token_to_disk(token, _upstox_token["expires_at"])
     # Invalidate screener cache so next request uses live data immediately
-    for k in ("bullish", "bearish", "live_quotes", "ticker", "oi_buildup"):
+    for k in ("bullish", "bearish", "live_quotes", "ticker", "oi_buildup", "market"):
         _cache.pop(k, None)
     threading.Thread(target=_load_instrument_map, daemon=True).start()
     threading.Thread(target=_load_futures_map, daemon=True).start()
@@ -847,7 +879,8 @@ def bearish():
 
 @app.route("/api/market")
 def market():
-    return jsonify(_cached("market", _fetch_market))
+    ttl = LIVE_TTL if _is_live() else CACHE_TTL
+    return jsonify(_cached("market", _fetch_market, ttl=ttl))
 
 @app.route("/api/ticker")
 def ticker():
@@ -881,6 +914,33 @@ def oi_buildup():
         })
     data = _cached("oi_buildup", _compute_oi_signals, ttl=OI_TTL)
     return jsonify({**data, "is_live": True})
+
+
+@app.route("/api/debug/oi")
+def debug_oi():
+    """Diagnostic: returns raw Upstox futures quote for 3 symbols so we can verify oi/oi_day_high/oi_day_low."""
+    if not _is_live():
+        return jsonify({"error": "not_live"})
+    fmap = _load_futures_map()
+    if not fmap:
+        return jsonify({"error": "futures_map_empty", "hint": "NSE_FO CSV may not have loaded yet"})
+    sample_items = list(fmap.items())[:3]
+    keys = [info["instrument_key"] for _, info in sample_items]
+    try:
+        r = _http.get(
+            f"{UPSTOX_BASE}/market-quote/quotes",
+            params={"instrument_key": ",".join(keys)},
+            headers=_upstox_headers(),
+            timeout=15,
+        )
+        return jsonify({
+            "map_size": len(fmap),
+            "sample_map": {sym: info for sym, info in sample_items},
+            "http_status": r.status_code,
+            "raw": r.json() if r.status_code == 200 else r.text[:500],
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)})
 
 
 @app.route("/api/ping")

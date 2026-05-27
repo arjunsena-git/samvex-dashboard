@@ -693,6 +693,7 @@
       const srcLabel   = document.getElementById("data-source-label");
 
       if (data.is_live) {
+        _wasLive = true;
         connectBtn.style.display = "none";
         stopLivePolling();
         dBadge.textContent   = "LIVE";
@@ -862,6 +863,13 @@
   // ── Boot ──────────────────────────────────────────────────────
   refreshAll();
   setInterval(refreshAll, 5 * 60 * 1000);
+
+  // Fast market index + ticker refresh every 60s when live
+  setInterval(async () => {
+    if (_wasLive) {
+      await Promise.all([loadMarket(), loadTicker()]);
+    }
+  }, 60 * 1000);
 </script>
 </body>
 </html>
