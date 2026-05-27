@@ -8,5 +8,6 @@ venv/
 *.egg-info/
 dist/
 .DS_Store
+token.json
 .vercel/
 .vercel

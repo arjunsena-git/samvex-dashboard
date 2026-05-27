@@ -76,11 +76,45 @@ _upstox_token   = {"access_token": None, "expires_at": 0.0}
 _instrument_map = {}   # "RELIANCE" → "NSE_EQ|INE002A01018"
 SET_TOKEN_SECRET = os.environ.get("SET_TOKEN_SECRET", "")
 
-# Load pre-set token from env (set via Render dashboard for today's session)
-_env_token = os.environ.get("UPSTOX_ACCESS_TOKEN", "")
-if _env_token:
-    _upstox_token["access_token"] = _env_token
-    _upstox_token["expires_at"]   = time.time() + 23 * 3600
+TOKEN_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "token.json")
+
+
+def _save_token_to_disk(token: str, expires_at: float):
+    """Write token to disk so it survives process restarts on Render."""
+    try:
+        import json
+        with open(TOKEN_FILE, "w") as f:
+            json.dump({"access_token": token, "expires_at": expires_at}, f)
+    except Exception as e:
+        print(f"[Token] Disk save error: {e}")
+
+
+def _load_token_from_disk():
+    """Read token from disk if it exists and has not expired."""
+    try:
+        import json
+        if os.path.exists(TOKEN_FILE):
+            with open(TOKEN_FILE) as f:
+                data = json.load(f)
+            if float(data.get("expires_at", 0)) > time.time():
+                return data.get("access_token"), float(data["expires_at"])
+    except Exception as e:
+        print(f"[Token] Disk load error: {e}")
+    return None, 0.0
+
+
+# Load token on startup: disk (survives restarts) → env var fallback
+_disk_token, _disk_expires = _load_token_from_disk()
+if _disk_token:
+    _upstox_token["access_token"] = _disk_token
+    _upstox_token["expires_at"]   = _disk_expires
+    print("[Token] Restored from disk")
+else:
+    _env_token = os.environ.get("UPSTOX_ACCESS_TOKEN", "")
+    if _env_token:
+        _upstox_token["access_token"] = _env_token
+        _upstox_token["expires_at"]   = time.time() + 23 * 3600
+        print("[Token] Loaded from env var")
 
 
 def _is_live():
@@ -727,6 +761,7 @@ def oauth_callback():
     token_data = resp.json()
     _upstox_token["access_token"] = token_data.get("access_token")
     _upstox_token["expires_at"]   = time.time() + 23 * 3600  # valid ~23 hrs
+    _save_token_to_disk(_upstox_token["access_token"], _upstox_token["expires_at"])
 
     # Warm up instrument maps in background
     threading.Thread(target=_load_instrument_map, daemon=True).start()
@@ -773,6 +808,7 @@ def set_token():
         return jsonify({"error": "token param required"}), 400
     _upstox_token["access_token"] = token
     _upstox_token["expires_at"]   = time.time() + 23 * 3600
+    _save_token_to_disk(token, _upstox_token["expires_at"])
     # Invalidate screener cache so next request uses live data immediately
     for k in ("bullish", "bearish", "live_quotes", "ticker", "oi_buildup"):
         _cache.pop(k, None)
