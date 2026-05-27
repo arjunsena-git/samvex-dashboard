@@ -78,9 +78,46 @@ SET_TOKEN_SECRET = os.environ.get("SET_TOKEN_SECRET", "")
 
 TOKEN_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "token.json")
 
+# ── Upstash Redis — persistent token store across deploys/restarts ──
+UPSTASH_URL   = os.environ.get("UPSTASH_REDIS_REST_URL", "").rstrip("/")
+UPSTASH_TOKEN = os.environ.get("UPSTASH_REDIS_REST_TOKEN", "")
+_REDIS_KEY    = "samvex_upstox_token"
+
+
+def _upstash(cmd: list):
+    """Fire a single Redis command via Upstash REST API; returns result or None."""
+    if not UPSTASH_URL or not UPSTASH_TOKEN:
+        return None
+    try:
+        r = _http.post(
+            UPSTASH_URL,
+            json=cmd,
+            headers={"Authorization": f"Bearer {UPSTASH_TOKEN}"},
+            timeout=5,
+        )
+        return r.json().get("result")
+    except Exception as e:
+        print(f"[Redis] Error: {e}")
+        return None
+
+
+def _save_token_to_redis(token: str, expires_at: float):
+    ttl = max(60, int(expires_at - time.time()))
+    result = _upstash(["SETEX", _REDIS_KEY, str(ttl), token])
+    print(f"[Redis] Saved token (TTL {ttl}s): {result}")
+
+
+def _load_token_from_redis():
+    token = _upstash(["GET", _REDIS_KEY])
+    if not token:
+        return None, 0.0
+    ttl = _upstash(["TTL", _REDIS_KEY]) or 3600
+    expires_at = time.time() + int(ttl)
+    print(f"[Redis] Loaded token (TTL {ttl}s remaining)")
+    return token, expires_at
+
 
 def _save_token_to_disk(token: str, expires_at: float):
-    """Write token to disk so it survives process restarts on Render."""
     try:
         import json
         with open(TOKEN_FILE, "w") as f:
@@ -90,7 +127,6 @@ def _save_token_to_disk(token: str, expires_at: float):
 
 
 def _load_token_from_disk():
-    """Read token from disk if it exists and has not expired."""
     try:
         import json
         if os.path.exists(TOKEN_FILE):
@@ -103,22 +139,34 @@ def _load_token_from_disk():
     return None, 0.0
 
 
-# Load token on startup: disk (survives restarts) → env var fallback
-_disk_token, _disk_expires = _load_token_from_disk()
-if _disk_token:
-    _upstox_token["access_token"] = _disk_token
-    _upstox_token["expires_at"]   = _disk_expires
-    print("[Token] Restored from disk")
+def _save_token(token: str, expires_at: float):
+    """Persist token to all available stores."""
+    _save_token_to_redis(token, expires_at)
+    _save_token_to_disk(token, expires_at)
+
+
+def _load_token_on_startup():
+    """Priority: Redis (survives deploys) → disk → env var."""
+    t, exp = _load_token_from_redis()
+    if t:
+        return t, exp, "redis"
+    t, exp = _load_token_from_disk()
+    if t:
+        return t, exp, "disk"
+    env = os.environ.get("UPSTOX_ACCESS_TOKEN", "")
+    if env:
+        return env, time.time() + 23 * 3600, "env"
+    return None, 0.0, None
+
+
+# ── Startup token load ─────────────────────────────────────────────
+_startup_token, _startup_expires, _startup_source = _load_token_on_startup()
+if _startup_token:
+    _upstox_token["access_token"] = _startup_token
+    _upstox_token["expires_at"]   = _startup_expires
+    print(f"[Token] Loaded from {_startup_source}")
     threading.Thread(target=_load_instrument_map, daemon=True).start()
     threading.Thread(target=_load_futures_map, daemon=True).start()
-else:
-    _env_token = os.environ.get("UPSTOX_ACCESS_TOKEN", "")
-    if _env_token:
-        _upstox_token["access_token"] = _env_token
-        _upstox_token["expires_at"]   = time.time() + 23 * 3600
-        print("[Token] Loaded from env var")
-        threading.Thread(target=_load_instrument_map, daemon=True).start()
-        threading.Thread(target=_load_futures_map, daemon=True).start()
 
 
 def _is_live():
@@ -793,7 +841,7 @@ def oauth_callback():
     token_data = resp.json()
     _upstox_token["access_token"] = token_data.get("access_token")
     _upstox_token["expires_at"]   = time.time() + 23 * 3600  # valid ~23 hrs
-    _save_token_to_disk(_upstox_token["access_token"], _upstox_token["expires_at"])
+    _save_token(_upstox_token["access_token"], _upstox_token["expires_at"])
 
     # Warm up instrument maps in background
     threading.Thread(target=_load_instrument_map, daemon=True).start()
@@ -840,7 +888,7 @@ def set_token():
         return jsonify({"error": "token param required"}), 400
     _upstox_token["access_token"] = token
     _upstox_token["expires_at"]   = time.time() + 23 * 3600
-    _save_token_to_disk(token, _upstox_token["expires_at"])
+    _save_token(_upstox_token["access_token"], _upstox_token["expires_at"])
     # Invalidate screener cache so next request uses live data immediately
     for k in ("bullish", "bearish", "live_quotes", "ticker", "oi_buildup", "market"):
         _cache.pop(k, None)
