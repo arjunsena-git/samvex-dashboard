@@ -165,8 +165,9 @@ if _startup_token:
     _upstox_token["access_token"] = _startup_token
     _upstox_token["expires_at"]   = _startup_expires
     print(f"[Token] Loaded from {_startup_source}")
-    threading.Thread(target=_load_instrument_map, daemon=True).start()
-    threading.Thread(target=_load_futures_map, daemon=True).start()
+    # lambdas defer name lookup to thread-start time (after module fully loads)
+    threading.Thread(target=lambda: _load_instrument_map(), daemon=True).start()
+    threading.Thread(target=lambda: _load_futures_map(), daemon=True).start()
 
 
 def _is_live():
