@@ -221,8 +221,8 @@ def _sym_to_key(symbol):
 _futures_map: dict = {}   # "RELIANCE" → {"instrument_key": "NSE_FO|...", "lot_size": 250}
 
 OI_TTL        = 120   # 2-min cache for OI data
-PRICE_CHG_MIN = 0.3   # minimum price change % to classify activity
-OI_CHG_MIN    = 2.0   # minimum OI change % to classify activity
+PRICE_CHG_MIN = 0.2   # minimum price change % to classify activity
+OI_CHG_MIN    = 1.0   # minimum OI change % to classify activity
 
 
 def _load_futures_map():
@@ -800,6 +800,68 @@ def _fetch_ticker():
     return result
 
 
+# ── Near-miss candidates (relaxed screener for mid-day view) ──────
+def _screen_candidates(direction):
+    """Return top 5 stocks closest to qualifying, regardless of whether all criteria pass."""
+    ist = pytz.timezone("Asia/Kolkata")
+    now = datetime.now(ist)
+    open_dt     = now.replace(hour=9, minute=15, second=0, microsecond=0)
+    elapsed_min = max(5.0, (now - open_dt).total_seconds() / 60)
+
+    candidates = []
+    live_quotes = _cached("live_quotes", _fetch_live_quotes, ttl=LIVE_TTL) if _is_live() else None
+    daily_batch = _get_daily_batch()
+
+    for symbol in FNO_STOCKS:
+        q = live_quotes.get(symbol) if live_quotes else None
+        if not q:
+            continue
+        try:
+            ohlc          = q.get("ohlc") or {}
+            today_open    = float(ohlc.get("open", 0) or 0)
+            current_price = float(q.get("last_price", 0) or 0)
+            today_volume  = float(q.get("volume", 0) or 0)
+            prev_close    = float(q.get("prev_close_price", 0) or 0)
+
+            if today_open <= 0 or current_price <= 0 or prev_close <= 0:
+                continue
+
+            gap_pct         = (today_open - prev_close) / prev_close * 100
+            traded_value_cr = (today_volume * current_price) / 1e7
+
+            daily    = _get_ticker_df(daily_batch, symbol) if daily_batch is not None else None
+            prev_vol = float(daily["Volume"].iloc[-2]) if daily is not None and len(daily) >= 2 else 0
+            paced_ratio = (today_volume / elapsed_min) * 375 / prev_vol if prev_vol > 0 else 0
+
+            # Score: how many of the 3 quick filters pass
+            gap_ok  = (0 < gap_pct < 1)   if direction == "bullish" else (-1 < gap_pct < 0)
+            vol_ok  = paced_ratio >= 2
+            val_ok  = traded_value_cr >= 100
+            score   = int(gap_ok) + int(vol_ok) + int(val_ok)
+
+            # Only surface stocks with correct gap direction and some activity
+            if not gap_ok:
+                continue
+            if traded_value_cr < 10:  # must have at least ₹10 Cr traded
+                continue
+
+            candidates.append({
+                "symbol":        symbol.replace(".NS", ""),
+                "price":         round(current_price, 2),
+                "gap_pct":       round(gap_pct, 2),
+                "volume_ratio":  round(paced_ratio, 2),
+                "value_cr":      round(traded_value_cr, 1),
+                "criteria_met":  score,
+                "vol_ok":        vol_ok,
+                "val_ok":        val_ok,
+            })
+        except Exception:
+            continue
+
+    candidates.sort(key=lambda x: (x["criteria_met"], x["volume_ratio"]), reverse=True)
+    return candidates[:5]
+
+
 # ── Routes ─────────────────────────────────────────────────────────
 
 @app.route("/auth/login")
@@ -925,6 +987,12 @@ def bullish():
 @app.route("/api/bearish")
 def bearish():
     return jsonify(_cached("bearish", _screen, "bearish"))
+
+@app.route("/api/candidates/<direction>")
+def candidates(direction):
+    if direction not in ("bullish", "bearish"):
+        return jsonify([])
+    return jsonify(_cached(f"cand_{direction}", _screen_candidates, direction, ttl=LIVE_TTL))
 
 @app.route("/api/market")
 def market():

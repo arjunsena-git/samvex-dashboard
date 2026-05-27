@@ -592,11 +592,8 @@
   function renderRows(data, tbody, direction) {
     const el = document.getElementById(tbody);
     if (!data || data.length === 0) {
-      el.innerHTML = `<tr><td colspan="6">
-        <div class="empty-state">
-          No stocks matched all 5 criteria right now.<br>
-          <small>Gap · 2× volume · first candle &lt;1% · ≥₹100 Cr · ≥2% remaining ADR potential</small>
-        </div></td></tr>`;
+      // Fetch near-miss candidates when strict scan returns nothing
+      loadCandidates(direction, tbody);
       return;
     }
     const color = direction === "bullish" ? "green" : "red";
@@ -609,6 +606,39 @@
         <td class="inst-value">₹${s.traded_value_crores} Cr</td>
         <td>${potentialCell(s, direction)}</td>
       </tr>`).join("");
+  }
+
+  async function loadCandidates(direction, tbody) {
+    const el = document.getElementById(tbody);
+    try {
+      const res  = await fetch(`${API}/api/candidates/${direction}`);
+      const data = await res.json();
+      if (!data || data.length === 0) {
+        el.innerHTML = `<tr><td colspan="6"><div class="empty-state">
+          No ${direction} setups today.<br>
+          <small>Best used at market open (9:15–10:15 AM)</small>
+        </div></td></tr>`;
+        return;
+      }
+      const color = direction === "bullish" ? "green" : "red";
+      el.innerHTML = `<tr><td colspan="6" style="padding:6px 18px 2px;background:var(--bg-card-2)">
+        <span style="font-size:10px;color:var(--text-muted);font-weight:700;letter-spacing:.5px;text-transform:uppercase;">
+          Near Setups — correct gap, watching for volume</span></td></tr>` +
+        data.map(s => {
+          const volColor = s.vol_ok ? "green" : "yellow";
+          const valColor = s.val_ok ? "green" : "yellow";
+          return `<tr style="opacity:.82">
+            <td><span class="sym">${s.symbol}</span></td>
+            <td class="price">${fmt(s.price)}</td>
+            <td><span class="pill pill-${color}">${sign(s.gap_pct)}${s.gap_pct}%</span></td>
+            <td><span class="pill pill-${volColor}">${s.volume_ratio}×</span></td>
+            <td class="inst-value"><span class="pill pill-${valColor}">₹${s.value_cr} Cr</span></td>
+            <td style="color:var(--text-muted);font-size:11px;">${s.criteria_met}/3 filters</td>
+          </tr>`;
+        }).join("");
+    } catch (_) {
+      el.innerHTML = `<tr><td colspan="6"><div class="empty-state">No setups found.</div></td></tr>`;
+    }
   }
 
   // ── Market index cards ────────────────────────────────────────
