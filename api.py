@@ -964,6 +964,63 @@ def oi_buildup():
     return jsonify({**data, "is_live": True})
 
 
+@app.route("/api/debug/screener")
+def debug_screener():
+    """Diagnose why screener returns 0 results: shows per-stock filter breakdown."""
+    ist         = pytz.timezone("Asia/Kolkata")
+    now         = datetime.now(ist)
+    open_dt     = now.replace(hour=9, minute=15, second=0, microsecond=0)
+    elapsed_min = max(5.0, (now - open_dt).total_seconds() / 60)
+
+    live_quotes = _cached("live_quotes", _fetch_live_quotes, ttl=LIVE_TTL) if _is_live() else None
+    daily_batch = _get_daily_batch()
+
+    out = {
+        "time_ist":          now.strftime("%H:%M:%S"),
+        "elapsed_min":       round(elapsed_min, 1),
+        "is_live":           _is_live(),
+        "instrument_map_sz": len(_instrument_map),
+        "futures_map_sz":    len(_futures_map),
+        "live_quote_count":  len(live_quotes) if live_quotes else 0,
+        "daily_batch_shape": str(daily_batch.shape) if daily_batch is not None else "None",
+        "daily_batch_empty": (daily_batch is None or daily_batch.empty),
+    }
+
+    sample = []
+    for sym in FNO_STOCKS[:12]:
+        q = live_quotes.get(sym) if live_quotes else None
+        d = _get_ticker_df(daily_batch, sym) if daily_batch is not None else None
+        info = {"sym": sym, "daily_ok": d is not None and len(d) >= 2}
+        if q:
+            ohlc   = q.get("ohlc") or {}
+            lp     = float(q.get("last_price",      0) or 0)
+            op     = float(ohlc.get("open",          0) or 0)
+            pc     = float(q.get("prev_close_price", 0) or 0)
+            vol    = float(q.get("volume",           0) or 0)
+            pv     = float(d["Volume"].iloc[-2]) if d is not None and len(d) >= 2 else 0
+            gap    = round((op - pc) / pc * 100, 2) if pc > 0 else None
+            paced  = round((vol / elapsed_min) * 375 / pv, 2) if pv > 0 else None
+            val_cr = round(vol * lp / 1e7, 1)
+            info.update({
+                "ltp":    lp,
+                "gap%":   gap,
+                "vol_x":  paced,
+                "val_cr": val_cr,
+                "FAIL":   (
+                    "no_gap"   if gap is None or not (0 < gap < 1)    else
+                    "vol<2x"   if paced is None or paced < 2           else
+                    "val<100cr" if val_cr < 100                         else
+                    "OK_so_far"
+                ),
+            })
+        else:
+            info["FAIL"] = "no_quote"
+        sample.append(info)
+
+    out["sample"] = sample
+    return jsonify(out)
+
+
 @app.route("/api/debug/oi")
 def debug_oi():
     """Diagnostic: returns raw Upstox futures quote for 3 symbols so we can verify oi/oi_day_high/oi_day_low."""
