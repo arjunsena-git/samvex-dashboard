@@ -255,6 +255,19 @@
     .conf-MED  { background: #2a1e00;          color: var(--yellow); }
     .chip-orange { color: #fb923c; border-color: #fb923c; background: #2d1a00; }
 
+    .pill-blue   { background: #1a2a4a; color: var(--accent); }
+
+    /* ── OI section divider ──────────────────────────────────────── */
+    .section-divider {
+      display: flex; align-items: center; gap: 14px;
+      margin: 28px 0 16px;
+    }
+    .section-divider-line  { flex: 1; height: 1px; background: var(--border); }
+    .section-divider-title {
+      font-size: 12px; font-weight: 700; color: var(--text-muted);
+      letter-spacing: .8px; text-transform: uppercase; white-space: nowrap;
+    }
+
     .vol-bar-wrap { display: flex; align-items: center; gap: 6px; }
     .vol-bar {
       height: 5px; border-radius: 3px; min-width: 4px;
@@ -438,6 +451,76 @@
     </div>
 
   </div>
+
+  <!-- ── OI Buildup Scanner ───────────────────────────────────── -->
+  <div class="section-divider">
+    <div class="section-divider-line"></div>
+    <div class="section-divider-title">OI Buildup Scanner — Near-Month Futures</div>
+    <div class="section-divider-line"></div>
+  </div>
+
+  <div class="scanner-grid">
+
+    <!-- Bullish OI Signals -->
+    <div class="panel">
+      <div class="panel-header">
+        <div class="panel-title">
+          <span class="dot dot-green"></span>
+          Bullish OI Signals
+        </div>
+        <div style="display:flex;gap:6px;align-items:center;">
+          <span class="chip chip-green" style="font-size:9px;padding:2px 6px;">Long Buildup</span>
+          <span class="chip chip-blue"  style="font-size:9px;padding:2px 6px;">Short Covering</span>
+          <button class="refresh-btn" onclick="loadOI()">↺</button>
+        </div>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Symbol</th>
+            <th>LTP (Fut)</th>
+            <th>Price Chg</th>
+            <th>OI Chg</th>
+            <th>Signal</th>
+          </tr>
+        </thead>
+        <tbody id="oi-bullish-body">
+          <tr><td colspan="5"><div class="empty-state"><div class="spinner"></div>Loading…</div></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Bearish OI Signals -->
+    <div class="panel">
+      <div class="panel-header">
+        <div class="panel-title">
+          <span class="dot dot-red"></span>
+          Bearish OI Signals
+        </div>
+        <div style="display:flex;gap:6px;align-items:center;">
+          <span class="chip chip-red"    style="font-size:9px;padding:2px 6px;">Short Buildup</span>
+          <span class="chip chip-orange" style="font-size:9px;padding:2px 6px;">Long Unwinding</span>
+          <button class="refresh-btn" onclick="loadOI()">↺</button>
+        </div>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Symbol</th>
+            <th>LTP (Fut)</th>
+            <th>Price Chg</th>
+            <th>OI Chg</th>
+            <th>Signal</th>
+          </tr>
+        </thead>
+        <tbody id="oi-bearish-body">
+          <tr><td colspan="5"><div class="empty-state"><div class="spinner"></div>Loading…</div></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+  </div>
+
 </main>
 
 <footer>
@@ -696,6 +779,71 @@
     } catch (_) {}
   }
 
+  // ── OI Buildup ────────────────────────────────────────────────
+  const OI_PILLS = {
+    "long_buildup":   `<span class="pill pill-green">Long Buildup</span>`,
+    "short_buildup":  `<span class="pill pill-red">Short Buildup</span>`,
+    "short_covering": `<span class="pill pill-blue">Short Covering</span>`,
+    "long_unwinding": `<span class="pill pill-orange">Long Unwinding</span>`,
+  };
+
+  function renderOIRows(data, tbodyId) {
+    const el = document.getElementById(tbodyId);
+    if (!data || data.length === 0) {
+      el.innerHTML = `<tr><td colspan="5">
+        <div class="empty-state">No significant OI activity detected.</div>
+      </td></tr>`;
+      return;
+    }
+    el.innerHTML = data.slice(0, 10).map(s => {
+      const pDir  = s.price_chg_pct >= 0 ? "green" : "red";
+      const oiDir = s.oi_chg_pct   >= 0 ? "green" : "red";
+      const pSign = s.price_chg_pct >= 0 ? "+" : "";
+      const oSign = s.oi_chg_pct   >= 0 ? "+" : "";
+      return `<tr>
+        <td><span class="sym">${s.symbol}</span></td>
+        <td class="price">${fmt(s.last_price)}</td>
+        <td><span class="pill pill-${pDir}">${pSign}${s.price_chg_pct}%</span></td>
+        <td style="font-weight:700;color:var(--${oiDir})">${oSign}${s.oi_chg_pct}%</td>
+        <td>${OI_PILLS[s.activity] || s.activity}</td>
+      </tr>`;
+    }).join("");
+  }
+
+  async function loadOI() {
+    const notLiveMsg = `<tr><td colspan="5"><div class="empty-state">
+      OI data requires live Upstox connection.<br>
+      <small>Click &#9889; Connect Upstox in the header to enable real-time OI tracking.</small>
+    </div></td></tr>`;
+    const loadingMsg = `<tr><td colspan="5"><div class="empty-state"><div class="spinner"></div>Scanning OI…</div></td></tr>`;
+    document.getElementById("oi-bullish-body").innerHTML = loadingMsg;
+    document.getElementById("oi-bearish-body").innerHTML = loadingMsg;
+    try {
+      const res  = await fetch(`${API}/api/oi-buildup`);
+      const data = await res.json();
+
+      if (!data.is_live) {
+        document.getElementById("oi-bullish-body").innerHTML = notLiveMsg;
+        document.getElementById("oi-bearish-body").innerHTML = notLiveMsg;
+        return;
+      }
+
+      // Bullish: Long Buildup (strong) + Short Covering (weak), sorted by |OI chg|
+      const bullish = [...(data.long_buildup || []), ...(data.short_covering || [])]
+        .sort((a, b) => Math.abs(b.oi_chg_pct) - Math.abs(a.oi_chg_pct));
+      // Bearish: Short Buildup (strong) + Long Unwinding (weak), sorted by |OI chg|
+      const bearish = [...(data.short_buildup || []), ...(data.long_unwinding || [])]
+        .sort((a, b) => Math.abs(b.oi_chg_pct) - Math.abs(a.oi_chg_pct));
+
+      renderOIRows(bullish, "oi-bullish-body");
+      renderOIRows(bearish, "oi-bearish-body");
+    } catch (_) {
+      const err = `<tr><td colspan="5"><div class="empty-state">OI data unavailable</div></td></tr>`;
+      document.getElementById("oi-bullish-body").innerHTML = err;
+      document.getElementById("oi-bearish-body").innerHTML = err;
+    }
+  }
+
   // ── Last updated ──────────────────────────────────────────────
   function stampUpdated() {
     const now = new Date();
@@ -707,7 +855,7 @@
   async function refreshAll() {
     await Promise.all([loadMarket(), loadStatus()]);
     await loadBullish();
-    await Promise.all([loadBearish(), loadTicker()]);
+    await Promise.all([loadBearish(), loadTicker(), loadOI()]);
     stampUpdated();
   }
 

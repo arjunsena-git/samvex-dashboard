@@ -130,6 +130,176 @@ def _sym_to_key(symbol):
     return imap.get(symbol.replace(".NS", ""))
 
 
+# ── Futures instrument map for OI tracking ────────────────────────
+_futures_map: dict = {}   # "RELIANCE" → {"instrument_key": "NSE_FO|...", "lot_size": 250}
+
+OI_TTL        = 120   # 2-min cache for OI data
+PRICE_CHG_MIN = 0.3   # minimum price change % to classify activity
+OI_CHG_MIN    = 2.0   # minimum OI change % to classify activity
+
+
+def _load_futures_map():
+    """Download Upstox NSE_FO instruments CSV; build symbol → near-month futures key."""
+    global _futures_map
+    if _futures_map:
+        return _futures_map
+    try:
+        r = _http.get(
+            "https://assets.upstox.com/market-quote/instruments/exchange/NSE_FO.csv.gz",
+            timeout=30,
+        )
+        with gzip.open(io.BytesIO(r.content), "rt") as f:
+            df = pd.read_csv(f)
+
+        cols = df.columns.tolist()
+        print(f"[FO] CSV columns: {cols[:20]}")
+
+        # Filter stock futures only
+        type_col = next((c for c in ["instrument_type", "instrumentType"] if c in cols), None)
+        if type_col:
+            df = df[df[type_col] == "FUTSTK"].copy()
+        else:
+            df = df.copy()
+
+        # Find near-month expiry (earliest expiry >= today)
+        exp_col = next((c for c in ["expiry", "expiry_date"] if c in cols), None)
+        if not exp_col:
+            print("[FO] No expiry column found")
+            return _futures_map
+
+        df["_exp"]   = pd.to_datetime(df[exp_col], errors="coerce")
+        today        = pd.Timestamp.now()
+        valid        = df[df["_exp"] >= today]
+        if valid.empty:
+            return _futures_map
+        near_expiry  = valid["_exp"].min()
+        near_df      = df[df["_exp"] == near_expiry].copy()
+
+        key_col = "instrument_key" if "instrument_key" in cols else None
+        sym_col = next((c for c in ["tradingsymbol", "trading_symbol"] if c in cols), None)
+        lot_col = next((c for c in ["lot_size", "lotSize"] if c in cols), None)
+        nam_col = "name" if "name" in cols else None
+
+        if not key_col:
+            print("[FO] No instrument_key column found")
+            return _futures_map
+
+        fno_base = {s.replace(".NS", "").upper() for s in FNO_STOCKS}
+
+        for _, row in near_df.iterrows():
+            ikey = str(row[key_col])
+            lot  = int(row[lot_col]) if lot_col and pd.notna(row.get(lot_col)) else 1
+
+            # Strategy 1: name column (cleanest — typically the base symbol)
+            if nam_col and pd.notna(row.get(nam_col)):
+                candidate = str(row[nam_col]).upper().strip()
+                if candidate in fno_base and candidate not in _futures_map:
+                    _futures_map[candidate] = {"instrument_key": ikey, "lot_size": lot}
+                    continue
+
+            # Strategy 2: tradingsymbol prefix match
+            if sym_col and pd.notna(row.get(sym_col)):
+                ts = str(row[sym_col]).upper().strip()
+                for base in fno_base:
+                    norm = base.replace("&", "").replace("-", "")
+                    if (ts.startswith(base) or ts.startswith(norm)) and base not in _futures_map:
+                        _futures_map[base] = {"instrument_key": ikey, "lot_size": lot}
+                        break
+
+        print(f"[FO] Loaded {len(_futures_map)} FUTSTK near-month keys (expiry: {near_expiry.date()})")
+    except Exception as e:
+        print(f"[FO] Futures map error: {e}")
+    return _futures_map
+
+
+def _fetch_futures_quotes():
+    """Batch fetch near-month futures quotes for all mapped F&O stocks."""
+    fmap = _load_futures_map()
+    if not fmap:
+        return None
+
+    all_keys   = [info["instrument_key"] for info in fmap.values()]
+    key_to_sym = {info["instrument_key"]: sym for sym, info in fmap.items()}
+
+    results = {}
+    for i in range(0, len(all_keys), 100):
+        chunk = all_keys[i:i + 100]
+        try:
+            r = _http.get(
+                f"{UPSTOX_BASE}/market-quote/quotes",
+                params={"instrument_key": ",".join(chunk)},
+                headers=_upstox_headers(),
+                timeout=20,
+            )
+            if r.status_code == 200:
+                for k, v in r.json().get("data", {}).items():
+                    sym = key_to_sym.get(k)
+                    if sym:
+                        results[sym] = v
+            else:
+                print(f"[OI] Futures quotes HTTP {r.status_code}")
+        except Exception as e:
+            print(f"[OI] Futures quotes error chunk {i}: {e}")
+
+    return results or None
+
+
+def _compute_oi_signals():
+    """Classify all F&O stocks into OI activity buckets using near-month futures."""
+    fmap   = _load_futures_map()
+    quotes = _fetch_futures_quotes()
+    out    = {"long_buildup": [], "short_buildup": [], "short_covering": [], "long_unwinding": []}
+
+    if not quotes:
+        return out
+
+    for sym, q in quotes.items():
+        try:
+            last_price  = float(q.get("last_price") or 0)
+            prev_close  = float(q.get("prev_close_price") or 0)
+            oi          = float(q.get("oi") or 0)
+            oi_day_high = float(q.get("oi_day_high") or 0)
+            oi_day_low  = float(q.get("oi_day_low") or 0)
+            volume      = int(q.get("volume") or 0)
+
+            if last_price <= 0 or prev_close <= 0 or oi <= 0:
+                continue
+
+            price_chg = (last_price - prev_close) / prev_close * 100
+            # Buildup: OI rising from day low; Unwinding: OI falling from day high
+            oi_buildup = (oi - oi_day_low)  / oi_day_low  * 100 if oi_day_low  > 0 else 0
+            oi_unwind  = (oi - oi_day_high) / oi_day_high * 100 if oi_day_high > 0 else 0
+
+            entry = {
+                "symbol":        sym,
+                "last_price":    round(last_price, 2),
+                "price_chg_pct": round(price_chg, 2),
+                "volume":        volume,
+                "lot_size":      fmap.get(sym, {}).get("lot_size", 1),
+            }
+
+            if price_chg >= PRICE_CHG_MIN and oi_buildup >= OI_CHG_MIN:
+                entry.update({"oi_chg_pct": round(oi_buildup, 2), "activity": "long_buildup"})
+                out["long_buildup"].append(entry)
+            elif price_chg <= -PRICE_CHG_MIN and oi_buildup >= OI_CHG_MIN:
+                entry.update({"oi_chg_pct": round(oi_buildup, 2), "activity": "short_buildup"})
+                out["short_buildup"].append(entry)
+            elif price_chg >= PRICE_CHG_MIN and oi_unwind <= -OI_CHG_MIN:
+                entry.update({"oi_chg_pct": round(oi_unwind, 2), "activity": "short_covering"})
+                out["short_covering"].append(entry)
+            elif price_chg <= -PRICE_CHG_MIN and oi_unwind <= -OI_CHG_MIN:
+                entry.update({"oi_chg_pct": round(oi_unwind, 2), "activity": "long_unwinding"})
+                out["long_unwinding"].append(entry)
+
+        except Exception:
+            continue
+
+    for key in out:
+        out[key].sort(key=lambda x: abs(x["oi_chg_pct"]), reverse=True)
+
+    return out
+
+
 def _fetch_live_quotes():
     """Single batch call → live OHLCV for all F&O stocks."""
     imap = _load_instrument_map()
@@ -558,11 +728,12 @@ def oauth_callback():
     _upstox_token["access_token"] = token_data.get("access_token")
     _upstox_token["expires_at"]   = time.time() + 23 * 3600  # valid ~23 hrs
 
-    # Warm up instrument map in background
+    # Warm up instrument maps in background
     threading.Thread(target=_load_instrument_map, daemon=True).start()
+    threading.Thread(target=_load_futures_map, daemon=True).start()
 
     # Clear screener cache so next load uses live data immediately
-    for k in ("bullish", "bearish", "live_quotes", "ticker"):
+    for k in ("bullish", "bearish", "live_quotes", "ticker", "oi_buildup"):
         _cache.pop(k, None)
 
     redirect_url = FRONTEND_URL if FRONTEND_URL else None
@@ -603,9 +774,10 @@ def set_token():
     _upstox_token["access_token"] = token
     _upstox_token["expires_at"]   = time.time() + 23 * 3600
     # Invalidate screener cache so next request uses live data immediately
-    for k in ("bullish", "bearish", "live_quotes", "ticker"):
+    for k in ("bullish", "bearish", "live_quotes", "ticker", "oi_buildup"):
         _cache.pop(k, None)
     threading.Thread(target=_load_instrument_map, daemon=True).start()
+    threading.Thread(target=_load_futures_map, daemon=True).start()
     return """
     <!DOCTYPE html><html>
     <head><title>Samvex — Token Updated</title>
@@ -662,6 +834,18 @@ def status():
         "is_live":     _is_live(),
         "data_source": "upstox_live" if _is_live() else "yahoo_delayed",
     })
+
+@app.route("/api/oi-buildup")
+def oi_buildup():
+    if not _is_live():
+        return jsonify({
+            "is_live": False,
+            "long_buildup": [], "short_buildup": [],
+            "short_covering": [], "long_unwinding": [],
+        })
+    data = _cached("oi_buildup", _compute_oi_signals, ttl=OI_TTL)
+    return jsonify({**data, "is_live": True})
+
 
 @app.route("/api/ping")
 def ping():
