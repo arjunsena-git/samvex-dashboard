@@ -674,6 +674,37 @@
     ? "http://localhost:5050"
     : "https://samvex-api.onrender.com";
 
+  // ── Fetch with retry (handles Render cold-start wake-up) ────────
+  // Render free tier takes 30-60s to wake up after idle. We retry 3 times
+  // with a 20s timeout per attempt and show a progress message in the UI.
+  async function fetchWithRetry(url, bodyEl, colspan, maxAttempts = 3) {
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        const ctrl = new AbortController();
+        const tid  = setTimeout(() => ctrl.abort(), 55000);
+        const res  = await fetch(url, { signal: ctrl.signal });
+        clearTimeout(tid);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return await res.json();
+      } catch (err) {
+        if (attempt < maxAttempts) {
+          const wait = 15 * attempt;
+          bodyEl.innerHTML =
+            `<tr><td colspan="${colspan}"><div class="empty-state">
+              <div class="spinner"></div>
+              Server is waking up… retrying (${attempt}/${maxAttempts - 1})
+              <span style="color:var(--text-muted);font-size:11px;display:block;margin-top:4px;">
+                Render takes ~30–60s after idle · auto-refreshing
+              </span>
+            </div></td></tr>`;
+          await new Promise(r => setTimeout(r, wait * 1000));
+        } else {
+          throw err;
+        }
+      }
+    }
+  }
+
   // ── Clock ──────────────────────────────────────────────────────
   function updateClock() {
     const now = new Date();
@@ -944,15 +975,13 @@
 
   // ── Bullish ───────────────────────────────────────────────────
   async function loadBullish() {
-    document.getElementById("bullish-body").innerHTML =
-      `<tr><td colspan="6"><div class="empty-state"><div class="spinner"></div>Scanning…</div></td></tr>`;
+    const tbody = document.getElementById("bullish-body");
+    tbody.innerHTML =
+      `<tr><td colspan="7"><div class="empty-state"><div class="spinner"></div>Scanning…</div></td></tr>`;
     try {
-      const res  = await fetch(`${API}/api/bullish`);
-      const data = await res.json();
+      const data = await fetchWithRetry(`${API}/api/bullish`, tbody, 7);
       renderRows(data, "bullish-body", "bullish");
       document.getElementById("bullish-count").textContent = data.length;
-
-      // update top gainer
       if (data.length) {
         const top = data[0];
         document.getElementById("top-gainer-sym").textContent = top.symbol;
@@ -960,21 +989,25 @@
           `+${(top.day_move ?? top.gap_pct).toFixed(2)}%  ₹${top.price}`;
       }
     } catch (e) {
-      document.getElementById("bullish-body").innerHTML =
-        `<tr><td colspan="6"><div class="empty-state">API offline — start api.py</div></td></tr>`;
+      tbody.innerHTML =
+        `<tr><td colspan="7"><div class="empty-state">
+          Server unreachable — <a href="javascript:loadBullish()" style="color:var(--accent);text-decoration:underline;">Retry</a>
+          <span style="color:var(--text-muted);font-size:11px;display:block;margin-top:4px;">
+            If this persists, check Render dashboard or re-connect Upstox
+          </span>
+        </div></td></tr>`;
     }
   }
 
   // ── Bearish ───────────────────────────────────────────────────
   async function loadBearish() {
-    document.getElementById("bearish-body").innerHTML =
-      `<tr><td colspan="6"><div class="empty-state"><div class="spinner"></div>Scanning…</div></td></tr>`;
+    const tbody = document.getElementById("bearish-body");
+    tbody.innerHTML =
+      `<tr><td colspan="7"><div class="empty-state"><div class="spinner"></div>Scanning…</div></td></tr>`;
     try {
-      const res  = await fetch(`${API}/api/bearish`);
-      const data = await res.json();
+      const data = await fetchWithRetry(`${API}/api/bearish`, tbody, 7);
       renderRows(data, "bearish-body", "bearish");
       document.getElementById("bearish-count").textContent = data.length;
-
       if (data.length) {
         const top = data[0];
         document.getElementById("top-loser-sym").textContent = top.symbol;
@@ -982,8 +1015,13 @@
           `${(top.day_move ?? top.gap_pct).toFixed(2)}%  ₹${top.price}`;
       }
     } catch (e) {
-      document.getElementById("bearish-body").innerHTML =
-        `<tr><td colspan="6"><div class="empty-state">API offline — start api.py</div></td></tr>`;
+      tbody.innerHTML =
+        `<tr><td colspan="7"><div class="empty-state">
+          Server unreachable — <a href="javascript:loadBearish()" style="color:var(--accent);text-decoration:underline;">Retry</a>
+          <span style="color:var(--text-muted);font-size:11px;display:block;margin-top:4px;">
+            If this persists, check Render dashboard or re-connect Upstox
+          </span>
+        </div></td></tr>`;
     }
   }
 
