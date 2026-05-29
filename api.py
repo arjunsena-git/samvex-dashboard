@@ -159,15 +159,34 @@ def _load_token_on_startup():
     return None, 0.0, None
 
 
+# ── Startup: always pre-warm maps and daily data (no auth needed) ──
+# Instrument maps and daily Yahoo batch are auth-independent — load them
+# immediately so the first screener request doesn't have to wait 30-60s.
+threading.Thread(target=lambda: _load_instrument_map(), daemon=True).start()
+threading.Thread(target=lambda: _load_futures_map(),    daemon=True).start()
+threading.Thread(target=lambda: _get_daily_batch(),     daemon=True).start()
+
 # ── Startup token load ─────────────────────────────────────────────
 _startup_token, _startup_expires, _startup_source = _load_token_on_startup()
 if _startup_token:
     _upstox_token["access_token"] = _startup_token
     _upstox_token["expires_at"]   = _startup_expires
     print(f"[Token] Loaded from {_startup_source}")
-    # lambdas defer name lookup to thread-start time (after module fully loads)
-    threading.Thread(target=lambda: _load_instrument_map(), daemon=True).start()
-    threading.Thread(target=lambda: _load_futures_map(), daemon=True).start()
+else:
+    # Redis can be slow on Render cold start — retry in background with backoff
+    def _retry_token_load():
+        for attempt in range(4):
+            time.sleep(3 * (attempt + 1))   # 3s, 6s, 9s, 12s
+            t, exp, src = _load_token_on_startup()
+            if t:
+                _upstox_token["access_token"] = t
+                _upstox_token["expires_at"]   = exp
+                for k in ("live_quotes", "bullish", "bearish", "ticker", "market"):
+                    _cache.pop(k, None)
+                print(f"[Token] Retry {attempt+1}: Loaded from {src}")
+                return
+        print("[Token] All retry attempts failed — will require manual OAuth")
+    threading.Thread(target=_retry_token_load, daemon=True).start()
 
 
 def _is_live():
@@ -705,20 +724,26 @@ def _screen(direction):
     open_dt     = now.replace(hour=9, minute=15, second=0, microsecond=0)
     elapsed_min = max(5.0, (now - open_dt).total_seconds() / 60)
     results     = []
+    ran_live    = False   # did we successfully run the Upstox path?
 
     if _is_live():
         live_quotes = _cached("live_quotes", _fetch_live_quotes, ttl=LIVE_TTL)
         daily_batch = _get_daily_batch()
-        if live_quotes and daily_batch is not None:
-            for symbol in FNO_STOCKS:
-                q = live_quotes.get(symbol)
-                if q:
-                    r = _analyze_smart(symbol, q, daily_batch, direction, elapsed_min)
-                    if r:
-                        results.append(r)
+        if live_quotes:
+            # Upstox quotes available — commit to live path.
+            # Do NOT fall back to Yahoo just because 0 stocks qualify the criteria;
+            # that would silently show 15-MIN DELAY data on an authenticated session.
+            ran_live = True
+            if daily_batch is not None:
+                for symbol in FNO_STOCKS:
+                    q = live_quotes.get(symbol)
+                    if q:
+                        r = _analyze_smart(symbol, q, daily_batch, direction, elapsed_min)
+                        if r:
+                            results.append(r)
 
-    if not results:
-        # Fallback: Yahoo Finance delayed data
+    if not ran_live:
+        # Only use Yahoo Finance when Upstox is not authenticated or returned no quotes
         intraday_batch, daily_batch = _get_batch()
         for symbol in FNO_STOCKS:
             r = _analyze(symbol, intraday_batch, daily_batch, direction, elapsed_min)
