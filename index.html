@@ -596,11 +596,13 @@
     const slColor  = bullish ? "var(--red)" : "var(--green)";
     const t1Color  = bullish ? "var(--green)" : "var(--red)";
     const t2Color  = "#22d3ee";
+    const slNote   = s.sl_label ? `<span style="font-size:9px;color:var(--text-muted);font-style:italic;margin-left:4px;">${s.sl_label}</span>` : "";
     return `<td>
       <div class="tp-cell">
         <div class="tp-row">
           <span class="tp-label tp-entry">Entry</span>
           <span class="tp-price" style="color:var(--text)">₹${fmt(s.entry)}</span>
+          <span style="font-size:10px;font-weight:700;color:${rrColor};margin-left:auto;">R:R&nbsp;${s.risk_reward}</span>
         </div>
         <div class="tp-row">
           <span class="tp-label" style="color:${t1Color};font-size:9px;font-weight:700;">T1</span>
@@ -611,8 +613,8 @@
         <div class="tp-row">
           <span class="tp-label" style="color:${slColor};font-size:9px;font-weight:700;">SL</span>
           <span class="tp-price" style="color:${slColor}">₹${fmt(s.sl)}</span>
-          <span style="font-size:10px;color:var(--text-muted);margin-left:4px;">(${s.sl_pct}%)</span>
-          <span style="font-size:10px;font-weight:700;color:${rrColor};margin-left:auto;">R:R ${s.risk_reward}</span>
+          <span style="font-size:10px;color:${slColor};margin-left:3px;opacity:.75;">(${s.sl_pct}%)</span>
+          ${slNote}
         </div>
       </div>
     </td>`;

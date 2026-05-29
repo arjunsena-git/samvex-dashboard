@@ -510,34 +510,53 @@ def _adr(daily):
 
 def _screen_result(symbol, current_price, gap_pct, intraday_move, day_move,
                    paced_vol_ratio, traded_value_cr, adr_pct, setup_type,
-                   today_high, today_low, direction):
+                   today_high, today_low, today_open, direction):
     bullish    = direction == "bullish"
     remaining  = max(adr_pct - abs(day_move), 0)
     vol_boost  = 1.0 + min(max(paced_vol_ratio - 1.5, 0) * 0.12, 0.35)
     projected  = round(remaining * vol_boost, 2)
     confidence = "HIGH" if projected >= 2.5 else "MED" if projected >= 1.2 else "LOW"
 
-    # ── Trade levels ───────────────────────────────────────────────
-    entry = current_price
-    # Setup-specific max SL distance (cap prevents outsized risk on wide-range stocks)
-    max_sl_dist = 0.015 if setup_type == "Gap Drive" else 0.020 if setup_type == "Momentum" else 0.025
+    # ── Smart liquidity-aware stop loss ────────────────────────────
+    # Reference anchors per setup — avoids the obvious retail stop-hunt zones:
+    #   Gap Drive : anchor = today_open  (below open = gap-fill confirmed, thesis dead)
+    #   Momentum  : anchor = today_high  (30% ADR drop from high = momentum failure)
+    #   Trend     : anchor = today_high  (38.2% Fib retrace from high = structure broken)
+    # Factor is % of ADR as the buffer from the anchor — ADR-proportional so it
+    # scales with the stock's actual volatility, not a fixed rupee or % amount.
+    entry         = current_price
+    adr_daily_pts = entry * (adr_pct / 100)   # ADR in rupee terms
+
+    if setup_type == "Gap Drive":
+        sl_ref    = today_open if today_open > 0 else entry
+        sl_factor = 0.20   # 20% of ADR below the open — sweep of open, then reversal
+        sl_label  = "Below Open"
+    elif setup_type == "Momentum":
+        sl_ref    = today_high if today_high > 0 else entry
+        sl_factor = 0.30   # 30% of ADR from day high — momentum failure zone
+        sl_label  = "30% ADR Below High"
+    else:                  # Trend
+        sl_ref    = today_high if today_high > 0 else entry
+        sl_factor = 0.382  # Fibonacci 38.2% — institutional algo level from the high
+        sl_label  = "38.2% Fib Below High"
 
     if bullish:
-        struct_sl  = today_low  * 0.998 if today_low  > 0 else entry * (1 - max_sl_dist)
-        sl_dist    = max(0.003, min(max_sl_dist, (entry - struct_sl) / entry))
-        sl         = round(entry * (1 - sl_dist), 2)
-        t1         = round(entry * (1 + projected * 0.50 / 100), 2)
-        t2         = round(entry * (1 + projected        / 100), 2)
+        raw_sl  = sl_ref - adr_daily_pts * sl_factor
+        # Guard: SL must be ≥0.25% and ≤1.8% below entry
+        sl_dist = max(0.0025, min(0.018, (entry - raw_sl) / entry))
+        sl      = round(entry * (1 - sl_dist), 2)
+        t1      = round(entry * (1 + projected * 0.50 / 100), 2)
+        t2      = round(entry * (1 + projected        / 100), 2)
     else:
-        struct_sl  = today_high * 1.002 if today_high > 0 else entry * (1 + max_sl_dist)
-        sl_dist    = max(0.003, min(max_sl_dist, (struct_sl - entry) / entry))
-        sl         = round(entry * (1 + sl_dist), 2)
-        t1         = round(entry * (1 - projected * 0.50 / 100), 2)
-        t2         = round(entry * (1 - projected        / 100), 2)
+        raw_sl  = sl_ref + adr_daily_pts * sl_factor
+        sl_dist = max(0.0025, min(0.018, (raw_sl - entry) / entry))
+        sl      = round(entry * (1 + sl_dist), 2)
+        t1      = round(entry * (1 - projected * 0.50 / 100), 2)
+        t2      = round(entry * (1 - projected        / 100), 2)
 
     sl_pct     = round(sl_dist * 100, 2)
     risk_pts   = abs(entry - sl)
-    reward_pts = abs(t1     - entry)
+    reward_pts = abs(t1    - entry)
     rr         = round(reward_pts / risk_pts, 1) if risk_pts > 0 else 0
 
     return {
@@ -556,6 +575,7 @@ def _screen_result(symbol, current_price, gap_pct, intraday_move, day_move,
         "entry":               round(entry, 2),
         "sl":                  sl,
         "sl_pct":              sl_pct,
+        "sl_label":            sl_label,
         "t1":                  t1,
         "t2":                  t2,
         "risk_reward":         rr,
@@ -616,7 +636,7 @@ def _analyze_smart(symbol, quote, daily_batch, direction, elapsed_min):
 
         return _screen_result(symbol, current_price, gap_pct, intraday_move, day_move,
                                paced_vol_ratio, traded_value_cr, adr, setup,
-                               today_high, today_low, direction)
+                               today_high, today_low, today_open, direction)
     except Exception as e:
         print(f"[Smart] Error {symbol}: {e}")
         return None
@@ -673,7 +693,7 @@ def _analyze(symbol, intraday_batch, daily_batch, direction, elapsed_min):
 
         return _screen_result(symbol, current_price, gap_pct, intraday_move, day_move,
                                paced_vol_ratio, traded_value_cr, adr, setup,
-                               today_high, today_low, direction)
+                               today_high, today_low, today_open, direction)
     except Exception:
         return None
 
