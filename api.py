@@ -421,30 +421,6 @@ def _fetch_live_quotes():
     return results or None
 
 
-def _fetch_first_candle_live(instrument_key):
-    """Fetch today's 1-min candles; aggregate first 5 into a synthetic 5-min candle."""
-    try:
-        r = _http.get(
-            f"{UPSTOX_BASE}/historical-candle/intraday/{instrument_key}/1minute",
-            headers=_upstox_headers(),
-            timeout=10,
-        )
-        if r.status_code != 200:
-            return None
-        candles = r.json().get("data", {}).get("candles", [])
-        if not candles:
-            return None
-        # Each candle: [timestamp, open, high, low, close, volume, oi]
-        candles.sort(key=lambda x: x[0])
-        first5 = candles[:5]
-        return {
-            "open":  float(first5[0][1]),
-            "high":  max(float(c[2]) for c in first5),
-            "low":   min(float(c[3]) for c in first5),
-            "close": float(first5[-1][4]),
-        }
-    except Exception:
-        return None
 
 
 # ── Yahoo Finance batch (daily only when Upstox is live) ──────────
@@ -520,164 +496,150 @@ def _get_ticker_df(batch, ticker):
         return None
 
 
-# ── Intraday move potential (time-agnostic) ────────────────────────
-def compute_move_potential(intraday, daily, direction, paced_vol_ratio):
-    today_open    = float(intraday["Open"].iloc[0])
-    prev_close    = float(daily["Close"].iloc[-2])
-    current_price = float(intraday["Close"].iloc[-1])
-    first_close   = float(intraday["Close"].iloc[0])
+# ── Time-adaptive screener core ────────────────────────────────────
+# Phase 1 Gap Drive  (0–90 min  / 9:15–10:45): gap + momentum + surging volume
+# Phase 2 Momentum   (90–225 min/ 10:45–12:45): day move + near high/low + building volume
+# Phase 3 Trend      (225+ min  / 12:45–15:30): sustained trend + strong volume + near extreme
 
-    gap_pct = abs((today_open - prev_close) / prev_close * 100)
-
+def _adr(daily):
     lookback = daily.iloc[-11:-1] if len(daily) >= 11 else daily.iloc[:-1]
-    adr_pct  = float(
+    return float(
         ((lookback["High"] - lookback["Low"]) / lookback["Close"]).mean() * 100
     ) if len(lookback) > 0 else 2.0
 
-    if direction == "bullish":
-        aligned       = first_close > today_open
-        session_high  = float(intraday["High"].max())
-        used_intraday = max((session_high - today_open) / today_open * 100, 0)
-    else:
-        aligned       = first_close < today_open
-        session_low   = float(intraday["Low"].min())
-        used_intraday = max((today_open - session_low) / today_open * 100, 0)
 
-    total_used   = gap_pct + used_intraday
-    remaining    = max(adr_pct - total_used, 0.0)
-    vol_boost    = 1.0 + min(max(paced_vol_ratio - 2, 0) * 0.10, 0.40)
-    align_factor = 1.15 if aligned else 0.80
-    potential    = remaining * vol_boost * align_factor
-
-    if adr_pct < 2.0:
-        potential *= (adr_pct / 2.0)
-
-    confidence = "HIGH" if potential >= 3.0 else "MED" if potential >= 2.0 else "LOW"
+def _screen_result(symbol, current_price, gap_pct, intraday_move, day_move,
+                   paced_vol_ratio, traded_value_cr, adr_pct, setup_type):
+    remaining  = max(adr_pct - abs(day_move), 0)
+    vol_boost  = 1.0 + min(max(paced_vol_ratio - 1.5, 0) * 0.12, 0.35)
+    projected  = round(remaining * vol_boost, 2)
+    confidence = "HIGH" if projected >= 2.5 else "MED" if projected >= 1.2 else "LOW"
     return {
-        "projected_pct": round(potential, 2),
-        "adr_pct":       round(adr_pct, 2),
-        "aligned":       aligned,
-        "confidence":    confidence,
+        "symbol":              symbol.replace(".NS", ""),
+        "price":               round(current_price, 2),
+        "gap_pct":             round(gap_pct, 2),
+        "intraday_move":       round(intraday_move, 2),
+        "day_move":            round(day_move, 2),
+        "volume_ratio":        round(paced_vol_ratio, 2),
+        "traded_value_crores": round(traded_value_cr, 2),
+        "projected_pct":       projected,
+        "adr_pct":             round(adr_pct, 2),
+        "confidence":          confidence,
+        "aligned":             True,
+        "setup_type":          setup_type,
     }
 
 
-# ── Live analysis (Upstox quotes + Yahoo daily ADR) ────────────────
-def _analyze_live(symbol, quote, daily_batch, direction, elapsed_min):
+def _analyze_smart(symbol, quote, daily_batch, direction, elapsed_min):
+    """Live Upstox path — 3-phase time-adaptive screener."""
     daily = _get_ticker_df(daily_batch, symbol)
     if daily is None or len(daily) < 2:
         return None
     try:
-        ohlc          = quote.get("ohlc", {})
-        today_open    = float(ohlc.get("open", 0))
-        today_high    = float(ohlc.get("high", 0))
-        today_low     = float(ohlc.get("low", 0))
-        current_price = float(quote.get("last_price", 0))
-        today_volume  = float(quote.get("volume", 0))
-        prev_close    = float(quote.get("prev_close_price") or daily["Close"].iloc[-2])
+        ohlc          = quote.get("ohlc") or {}
+        today_open    = float(ohlc.get("open",  0) or 0)
+        today_high    = float(ohlc.get("high",  0) or 0)
+        today_low     = float(ohlc.get("low",   0) or 0)
+        current_price = float(quote.get("last_price",       0) or 0)
+        today_volume  = float(quote.get("volume",           0) or 0)
+        prev_close    = float(quote.get("prev_close_price", 0) or 0)
         prev_day_vol  = float(daily["Volume"].iloc[-2])
 
-        if today_open <= 0 or current_price <= 0:
+        if today_open <= 0 or current_price <= 0 or prev_close <= 0 or prev_day_vol <= 0:
             return None
 
-        gap_pct         = (today_open - prev_close) / prev_close * 100
-        traded_value_cr = (today_volume * current_price) / 1e7
+        gap_pct         = (today_open    - prev_close)    / prev_close    * 100
+        intraday_move   = (current_price - today_open)    / today_open    * 100
+        day_move        = (current_price - prev_close)    / prev_close    * 100
+        traded_value_cr = (today_volume  * current_price) / 1e7
+        vol_ratio_abs   = today_volume / prev_day_vol
+        paced_vol_ratio = (today_volume / elapsed_min) * 375 / prev_day_vol
+        near_high       = today_high > 0 and (current_price / today_high) >= 0.990
+        near_low        = today_low  > 0 and (current_price / today_low)  <= 1.010
+        adr             = _adr(daily)
+        bullish         = direction == "bullish"
 
-        MARKET_MINS     = 375.0
-        volume_paced    = (today_volume / elapsed_min) * MARKET_MINS
-        paced_vol_ratio = volume_paced / prev_day_vol if prev_day_vol > 0 else 0
+        if elapsed_min <= 90:
+            gap_ok  = (0.15 < gap_pct <  2.5) if bullish else (-2.5 < gap_pct < -0.15)
+            mom_ok  = intraday_move > 0         if bullish else intraday_move < 0
+            if not (gap_ok and mom_ok and paced_vol_ratio >= 1.5
+                    and traded_value_cr >= 25 and max(adr - abs(day_move), 0) >= 1.0):
+                return None
+            setup = "Gap Drive"
 
-        gap_ok = (0 < gap_pct < 1) if direction == "bullish" else (-1 < gap_pct < 0)
-        if not (gap_ok and paced_vol_ratio >= 2 and traded_value_cr >= 100):
-            return None
+        elif elapsed_min <= 225:
+            move_ok = day_move >=  1.0 if bullish else day_move <= -1.0
+            ext_ok  = near_high        if bullish else near_low
+            if not (move_ok and ext_ok and vol_ratio_abs >= 0.25 and traded_value_cr >= 15):
+                return None
+            setup = "Momentum"
 
-        # Only fetch 1-min candles for stocks passing the quick filter
-        ikey              = _sym_to_key(symbol)
-        first_close       = today_open
-        first_candle_move = 0.0
-        if ikey:
-            fc = _fetch_first_candle_live(ikey)
-            if fc:
-                first_candle_move = abs((fc["close"] - fc["open"]) / fc["open"] * 100)
-                first_close       = fc["close"]
+        else:
+            move_ok = day_move >= 0.8 if bullish else day_move <= -0.8
+            ext_ok  = (today_high > 0 and current_price / today_high >= 0.985) if bullish \
+                      else (today_low  > 0 and current_price / today_low  <= 1.015)
+            if not (move_ok and ext_ok and vol_ratio_abs >= 0.40 and traded_value_cr >= 10):
+                return None
+            setup = "Trend"
 
-        if first_candle_move >= 1.0:
-            return None
-
-        # Synthetic intraday DataFrame for compute_move_potential
-        intraday = pd.DataFrame({
-            "Open":   [today_open,  today_open],
-            "High":   [today_high,  today_high],
-            "Low":    [today_low,   today_low],
-            "Close":  [first_close, current_price],
-            "Volume": [today_volume, today_volume],
-        })
-
-        pot = compute_move_potential(intraday, daily, direction, paced_vol_ratio)
-        if pot["projected_pct"] < 2.0:
-            return None
-
-        return {
-            "symbol":              symbol.replace(".NS", ""),
-            "price":               round(current_price, 2),
-            "gap_pct":             round(gap_pct, 2),
-            "first_candle_move":   round(first_candle_move, 2),
-            "volume_ratio":        round(paced_vol_ratio, 2),
-            "traded_value_crores": round(traded_value_cr, 2),
-            "projected_pct":       pot["projected_pct"],
-            "adr_pct":             pot["adr_pct"],
-            "confidence":          pot["confidence"],
-            "aligned":             pot["aligned"],
-        }
+        return _screen_result(symbol, current_price, gap_pct, intraday_move, day_move,
+                               paced_vol_ratio, traded_value_cr, adr, setup)
     except Exception as e:
-        print(f"[Live] Analyze error {symbol}: {e}")
+        print(f"[Smart] Error {symbol}: {e}")
         return None
 
 
-# ── Yahoo Finance analysis (delayed fallback) ──────────────────────
+# ── Yahoo Finance analysis (delayed fallback — same 3-phase logic) ─
 def _analyze(symbol, intraday_batch, daily_batch, direction, elapsed_min):
     intraday = _get_ticker_df(intraday_batch, symbol)
     daily    = _get_ticker_df(daily_batch,    symbol)
     if intraday is None or daily is None or len(daily) < 2:
         return None
     try:
-        prev_close      = float(daily["Close"].iloc[-2])
-        prev_day_volume = float(daily["Volume"].iloc[-2])
-        today_open      = float(intraday["Open"].iloc[0])
-        first_close     = float(intraday["Close"].iloc[0])
-        current_price   = float(intraday["Close"].iloc[-1])
-        today_volume    = float(intraday["Volume"].sum())
+        prev_close    = float(daily["Close"].iloc[-2])
+        prev_day_vol  = float(daily["Volume"].iloc[-2])
+        today_open    = float(intraday["Open"].iloc[0])
+        current_price = float(intraday["Close"].iloc[-1])
+        today_high    = float(intraday["High"].max())
+        today_low     = float(intraday["Low"].min())
+        today_volume  = float(intraday["Volume"].sum())
 
-        gap_pct           = (today_open - prev_close) / prev_close * 100
-        first_candle_move = abs((first_close - today_open) / today_open * 100)
-        traded_value_cr   = (today_volume * current_price) / 1e7
+        gap_pct         = (today_open    - prev_close)    / prev_close   * 100
+        intraday_move   = (current_price - today_open)    / today_open   * 100
+        day_move        = (current_price - prev_close)    / prev_close   * 100
+        traded_value_cr = (today_volume  * current_price) / 1e7
+        vol_ratio_abs   = today_volume / prev_day_vol if prev_day_vol > 0 else 0
+        paced_vol_ratio = (today_volume / elapsed_min) * 375 / prev_day_vol if prev_day_vol > 0 else 0
+        near_high       = today_high > 0 and (current_price / today_high) >= 0.990
+        near_low        = today_low  > 0 and (current_price / today_low)  <= 1.010
+        adr             = _adr(daily)
+        bullish         = direction == "bullish"
 
-        MARKET_MINS     = 375.0
-        volume_paced    = (today_volume / elapsed_min) * MARKET_MINS
-        paced_vol_ratio = volume_paced / prev_day_volume if prev_day_volume > 0 else 0
+        if elapsed_min <= 90:
+            gap_ok  = (0.15 < gap_pct <  2.5) if bullish else (-2.5 < gap_pct < -0.15)
+            mom_ok  = intraday_move > 0         if bullish else intraday_move < 0
+            if not (gap_ok and mom_ok and paced_vol_ratio >= 1.5
+                    and traded_value_cr >= 25 and max(adr - abs(day_move), 0) >= 1.0):
+                return None
+            setup = "Gap Drive"
 
-        gap_ok = (0 < gap_pct < 1) if direction == "bullish" else (-1 < gap_pct < 0)
-        if not (gap_ok
-                and paced_vol_ratio >= 2
-                and first_candle_move < 1
-                and traded_value_cr >= 100):
-            return None
+        elif elapsed_min <= 225:
+            move_ok = day_move >=  1.0 if bullish else day_move <= -1.0
+            ext_ok  = near_high        if bullish else near_low
+            if not (move_ok and ext_ok and vol_ratio_abs >= 0.25 and traded_value_cr >= 15):
+                return None
+            setup = "Momentum"
 
-        pot = compute_move_potential(intraday, daily, direction, paced_vol_ratio)
-        if pot["projected_pct"] < 2.0:
-            return None
+        else:
+            move_ok = day_move >= 0.8 if bullish else day_move <= -0.8
+            ext_ok  = (today_high > 0 and current_price / today_high >= 0.985) if bullish \
+                      else (today_low  > 0 and current_price / today_low  <= 1.015)
+            if not (move_ok and ext_ok and vol_ratio_abs >= 0.40 and traded_value_cr >= 10):
+                return None
+            setup = "Trend"
 
-        return {
-            "symbol":              symbol.replace(".NS", ""),
-            "price":               round(current_price, 2),
-            "gap_pct":             round(gap_pct, 2),
-            "first_candle_move":   round(first_candle_move, 2),
-            "volume_ratio":        round(paced_vol_ratio, 2),
-            "traded_value_crores": round(traded_value_cr, 2),
-            "projected_pct":       pot["projected_pct"],
-            "adr_pct":             pot["adr_pct"],
-            "confidence":          pot["confidence"],
-            "aligned":             pot["aligned"],
-        }
+        return _screen_result(symbol, current_price, gap_pct, intraday_move, day_move,
+                               paced_vol_ratio, traded_value_cr, adr, setup)
     except Exception:
         return None
 
@@ -697,7 +659,7 @@ def _screen(direction):
             for symbol in FNO_STOCKS:
                 q = live_quotes.get(symbol)
                 if q:
-                    r = _analyze_live(symbol, q, daily_batch, direction, elapsed_min)
+                    r = _analyze_smart(symbol, q, daily_batch, direction, elapsed_min)
                     if r:
                         results.append(r)
 
@@ -800,15 +762,16 @@ def _fetch_ticker():
     return result
 
 
-# ── Near-miss candidates (relaxed screener for mid-day view) ──────
+# ── Near-miss candidates (relaxed, time-adaptive fallback) ─────────
 def _screen_candidates(direction):
-    """Return top 5 stocks closest to qualifying, regardless of whether all criteria pass."""
+    """Top 5 stocks closest to qualifying when strict screener returns nothing."""
     ist = pytz.timezone("Asia/Kolkata")
     now = datetime.now(ist)
     open_dt     = now.replace(hour=9, minute=15, second=0, microsecond=0)
     elapsed_min = max(5.0, (now - open_dt).total_seconds() / 60)
+    bullish     = direction == "bullish"
 
-    candidates = []
+    candidates  = []
     live_quotes = _cached("live_quotes", _fetch_live_quotes, ttl=LIVE_TTL) if _is_live() else None
     daily_batch = _get_daily_batch()
 
@@ -819,41 +782,56 @@ def _screen_candidates(direction):
         try:
             ohlc          = q.get("ohlc") or {}
             today_open    = float(ohlc.get("open", 0) or 0)
-            current_price = float(q.get("last_price", 0) or 0)
-            today_volume  = float(q.get("volume", 0) or 0)
+            today_high    = float(ohlc.get("high", 0) or 0)
+            today_low     = float(ohlc.get("low",  0) or 0)
+            current_price = float(q.get("last_price",       0) or 0)
+            today_volume  = float(q.get("volume",           0) or 0)
             prev_close    = float(q.get("prev_close_price", 0) or 0)
 
             if today_open <= 0 or current_price <= 0 or prev_close <= 0:
                 continue
 
             gap_pct         = (today_open - prev_close) / prev_close * 100
+            day_move        = (current_price - prev_close) / prev_close * 100
             traded_value_cr = (today_volume * current_price) / 1e7
+            near_high       = today_high > 0 and (current_price / today_high) >= 0.99
+            near_low        = today_low  > 0 and (current_price / today_low)  <= 1.01
 
             daily    = _get_ticker_df(daily_batch, symbol) if daily_batch is not None else None
             prev_vol = float(daily["Volume"].iloc[-2]) if daily is not None and len(daily) >= 2 else 0
-            paced_ratio = (today_volume / elapsed_min) * 375 / prev_vol if prev_vol > 0 else 0
+            vol_ratio_abs = today_volume / prev_vol if prev_vol > 0 else 0
+            paced_ratio   = (today_volume / elapsed_min) * 375 / prev_vol if prev_vol > 0 else 0
 
-            # Score: how many of the 3 quick filters pass
-            gap_ok  = (0 < gap_pct < 1)   if direction == "bullish" else (-1 < gap_pct < 0)
-            vol_ok  = paced_ratio >= 2
-            val_ok  = traded_value_cr >= 100
-            score   = int(gap_ok) + int(vol_ok) + int(val_ok)
+            if elapsed_min <= 90:
+                dir_ok   = (gap_pct > 0.05)   if bullish else (gap_pct < -0.05)
+                vol_ok   = paced_ratio    >= 1.0
+                val_ok   = traded_value_cr >= 15
+                extra_ok = (day_move > 0)      if bullish else (day_move < 0)
+            elif elapsed_min <= 225:
+                dir_ok   = (day_move > 0.2)   if bullish else (day_move < -0.2)
+                vol_ok   = vol_ratio_abs  >= 0.12
+                val_ok   = traded_value_cr >= 10
+                extra_ok = near_high if bullish else near_low
+            else:
+                dir_ok   = (day_move > 0.2)   if bullish else (day_move < -0.2)
+                vol_ok   = vol_ratio_abs  >= 0.25
+                val_ok   = traded_value_cr >= 8
+                extra_ok = near_high if bullish else near_low
 
-            # Only surface stocks with correct gap direction and some activity
-            if not gap_ok:
+            if not dir_ok or traded_value_cr < 5:
                 continue
-            if traded_value_cr < 10:  # must have at least ₹10 Cr traded
-                continue
 
+            score = int(vol_ok) + int(val_ok) + int(extra_ok)
             candidates.append({
-                "symbol":        symbol.replace(".NS", ""),
-                "price":         round(current_price, 2),
-                "gap_pct":       round(gap_pct, 2),
-                "volume_ratio":  round(paced_ratio, 2),
-                "value_cr":      round(traded_value_cr, 1),
-                "criteria_met":  score,
-                "vol_ok":        vol_ok,
-                "val_ok":        val_ok,
+                "symbol":       symbol.replace(".NS", ""),
+                "price":        round(current_price, 2),
+                "gap_pct":      round(gap_pct, 2),
+                "day_move":     round(day_move, 2),
+                "volume_ratio": round(paced_ratio, 2),
+                "value_cr":     round(traded_value_cr, 1),
+                "criteria_met": score,
+                "vol_ok":       vol_ok,
+                "val_ok":       val_ok,
             })
         except Exception:
             continue

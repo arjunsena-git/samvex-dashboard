@@ -394,11 +394,11 @@
         <button class="refresh-btn" onclick="loadBullish()">↺ Refresh</button>
       </div>
       <div class="criteria-row">
-        <span class="chip chip-green">&lt;1% Gap Up</span>
-        <span class="chip chip-green">≥2× Volume</span>
-        <span class="chip chip-green">&lt;1% First Candle</span>
-        <span class="chip chip-blue">≥₹100 Cr Inst.</span>
-        <span class="chip chip-orange">≥2% Potential</span>
+        <span class="chip chip-green">Gap Drive 9:15–10:45</span>
+        <span class="chip chip-blue">Momentum 10:45–12:45</span>
+        <span class="chip chip-orange">Trend 12:45–15:30</span>
+        <span class="chip chip-green">Volume Confirmed</span>
+        <span class="chip chip-orange">Move Potential</span>
       </div>
       <table>
         <thead>
@@ -427,11 +427,11 @@
         <button class="refresh-btn" onclick="loadBearish()">↺ Refresh</button>
       </div>
       <div class="criteria-row">
-        <span class="chip chip-red">&lt;1% Gap Down</span>
-        <span class="chip chip-red">≥2× Volume</span>
-        <span class="chip chip-red">&lt;1% First Candle</span>
-        <span class="chip chip-blue">≥₹100 Cr Inst.</span>
-        <span class="chip chip-orange">≥2% Potential</span>
+        <span class="chip chip-red">Gap Drive 9:15–10:45</span>
+        <span class="chip chip-blue">Momentum 10:45–12:45</span>
+        <span class="chip chip-orange">Trend 12:45–15:30</span>
+        <span class="chip chip-red">Volume Confirmed</span>
+        <span class="chip chip-orange">Move Potential</span>
       </div>
       <table>
         <thead>
@@ -576,14 +576,14 @@
   function potentialCell(s, direction) {
     const arrow = direction === "bullish" ? "▲" : "▼";
     const cls   = s.confidence === "HIGH" ? "pot-high" : "pot-med";
-    const align = s.aligned
-      ? `<span style="color:var(--green);font-size:10px;">✓ aligned</span>`
-      : `<span style="color:var(--red);font-size:10px;">✗ misaligned</span>`;
+    const badge = s.setup_type
+      ? `<span style="font-size:9px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:.4px;">${s.setup_type}</span>`
+      : "";
     return `<div class="pot-wrap">
+      ${badge}
       <span class="pot-value ${cls}">${arrow} ${s.projected_pct}%</span>
       <span style="display:flex;gap:4px;align-items:center;">
         <span class="conf-badge conf-${s.confidence}">${s.confidence}</span>
-        ${align}
         <span style="color:var(--text-muted);font-size:10px;">ADR ${s.adr_pct}%</span>
       </span>
     </div>`;
@@ -592,20 +592,28 @@
   function renderRows(data, tbody, direction) {
     const el = document.getElementById(tbody);
     if (!data || data.length === 0) {
-      // Fetch near-miss candidates when strict scan returns nothing
       loadCandidates(direction, tbody);
       return;
     }
     const color = direction === "bullish" ? "green" : "red";
-    el.innerHTML = data.map((s) => `
-      <tr>
+    el.innerHTML = data.map((s) => {
+      const iMove = s.intraday_move != null ? s.intraday_move : null;
+      const iColor = iMove != null ? (iMove >= 0 ? "green" : "red") : color;
+      const moveCell = iMove != null
+        ? `<div style="display:flex;flex-direction:column;gap:2px;">
+             <span class="pill pill-${color}" style="font-size:10px;">${sign(s.gap_pct)}${s.gap_pct}% gap</span>
+             <span class="pill pill-${iColor}" style="font-size:10px;">${sign(iMove)}${iMove}% intra</span>
+           </div>`
+        : `<span class="pill pill-${color}">${sign(s.gap_pct)}${s.gap_pct}%</span>`;
+      return `<tr>
         <td><span class="sym">${s.symbol}</span></td>
         <td class="price">${fmt(s.price)}</td>
-        <td><span class="pill pill-${color}">${sign(s.gap_pct)}${s.gap_pct}%</span></td>
+        <td>${moveCell}</td>
         <td>${volBar(s.volume_ratio)}</td>
         <td class="inst-value">₹${s.traded_value_crores} Cr</td>
         <td>${potentialCell(s, direction)}</td>
-      </tr>`).join("");
+      </tr>`;
+    }).join("");
   }
 
   async function loadCandidates(direction, tbody) {
@@ -615,22 +623,24 @@
       const data = await res.json();
       if (!data || data.length === 0) {
         el.innerHTML = `<tr><td colspan="6"><div class="empty-state">
-          No ${direction} setups today.<br>
-          <small>Best used at market open (9:15–10:15 AM)</small>
+          No ${direction} setups detected.<br>
+          <small>Market conditions not aligned right now — check OI scanner for signals</small>
         </div></td></tr>`;
         return;
       }
       const color = direction === "bullish" ? "green" : "red";
       el.innerHTML = `<tr><td colspan="6" style="padding:6px 18px 2px;background:var(--bg-card-2)">
         <span style="font-size:10px;color:var(--text-muted);font-weight:700;letter-spacing:.5px;text-transform:uppercase;">
-          Near Setups — correct gap, watching for volume</span></td></tr>` +
+          Watching — directionally aligned, building toward criteria</span></td></tr>` +
         data.map(s => {
           const volColor = s.vol_ok ? "green" : "yellow";
           const valColor = s.val_ok ? "green" : "yellow";
-          return `<tr style="opacity:.82">
+          const moveVal  = s.day_move != null ? s.day_move : s.gap_pct;
+          const moveColor = moveVal >= 0 ? "green" : "red";
+          return `<tr style="opacity:.85">
             <td><span class="sym">${s.symbol}</span></td>
             <td class="price">${fmt(s.price)}</td>
-            <td><span class="pill pill-${color}">${sign(s.gap_pct)}${s.gap_pct}%</span></td>
+            <td><span class="pill pill-${moveColor}">${sign(moveVal)}${moveVal}%</span></td>
             <td><span class="pill pill-${volColor}">${s.volume_ratio}×</span></td>
             <td class="inst-value"><span class="pill pill-${valColor}">₹${s.value_cr} Cr</span></td>
             <td style="color:var(--text-muted);font-size:11px;">${s.criteria_met}/3 filters</td>
@@ -759,7 +769,7 @@
         const top = data[0];
         document.getElementById("top-gainer-sym").textContent = top.symbol;
         document.getElementById("top-gainer-val").textContent =
-          `+${top.gap_pct}%  ₹${top.price}`;
+          `+${(top.day_move ?? top.gap_pct).toFixed(2)}%  ₹${top.price}`;
       }
     } catch (e) {
       document.getElementById("bullish-body").innerHTML =
@@ -781,7 +791,7 @@
         const top = data[0];
         document.getElementById("top-loser-sym").textContent = top.symbol;
         document.getElementById("top-loser-val").textContent =
-          `${top.gap_pct}%  ₹${top.price}`;
+          `${(top.day_move ?? top.gap_pct).toFixed(2)}%  ₹${top.price}`;
       }
     } catch (e) {
       document.getElementById("bearish-body").innerHTML =
