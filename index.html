@@ -688,13 +688,13 @@
         return await res.json();
       } catch (err) {
         if (attempt < maxAttempts) {
-          const wait = 15 * attempt;
+          const wait = 10 * attempt;
           bodyEl.innerHTML =
             `<tr><td colspan="${colspan}"><div class="empty-state">
               <div class="spinner"></div>
-              Server is waking up… retrying (${attempt}/${maxAttempts - 1})
+              Connecting to server… retrying (${attempt}/${maxAttempts - 1})
               <span style="color:var(--text-muted);font-size:11px;display:block;margin-top:4px;">
-                Render takes ~30–60s after idle · auto-refreshing
+                Network hiccup · auto-retrying in ${wait}s
               </span>
             </div></td></tr>`;
           await new Promise(r => setTimeout(r, wait * 1000));

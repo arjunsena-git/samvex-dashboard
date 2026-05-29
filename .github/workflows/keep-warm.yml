@@ -1,31 +1,21 @@
-name: Keep API Warm
+name: Keep Cache Warm
 
-# Pings Render every 10 minutes during IST market hours.
-# Render free tier spins down after 15 min; GitHub Actions adds 1-5 min delay,
-# so the old 14-min interval had a gap. 10-min intervals give a 5-min buffer.
-# Also warms /api/market to keep daily Yahoo batch hot between screener calls.
-#
-# UTC schedule: IST 8:45 AM-3:40 PM = UTC 3:15-10:10
+# Render Starter plan is always-on — no spin-down to prevent.
+# This cron now only exists to keep the daily Yahoo batch cache hot
+# so the first screener request of each session is fast.
+# Runs every 30 min during IST market hours, Mon-Fri.
+# UTC: IST 9:00 AM-3:30 PM = UTC 3:30-10:00
 on:
   schedule:
-    - cron: "15,25,35,45,55 3 * * 1-5"     # 3:15-3:55 UTC (8:45-9:25 IST)
-    - cron: "5,15,25,35,45,55 4-9 * * 1-5" # 4:05-9:55 UTC (9:35 AM-3:25 IST)
-    - cron: "5,10 10 * * 1-5"              # 10:05-10:10 UTC (3:35-3:40 IST)
+    - cron: "30 3-9 * * 1-5"   # every 30 min, 3:30-9:30 UTC (9:00 AM-3:00 PM IST)
+    - cron: "0 10 * * 1-5"     # final warm at 3:30 PM IST
   workflow_dispatch:
 
 jobs:
-  ping:
+  warm:
     runs-on: ubuntu-latest
     steps:
-      - name: Wake up Render API
-        run: |
-          STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 https://samvex-api.onrender.com/api/ping)
-          echo "Ping status: $STATUS"
-          if [ "$STATUS" != "200" ]; then
-            echo "Warning: API returned $STATUS"
-          fi
-
       - name: Warm market data cache
         run: |
           curl -s --max-time 45 https://samvex-api.onrender.com/api/market > /dev/null
-          echo "Market data warmed"
+          echo "Market data cache warmed"
