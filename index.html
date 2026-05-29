@@ -278,6 +278,20 @@
 
     .inst-value { font-size: 11px; color: var(--text-muted); }
 
+    /* ── Trade Plan cell ─────────────────────────────────────────── */
+    .tp-cell { display: flex; flex-direction: column; gap: 3px; min-width: 160px; }
+    .tp-row  { display: flex; align-items: center; gap: 6px; }
+    .tp-label {
+      font-size: 9px; font-weight: 700; letter-spacing: .5px;
+      text-transform: uppercase; min-width: 22px;
+    }
+    .tp-entry { color: var(--text-muted); }
+    .tp-t1    { color: var(--green); }
+    .tp-t2    { color: #22d3ee; }
+    .tp-sl    { color: var(--red); }
+    .tp-price { font-size: 12px; font-weight: 700; }
+    .tp-meta  { font-size: 10px; color: var(--text-muted); margin-left: auto; }
+
     /* ── Empty / loading state ───────────────────────────────────── */
     .empty-state {
       padding: 40px 18px;
@@ -409,10 +423,11 @@
             <th>Volume</th>
             <th>Value (Cr)</th>
             <th>Potential ▾</th>
+            <th>Trade Plan</th>
           </tr>
         </thead>
         <tbody id="bullish-body">
-          <tr><td colspan="6"><div class="empty-state"><div class="spinner"></div>Loading…</div></td></tr>
+          <tr><td colspan="7"><div class="empty-state"><div class="spinner"></div>Loading…</div></td></tr>
         </tbody>
       </table>
     </div>
@@ -442,10 +457,11 @@
             <th>Volume</th>
             <th>Value (Cr)</th>
             <th>Potential ▾</th>
+            <th>Trade Plan</th>
           </tr>
         </thead>
         <tbody id="bearish-body">
-          <tr><td colspan="6"><div class="empty-state"><div class="spinner"></div>Loading…</div></td></tr>
+          <tr><td colspan="7"><div class="empty-state"><div class="spinner"></div>Loading…</div></td></tr>
         </tbody>
       </table>
     </div>
@@ -573,6 +589,35 @@
     </div>`;
   }
 
+  function tradePlanCell(s, direction) {
+    if (!s.entry || !s.sl || !s.t1) return "<td></td>";
+    const bullish  = direction === "bullish";
+    const rrColor  = s.risk_reward >= 1.5 ? "var(--green)" : s.risk_reward >= 1.0 ? "var(--yellow)" : "var(--red)";
+    const slColor  = bullish ? "var(--red)" : "var(--green)";
+    const t1Color  = bullish ? "var(--green)" : "var(--red)";
+    const t2Color  = "#22d3ee";
+    return `<td>
+      <div class="tp-cell">
+        <div class="tp-row">
+          <span class="tp-label tp-entry">Entry</span>
+          <span class="tp-price" style="color:var(--text)">₹${fmt(s.entry)}</span>
+        </div>
+        <div class="tp-row">
+          <span class="tp-label" style="color:${t1Color};font-size:9px;font-weight:700;">T1</span>
+          <span class="tp-price" style="color:${t1Color}">₹${fmt(s.t1)}</span>
+          <span class="tp-label" style="color:${t2Color};font-size:9px;font-weight:700;margin-left:8px;">T2</span>
+          <span class="tp-price" style="color:${t2Color}">₹${fmt(s.t2)}</span>
+        </div>
+        <div class="tp-row">
+          <span class="tp-label" style="color:${slColor};font-size:9px;font-weight:700;">SL</span>
+          <span class="tp-price" style="color:${slColor}">₹${fmt(s.sl)}</span>
+          <span style="font-size:10px;color:var(--text-muted);margin-left:4px;">(${s.sl_pct}%)</span>
+          <span style="font-size:10px;font-weight:700;color:${rrColor};margin-left:auto;">R:R ${s.risk_reward}</span>
+        </div>
+      </div>
+    </td>`;
+  }
+
   function potentialCell(s, direction) {
     const arrow = direction === "bullish" ? "▲" : "▼";
     const cls   = s.confidence === "HIGH" ? "pot-high" : "pot-med";
@@ -612,6 +657,7 @@
         <td>${volBar(s.volume_ratio)}</td>
         <td class="inst-value">₹${s.traded_value_crores} Cr</td>
         <td>${potentialCell(s, direction)}</td>
+        ${tradePlanCell(s, direction)}
       </tr>`;
     }).join("");
   }
@@ -622,14 +668,14 @@
       const res  = await fetch(`${API}/api/candidates/${direction}`);
       const data = await res.json();
       if (!data || data.length === 0) {
-        el.innerHTML = `<tr><td colspan="6"><div class="empty-state">
+        el.innerHTML = `<tr><td colspan="7"><div class="empty-state">
           No ${direction} setups detected.<br>
           <small>Market conditions not aligned right now — check OI scanner for signals</small>
         </div></td></tr>`;
         return;
       }
       const color = direction === "bullish" ? "green" : "red";
-      el.innerHTML = `<tr><td colspan="6" style="padding:6px 18px 2px;background:var(--bg-card-2)">
+      el.innerHTML = `<tr><td colspan="7" style="padding:6px 18px 2px;background:var(--bg-card-2)">
         <span style="font-size:10px;color:var(--text-muted);font-weight:700;letter-spacing:.5px;text-transform:uppercase;">
           Watching — directionally aligned, building toward criteria</span></td></tr>` +
         data.map(s => {
@@ -647,7 +693,7 @@
           </tr>`;
         }).join("");
     } catch (_) {
-      el.innerHTML = `<tr><td colspan="6"><div class="empty-state">No setups found.</div></td></tr>`;
+      el.innerHTML = `<tr><td colspan="7"><div class="empty-state">No setups found.</div></td></tr>`;
     }
   }
 
