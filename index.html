@@ -461,34 +461,45 @@
       .summary-card .value { font-size: 20px; }
     }
 
-    /* ── AI Insights ─────────────────────────────────────────────── */
+    /* ── Market Sentiment card ───────────────────────────────────── */
     .ai-brief-card {
-      background: linear-gradient(135deg, rgba(79,142,247,.07), rgba(124,58,237,.07));
-      border: 1px solid rgba(79,142,247,.22);
+      background: var(--bg-card);
+      border: 1px solid var(--border);
       border-radius: var(--radius);
-      padding: 14px 20px;
+      padding: 16px 20px;
       margin-bottom: 16px;
+      box-shadow: var(--shadow);
+      transition: opacity .4s;
     }
     .ai-brief-header {
       font-size: 10px; font-weight: 700; letter-spacing: .7px;
-      color: var(--accent); text-transform: uppercase;
+      color: var(--text-muted); text-transform: uppercase;
       display: flex; align-items: center; gap: 6px;
-      margin-bottom: 8px;
+      margin-bottom: 10px;
     }
     .ai-powered-by {
       margin-left: auto;
       font-size: 9px; color: var(--text-muted);
       font-weight: 400; letter-spacing: .2px; text-transform: none;
     }
-    .ai-brief-text {
-      font-size: 14px; line-height: 1.65; color: var(--text);
+    .ai-sentiment-row {
+      display: flex; align-items: baseline; gap: 18px; flex-wrap: wrap;
+    }
+    .ai-sentiment-word {
+      font-size: 28px; font-weight: 800; line-height: 1; letter-spacing: -.3px;
       transition: opacity .4s;
     }
-    .ai-brief-meta {
-      font-size: 11px; color: var(--text-muted); margin-top: 7px;
+    .sent-bullish { color: var(--green); }
+    .sent-bearish { color: var(--red); }
+    .sent-neutral { color: var(--yellow); }
+    .ai-counts {
+      font-size: 17px; font-weight: 700; display: flex; gap: 14px;
     }
-    .ai-loading {
-      font-size: 13px; color: var(--text-muted); font-style: italic;
+    .ai-counts .cnt-up { color: var(--green); }
+    .ai-counts .cnt-dn { color: var(--red); }
+    .ai-brief-text {
+      font-size: 12px; line-height: 1.6; color: var(--text-muted);
+      margin-top: 10px; font-style: italic;
     }
     .ai-explain-row td {
       background: rgba(79,142,247,.03) !important;
@@ -572,14 +583,20 @@
     </div>
   </div>
 
-  <!-- ── AI Market Brief ──────────────────────────────────────────── -->
-  <div id="ai-brief-card" class="ai-brief-card" style="display:none">
+  <!-- ── Market Sentiment card ────────────────────────────────────── -->
+  <div id="ai-brief-card" class="ai-brief-card" style="display:none;opacity:0">
     <div class="ai-brief-header">
-      <span class="ai-spark">✦</span> AI Market Brief
-      <span class="ai-powered-by">Powered by Claude</span>
+      Market Sentiment
+      <span class="ai-powered-by">Nifty 500 Breadth</span>
     </div>
-    <div id="ai-brief-text" class="ai-brief-text ai-loading">Analyzing market conditions…</div>
-    <div id="ai-brief-meta" class="ai-brief-meta"></div>
+    <div class="ai-sentiment-row">
+      <div id="ai-sentiment-word" class="ai-sentiment-word">—</div>
+      <div class="ai-counts">
+        <span id="ai-cnt-up" class="cnt-up"></span>
+        <span id="ai-cnt-dn" class="cnt-dn"></span>
+      </div>
+    </div>
+    <div id="ai-brief-text" class="ai-brief-text" style="display:none"></div>
   </div>
 
   <!-- ── Single CSV download for all screener panels ─────────────── -->
@@ -1098,21 +1115,31 @@
 
   // ── AI Market Brief ───────────────────────────────────────────
   async function loadMarketBrief() {
-    const card = document.getElementById("ai-brief-card");
-    const text = document.getElementById("ai-brief-text");
-    const meta = document.getElementById("ai-brief-meta");
-    card.style.display = "";
+    const card    = document.getElementById("ai-brief-card");
+    const sentEl  = document.getElementById("ai-sentiment-word");
+    const cntUp   = document.getElementById("ai-cnt-up");
+    const cntDn   = document.getElementById("ai-cnt-dn");
+    const briefEl = document.getElementById("ai-brief-text");
     try {
       const res  = await fetch(`${API}/api/insights/market-brief`);
       const data = await res.json();
-      if (!data.enabled || !data.brief) { card.style.display = "none"; return; }
-      text.classList.remove("ai-loading");
-      text.style.opacity = "0";
-      text.textContent   = data.brief;
-      requestAnimationFrame(() => { text.style.opacity = "1"; });
-      if (data.breadth_pct !== undefined) {
-        meta.textContent = `Breadth: ${data.breadth_pct}% of Nifty 500 stocks up today`;
+      if (!data.enabled) { card.style.display = "none"; return; }
+
+      const arrow = data.sentiment === "Bullish" ? " ▲" : data.sentiment === "Bearish" ? " ▼" : " →";
+      const cls   = data.sentiment === "Bullish" ? "sent-bullish"
+                  : data.sentiment === "Bearish" ? "sent-bearish" : "sent-neutral";
+      sentEl.textContent = (data.sentiment || "—") + arrow;
+      sentEl.className   = "ai-sentiment-word " + cls;
+      cntUp.textContent  = "▲ " + (data.up  || 0);
+      cntDn.textContent  = "▼ " + (data.down || 0);
+
+      if (data.brief) {
+        briefEl.textContent = data.brief;
+        briefEl.style.display = "";
       }
+
+      card.style.display = "";
+      requestAnimationFrame(() => { card.style.opacity = "1"; });
     } catch (_) { card.style.display = "none"; }
   }
 

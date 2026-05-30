@@ -1410,40 +1410,55 @@ def _compute_breadth() -> dict:
 
 
 def _generate_market_brief() -> dict:
+    breadth = _compute_breadth()
+    if breadth["total"] < 50:
+        return {"up": 0, "down": 0, "total": 0, "up_pct": 0, "sentiment": "", "brief": ""}
+
+    up_pct = breadth["up_pct"]
+    if up_pct >= 60:
+        sentiment = "Bullish"
+    elif up_pct <= 40:
+        sentiment = "Bearish"
+    else:
+        sentiment = "Neutral"
+
+    result = {
+        "up":        breadth["up"],
+        "down":      breadth["down"],
+        "total":     breadth["total"],
+        "up_pct":    up_pct,
+        "sentiment": sentiment,
+        "brief":     "",
+    }
+
+    # Optional Claude insight — added only if API key present
     client = _get_ai_client()
-    if not client:
-        return {"brief": "", "breadth_pct": 0}
-    try:
-        market    = _fetch_market()
-        breadth   = _compute_breadth()
-        nifty     = market.get("NIFTY 50",   {})
-        banknifty = market.get("BANK NIFTY", {})
+    if client:
+        try:
+            market    = _fetch_market()
+            nifty     = market.get("NIFTY 50",   {})
+            banknifty = market.get("BANK NIFTY", {})
+            if nifty or banknifty:
+                prompt = (
+                    "You are a concise market analyst for Indian equity markets. "
+                    "Write exactly 1 sentence (max 20 words) for a professional equity trader. "
+                    "Name one specific key level or sector to watch today and why. "
+                    "No emojis. No filler. Be direct.\n\n"
+                    f"Nifty 50: {nifty.get('price','N/A')} ({nifty.get('change_pct',0):+.2f}%)\n"
+                    f"Bank Nifty: {banknifty.get('price','N/A')} ({banknifty.get('change_pct',0):+.2f}%)\n"
+                    f"Breadth: {up_pct}% of Nifty 500 above previous close "
+                    f"({breadth['up']} up / {breadth['down']} down)"
+                )
+                resp = client.messages.create(
+                    model="claude-haiku-4-5-20251001",
+                    max_tokens=60,
+                    messages=[{"role": "user", "content": prompt}],
+                )
+                result["brief"] = resp.content[0].text.strip()
+        except Exception as e:
+            print(f"[AI] Market brief error: {e}")
 
-        if not nifty and not banknifty:
-            return {"brief": "", "breadth_pct": 0}
-        if breadth["total"] < 50:
-            return {"brief": "", "breadth_pct": 0}
-
-        prompt = (
-            "You are a concise market analyst for Indian equity markets. "
-            "Write exactly 2 sentences for a professional equity trader. "
-            "Sentence 1: state market direction and breadth mood with the actual numbers. "
-            "Sentence 2: name one specific key level or sector to watch and why. "
-            "No emojis. No filler phrases. Be direct.\n\n"
-            f"Nifty 50: {nifty.get('price','N/A')} ({nifty.get('change_pct',0):+.2f}%)\n"
-            f"Bank Nifty: {banknifty.get('price','N/A')} ({banknifty.get('change_pct',0):+.2f}%)\n"
-            f"Breadth: {breadth['up_pct']}% of Nifty 500 above previous close "
-            f"({breadth['up']} up / {breadth['down']} down)"
-        )
-        resp = client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=120,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        return {"brief": resp.content[0].text.strip(), "breadth_pct": breadth["up_pct"]}
-    except Exception as e:
-        print(f"[AI] Market brief error: {e}")
-        return {"brief": "", "breadth_pct": 0}
+    return result
 
 
 def _generate_setup_explanations(setup: int, direction: str, results: list) -> list:
@@ -1498,9 +1513,9 @@ def _generate_setup_explanations(setup: int, direction: str, results: list) -> l
 
 @app.route("/api/insights/market-brief")
 def insights_market_brief():
-    if not os.environ.get("ANTHROPIC_API_KEY"):
-        return jsonify({"brief": "", "enabled": False})
     data = _cached("ai_market_brief", _generate_market_brief, ttl=INSIGHTS_TTL)
+    if not data.get("total", 0):
+        return jsonify({"enabled": False})
     return jsonify({**data, "enabled": True})
 
 
