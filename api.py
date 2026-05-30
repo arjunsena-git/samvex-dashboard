@@ -518,14 +518,39 @@ def _fetch_live_quotes():
 
 
 # ── Yahoo Finance batch (daily — Nifty 500 universe) ──────────────
-def _fetch_daily_only():
-    tickers = " ".join(_load_nifty500() or FNO_STOCKS)
-    return yf.download(
-        tickers=tickers,
-        interval="1d", period="15d",
-        group_by="ticker", auto_adjust=False,
-        threads=True, progress=False,
-    )
+def _fetch_chunked(interval: str, period: str, chunk_size: int = 100) -> dict:
+    """Download universe in chunks; return {symbol: df} to keep peak memory ≤ 200 MB."""
+    universe = _load_nifty500() or FNO_STOCKS
+    results: dict = {}
+    for i in range(0, len(universe), chunk_size):
+        chunk = universe[i:i + chunk_size]
+        try:
+            raw = yf.download(
+                tickers=" ".join(chunk),
+                interval=interval, period=period,
+                group_by="ticker", auto_adjust=False,
+                threads=True, progress=False,
+            )
+            if raw is None or raw.empty:
+                continue
+            for sym in chunk:
+                try:
+                    if isinstance(raw.columns, pd.MultiIndex):
+                        df = raw[sym].dropna(how="all")
+                    else:
+                        df = raw.dropna(how="all")
+                    if len(df) >= 1:
+                        results[sym] = df
+                except Exception:
+                    pass
+            del raw   # free the MultiIndex DataFrame before the next chunk
+        except Exception as e:
+            print(f"[Batch] Chunk {i // chunk_size + 1} error ({interval}): {e}")
+    return results
+
+
+def _fetch_daily_only() -> dict:
+    return _fetch_chunked("1d", "15d")
 
 
 def _get_daily_batch():
@@ -582,15 +607,9 @@ def _get_batch():
 # ── Yahoo Finance 15-min intraday batch (for first-candle screener) ─
 SCREEN_TTL = 300   # 5-min screener result cache
 
-def _fetch_intraday_15m():
-    """Batch 15-min bars for full Nifty 500 universe."""
-    tickers = " ".join(_load_nifty500() or FNO_STOCKS)
-    return yf.download(
-        tickers=tickers,
-        interval="15m", period="1d",
-        group_by="ticker", auto_adjust=False,
-        threads=True, progress=False,
-    )
+def _fetch_intraday_15m() -> dict:
+    """Batch 15-min bars for Nifty 500 universe, chunked to stay within 512 MB."""
+    return _fetch_chunked("15m", "1d")
 
 
 def _get_15m_batch():
@@ -611,6 +630,8 @@ def _get_15m_batch():
 
 def _get_ticker_df(batch, ticker):
     try:
+        if isinstance(batch, dict):
+            return batch.get(ticker)  # already extracted and validated at download time
         if isinstance(batch.columns, pd.MultiIndex):
             df = batch[ticker].dropna(how="all")
         else:
