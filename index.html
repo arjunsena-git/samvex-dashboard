@@ -192,9 +192,13 @@
     .csv-btn {
       background: var(--bg-card-2); border: 1px solid var(--border);
       color: var(--text-muted); border-radius: 6px;
-      padding: 4px 10px; cursor: pointer; font-size: 12px; margin-left: 6px;
+      padding: 6px 14px; cursor: pointer; font-size: 12px;
     }
     .csv-btn:hover { color: var(--green); border-color: var(--green); }
+    .csv-toolbar {
+      display: flex; justify-content: flex-end;
+      margin: 0 0 12px 0;
+    }
 
     /* ── Criteria chips ──────────────────────────────────────────── */
     .criteria-row {
@@ -474,6 +478,11 @@
     </div>
   </div>
 
+  <!-- ── Single CSV download for all screener panels ─────────────── -->
+  <div class="csv-toolbar">
+    <button class="csv-btn" onclick="downloadAllCSV()">↓ Download All Signals (CSV)</button>
+  </div>
+
   <!-- ── Setup 1: Directional Trend (Kumar sir) ─────────────────── -->
   <div class="section-divider">
     <div class="section-divider-line"></div>
@@ -490,7 +499,6 @@
           Trend Breakout &nbsp;<span style="font-size:11px;color:var(--text-muted);font-weight:400;">Close &gt; PDH</span>
         </div>
         <button class="refresh-btn" onclick="loadS1Bullish()">↺ Refresh</button>
-        <button class="csv-btn" onclick="downloadCSV('s1-bull','setup1_bullish')">↓ CSV</button>
       </div>
       <div class="criteria-row">
         <span class="chip chip-orange">Opens inside range</span>
@@ -519,7 +527,6 @@
           Trend Breakdown &nbsp;<span style="font-size:11px;color:var(--text-muted);font-weight:400;">Close &lt; PDL</span>
         </div>
         <button class="refresh-btn" onclick="loadS1Bearish()">↺ Refresh</button>
-        <button class="csv-btn" onclick="downloadCSV('s1-bear','setup1_bearish')">↓ CSV</button>
       </div>
       <div class="criteria-row">
         <span class="chip chip-orange">Opens inside range</span>
@@ -558,7 +565,6 @@
           Bear Trap &nbsp;<span style="font-size:11px;color:var(--text-muted);font-weight:400;">False breakdown → recovery above PDL</span>
         </div>
         <button class="refresh-btn" onclick="loadS2Bullish()">↺ Refresh</button>
-        <button class="csv-btn" onclick="downloadCSV('s2-bull','setup2_bear_trap')">↓ CSV</button>
       </div>
       <div class="criteria-row">
         <span class="chip chip-orange">Opens near / below PDL</span>
@@ -586,7 +592,6 @@
           Bull Trap &nbsp;<span style="font-size:11px;color:var(--text-muted);font-weight:400;">False breakout → rejection below PDH</span>
         </div>
         <button class="refresh-btn" onclick="loadS2Bearish()">↺ Refresh</button>
-        <button class="csv-btn" onclick="downloadCSV('s2-bear','setup2_bull_trap')">↓ CSV</button>
       </div>
       <div class="criteria-row">
         <span class="chip chip-orange">Opens near / above PDH</span>
@@ -882,45 +887,70 @@
     }).join("");
   }
 
-  // ── CSV download ──────────────────────────────────────────────
-  const _panelData = {};
+  // ── CSV download (all panels, registry-based) ─────────────────
+  // Each panel registers itself via _registerPanel() when data loads.
+  // downloadAllCSV() iterates panels in registration order, so future
+  // panels are included automatically — no changes needed here.
+  const _panelData    = {};   // key → {label, rows}
+  const _panelOrder   = [];   // insertion-ordered keys
 
-  function downloadCSV(panelKey, filename) {
-    const rows = _panelData[panelKey];
-    if (!rows || rows.length === 0) { alert("No data to download — load the panel first."); return; }
-    const headers = ["Symbol","Setup","Price","Gap%","PDH","PDL","Candle Range%","Volume Ratio","Entry","SL","SL%","T1","T2","R:R"];
-    const lines = [headers.join(",")];
-    const ist = new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" }).replace(/,/g, "");
-    rows.forEach(r => {
-      lines.push([
-        r.symbol, r.setup, r.price, r.gap_pct,
-        r.pdh, r.pdl, r.candle_range_pct, r.volume_ratio,
-        r.entry, r.sl, r.sl_pct, r.t1, r.t2, r.risk_reward
-      ].join(","));
+  function _registerPanel(key, label, rows) {
+    if (!_panelOrder.includes(key)) _panelOrder.push(key);
+    _panelData[key] = { label, rows };
+  }
+
+  const CSV_HEADERS = ["Symbol","Setup","Price","Gap%","PDH","PDL","Candle%","Vol Ratio","Entry","SL","SL%","T1","T2","R:R"];
+
+  function _rowToCSV(r) {
+    return [r.symbol, r.setup, r.price, r.gap_pct, r.pdh, r.pdl,
+            r.candle_range_pct, r.volume_ratio, r.entry, r.sl,
+            r.sl_pct, r.t1, r.t2, r.risk_reward].join(",");
+  }
+
+  function downloadAllCSV() {
+    const loaded = _panelOrder.filter(k => _panelData[k]?.rows?.length > 0);
+    if (loaded.length === 0) {
+      alert("No signals loaded yet — wait for the panels to finish scanning.");
+      return;
+    }
+    const ist  = new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" });
+    const date = new Date().toISOString().slice(0, 10);
+    const lines = [`# Samvex Trading Signals — ${ist} IST`, ""];
+    _panelOrder.forEach(key => {
+      const panel = _panelData[key];
+      lines.push(`## ${panel.label}`);
+      if (!panel.rows || panel.rows.length === 0) {
+        lines.push("# No signals");
+      } else {
+        lines.push(CSV_HEADERS.join(","));
+        panel.rows.forEach(r => lines.push(_rowToCSV(r)));
+      }
+      lines.push("");
     });
-    lines.push("", `# Downloaded: ${ist} IST`);
     const blob = new Blob([lines.join("\n")], { type: "text/csv" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
-    a.download = `${filename}_${new Date().toISOString().slice(0,10)}.csv`;
+    a.download = `samvex_signals_${date}.csv`;
     a.click();
     URL.revokeObjectURL(a.href);
   }
 
   // ── Four setup loaders ────────────────────────────────────────
-  async function _loadSetup(endpoint, tbodyId, direction, refLevelKey, countId) {
+  // label is stored in the registry so downloadAllCSV() can use it as a heading.
+  // Any future panel added here is automatically included in the download.
+  async function _loadSetup(endpoint, tbodyId, direction, refLevelKey, countId, label) {
     const tbody = document.getElementById(tbodyId);
     tbody.innerHTML = `<tr><td colspan="7"><div class="empty-state"><div class="spinner"></div>Scanning…</div></td></tr>`;
     try {
       const data = await fetchWithRetry(`${API}/api/${endpoint}`, tbody, 7);
-      _panelData[tbodyId.replace("-body", "")] = data;
+      _registerPanel(tbodyId.replace("-body", ""), label || endpoint, data);
       renderSetupRows(data, tbodyId, direction, refLevelKey);
       if (countId) document.getElementById(countId).textContent = data.length;
       return data;
     } catch (e) {
       tbody.innerHTML = `<tr><td colspan="7"><div class="empty-state">
         Server unreachable —
-        <a href="javascript:void(0)" onclick="_loadSetup('${endpoint}','${tbodyId}','${direction}','${refLevelKey}','${countId || ''}')"
+        <a href="javascript:void(0)" onclick="_loadSetup('${endpoint}','${tbodyId}','${direction}','${refLevelKey}','${countId || ''}','${label || ''}')"
            style="color:var(--accent);text-decoration:underline;">Retry</a>
       </div></td></tr>`;
       return [];
@@ -928,21 +958,23 @@
   }
 
   async function loadS1Bullish() {
-    const data = await _loadSetup("setup1/bullish", "s1-bull-body", "bullish", "pdh", "s1-count");
+    const data = await _loadSetup("setup1/bullish", "s1-bull-body", "bullish", "pdh", "s1-count",
+                                  "Setup 1 — Trend Breakout (Bullish · Close > PDH)");
     if (data.length) {
       document.getElementById("top-gainer-sym").textContent = data[0].symbol;
       document.getElementById("top-gainer-val").textContent = `+${data[0].gap_pct.toFixed(2)}%  ₹${data[0].price}`;
     }
   }
   async function loadS1Bearish() {
-    const data = await _loadSetup("setup1/bearish", "s1-bear-body", "bearish", "pdl", null);
+    const data = await _loadSetup("setup1/bearish", "s1-bear-body", "bearish", "pdl", null,
+                                  "Setup 1 — Trend Breakdown (Bearish · Close < PDL)");
     if (data.length) {
       document.getElementById("top-loser-sym").textContent = data[0].symbol;
       document.getElementById("top-loser-val").textContent = `${data[0].gap_pct.toFixed(2)}%  ₹${data[0].price}`;
     }
   }
-  async function loadS2Bullish() { return _loadSetup("setup2/bullish", "s2-bull-body", "bullish", "pdl", "s2-count"); }
-  async function loadS2Bearish() { return _loadSetup("setup2/bearish", "s2-bear-body", "bearish", "pdh", null); }
+  async function loadS2Bullish() { return _loadSetup("setup2/bullish", "s2-bull-body", "bullish", "pdl", "s2-count", "Setup 2 — Bear Trap (Bullish · False breakdown → recovery above PDL)"); }
+  async function loadS2Bearish() { return _loadSetup("setup2/bearish", "s2-bear-body", "bearish", "pdh", null,      "Setup 2 — Bull Trap (Bearish · False breakout → rejection below PDH)"); }
 
   // ── Market index cards ────────────────────────────────────────
   async function loadMarket() {
