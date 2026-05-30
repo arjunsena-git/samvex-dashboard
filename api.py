@@ -7,6 +7,7 @@ import pytz
 import time
 import math
 import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import os
 import io
 import gzip
@@ -519,11 +520,18 @@ def _fetch_live_quotes():
 
 # ── Yahoo Finance batch (daily — Nifty 500 universe) ──────────────
 def _fetch_chunked(interval: str, period: str, chunk_size: int = 100) -> dict:
-    """Download universe in chunks; return {symbol: df} to keep peak memory ≤ 200 MB."""
+    """Download universe in parallel chunks; return {symbol: df}.
+
+    Each chunk is 100 stocks → ~20 MB peak per worker.
+    2 parallel workers = ~40 MB peak, well within 512 MB Starter limit.
+    Sequential was 5 × 15 s = 75 s; parallel is ceil(5/2) × 15 s ≈ 30–35 s.
+    """
     universe = _load_nifty500() or FNO_STOCKS
-    results: dict = {}
-    for i in range(0, len(universe), chunk_size):
-        chunk = universe[i:i + chunk_size]
+    chunks   = [universe[i:i + chunk_size] for i in range(0, len(universe), chunk_size)]
+
+    def _one_chunk(idx_chunk):
+        idx, chunk = idx_chunk
+        chunk_results = {}
         try:
             raw = yf.download(
                 tickers=" ".join(chunk),
@@ -531,21 +539,31 @@ def _fetch_chunked(interval: str, period: str, chunk_size: int = 100) -> dict:
                 group_by="ticker", auto_adjust=False,
                 threads=True, progress=False,
             )
-            if raw is None or raw.empty:
-                continue
-            for sym in chunk:
-                try:
-                    if isinstance(raw.columns, pd.MultiIndex):
-                        df = raw[sym].dropna(how="all")
-                    else:
-                        df = raw.dropna(how="all")
-                    if len(df) >= 1:
-                        results[sym] = df
-                except Exception:
-                    pass
-            del raw   # free the MultiIndex DataFrame before the next chunk
+            if raw is not None and not raw.empty:
+                for sym in chunk:
+                    try:
+                        if isinstance(raw.columns, pd.MultiIndex):
+                            df = raw[sym].dropna(how="all")
+                        else:
+                            df = raw.dropna(how="all")
+                        if len(df) >= 1:
+                            chunk_results[sym] = df
+                    except Exception:
+                        pass
+            del raw
         except Exception as e:
-            print(f"[Batch] Chunk {i // chunk_size + 1} error ({interval}): {e}")
+            print(f"[Batch] Chunk {idx + 1}/{len(chunks)} error ({interval}): {e}")
+        return chunk_results
+
+    results: dict = {}
+    with ThreadPoolExecutor(max_workers=2) as ex:
+        futures = {ex.submit(_one_chunk, (i, c)): i for i, c in enumerate(chunks)}
+        for fut in as_completed(futures):
+            try:
+                results.update(fut.result())
+            except Exception:
+                pass
+    print(f"[Batch] {interval}/{period} — {len(results)}/{len(universe)} symbols loaded")
     return results
 
 
