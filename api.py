@@ -519,48 +519,34 @@ def _fetch_live_quotes():
 
 
 # ── Yahoo Finance batch (daily — Nifty 500 universe) ──────────────
-def _fetch_chunked(interval: str, period: str, chunk_size: int = 100) -> dict:
-    """Download universe in parallel chunks; return {symbol: df}.
+def _fetch_chunked(interval: str, period: str) -> dict:
+    """Per-ticker yfinance downloads, 10 concurrent workers.
 
-    Each chunk is 100 stocks → ~20 MB peak per worker.
-    2 parallel workers = ~40 MB peak, well within 512 MB Starter limit.
-    Sequential was 5 × 15 s = 75 s; parallel is ceil(5/2) × 15 s ≈ 30–35 s.
+    Uses yf.Ticker(sym).history() instead of yf.download() batch calls.
+    This never creates MultiIndex DataFrames, so peak memory is
+    10 workers × ~50 KB per stock ≈ 500 KB regardless of universe size.
+    Previous approach (yf.download + threads=True) was spawning 100–200
+    internal threads whose stack overhead was pushing us past 512 MB.
     """
     universe = _load_nifty500() or FNO_STOCKS
-    chunks   = [universe[i:i + chunk_size] for i in range(0, len(universe), chunk_size)]
 
-    def _one_chunk(idx_chunk):
-        idx, chunk = idx_chunk
-        chunk_results = {}
+    def _fetch_one(sym):
         try:
-            raw = yf.download(
-                tickers=" ".join(chunk),
-                interval=interval, period=period,
-                group_by="ticker", auto_adjust=False,
-                threads=True, progress=False,
-            )
-            if raw is not None and not raw.empty:
-                for sym in chunk:
-                    try:
-                        if isinstance(raw.columns, pd.MultiIndex):
-                            df = raw[sym].dropna(how="all")
-                        else:
-                            df = raw.dropna(how="all")
-                        if len(df) >= 1:
-                            chunk_results[sym] = df
-                    except Exception:
-                        pass
-            del raw
-        except Exception as e:
-            print(f"[Batch] Chunk {idx + 1}/{len(chunks)} error ({interval}): {e}")
-        return chunk_results
+            df = yf.Ticker(sym).history(interval=interval, period=period)
+            if df is not None and not df.empty and len(df) >= 1:
+                return sym, df
+        except Exception:
+            pass
+        return sym, None
 
     results: dict = {}
-    with ThreadPoolExecutor(max_workers=2) as ex:
-        futures = {ex.submit(_one_chunk, (i, c)): i for i, c in enumerate(chunks)}
+    with ThreadPoolExecutor(max_workers=10) as ex:
+        futures = {ex.submit(_fetch_one, sym): sym for sym in universe}
         for fut in as_completed(futures):
             try:
-                results.update(fut.result())
+                sym, df = fut.result()
+                if df is not None:
+                    results[sym] = df
             except Exception:
                 pass
     print(f"[Batch] {interval}/{period} — {len(results)}/{len(universe)} symbols loaded")
@@ -585,40 +571,6 @@ def _get_daily_batch():
                 return data
         result = _fetch_daily_only()
         _cache["daily_only"] = (result, time.time())
-        return result
-
-
-# ── Yahoo Finance full batch (intraday + daily, fallback path) ─────
-def _fetch_batch():
-    tickers = " ".join(FNO_STOCKS)
-    intraday = yf.download(
-        tickers=tickers,
-        interval="5m", period="1d",
-        group_by="ticker", auto_adjust=False,
-        threads=True, progress=False,
-    )
-    daily = yf.download(
-        tickers=tickers,
-        interval="1d", period="15d",
-        group_by="ticker", auto_adjust=False,
-        threads=True, progress=False,
-    )
-    return intraday, daily
-
-
-def _get_batch():
-    now = time.time()
-    if "batch" in _cache:
-        data, ts = _cache["batch"]
-        if now - ts < CACHE_TTL:
-            return data
-    with _batch_lock:
-        if "batch" in _cache:
-            data, ts = _cache["batch"]
-            if now - ts < CACHE_TTL:
-                return data
-        result = _fetch_batch()
-        _cache["batch"] = (result, time.time())
         return result
 
 
@@ -972,99 +924,6 @@ def _analyze_smart(symbol, quote, daily_batch, direction, elapsed_min):
         return None
 
 
-# ── Yahoo Finance analysis (delayed fallback — same 3-phase logic) ─
-def _analyze(symbol, intraday_batch, daily_batch, direction, elapsed_min):
-    intraday = _get_ticker_df(intraday_batch, symbol)
-    daily    = _get_ticker_df(daily_batch,    symbol)
-    if intraday is None or daily is None or len(daily) < 2:
-        return None
-    try:
-        prev_close    = float(daily["Close"].iloc[-2])
-        prev_day_vol  = float(daily["Volume"].iloc[-2])
-        today_open    = float(intraday["Open"].iloc[0])
-        current_price = float(intraday["Close"].iloc[-1])
-        today_high    = float(intraday["High"].max())
-        today_low     = float(intraday["Low"].min())
-        today_volume  = float(intraday["Volume"].sum())
-
-        gap_pct         = (today_open    - prev_close)    / prev_close   * 100
-        intraday_move   = (current_price - today_open)    / today_open   * 100
-        day_move        = (current_price - prev_close)    / prev_close   * 100
-        traded_value_cr = (today_volume  * current_price) / 1e7
-        vol_ratio_abs   = today_volume / prev_day_vol if prev_day_vol > 0 else 0
-        paced_vol_ratio = (today_volume / elapsed_min) * 375 / prev_day_vol if prev_day_vol > 0 else 0
-        near_high       = today_high > 0 and (current_price / today_high) >= 0.990
-        near_low        = today_low  > 0 and (current_price / today_low)  <= 1.010
-        adr             = _adr(daily)
-        bullish         = direction == "bullish"
-
-        if elapsed_min <= 90:
-            gap_ok  = (0.15 < gap_pct <  2.5) if bullish else (-2.5 < gap_pct < -0.15)
-            mom_ok  = intraday_move > 0         if bullish else intraday_move < 0
-            if not (gap_ok and mom_ok and paced_vol_ratio >= 1.5
-                    and traded_value_cr >= 25 and max(adr - abs(day_move), 0) >= 1.0):
-                return None
-            setup = "Gap Drive"
-
-        elif elapsed_min <= 225:
-            move_ok = day_move >=  1.0 if bullish else day_move <= -1.0
-            ext_ok  = near_high        if bullish else near_low
-            if not (move_ok and ext_ok and vol_ratio_abs >= 0.25 and traded_value_cr >= 15):
-                return None
-            setup = "Momentum"
-
-        else:
-            move_ok = day_move >= 0.8 if bullish else day_move <= -0.8
-            ext_ok  = (today_high > 0 and current_price / today_high >= 0.985) if bullish \
-                      else (today_low  > 0 and current_price / today_low  <= 1.015)
-            if not (move_ok and ext_ok and vol_ratio_abs >= 0.40 and traded_value_cr >= 10):
-                return None
-            setup = "Trend"
-
-        return _screen_result(symbol, current_price, gap_pct, intraday_move, day_move,
-                               paced_vol_ratio, traded_value_cr, adr, setup,
-                               today_high, today_low, today_open, direction)
-    except Exception:
-        return None
-
-
-# ── Screener ───────────────────────────────────────────────────────
-def _screen(direction):
-    ist = pytz.timezone("Asia/Kolkata")
-    now = datetime.now(ist)
-    open_dt     = now.replace(hour=9, minute=15, second=0, microsecond=0)
-    elapsed_min = max(5.0, (now - open_dt).total_seconds() / 60)
-    results     = []
-    ran_live    = False   # did we successfully run the Upstox path?
-
-    if _is_live():
-        live_quotes = _cached("live_quotes", _fetch_live_quotes, ttl=LIVE_TTL)
-        daily_batch = _get_daily_batch()
-        if live_quotes:
-            # Upstox quotes available — commit to live path.
-            # Do NOT fall back to Yahoo just because 0 stocks qualify the criteria;
-            # that would silently show 15-MIN DELAY data on an authenticated session.
-            ran_live = True
-            if daily_batch is not None:
-                for symbol in FNO_STOCKS:
-                    q = live_quotes.get(symbol)
-                    if q:
-                        r = _analyze_smart(symbol, q, daily_batch, direction, elapsed_min)
-                        if r:
-                            results.append(r)
-
-    if not ran_live:
-        # Only use Yahoo Finance when Upstox is not authenticated or returned no quotes
-        intraday_batch, daily_batch = _get_batch()
-        for symbol in FNO_STOCKS:
-            r = _analyze(symbol, intraday_batch, daily_batch, direction, elapsed_min)
-            if r:
-                results.append(r)
-
-    results.sort(key=lambda x: x["projected_pct"], reverse=True)
-    return results[:5]
-
-
 # ── Market index data ──────────────────────────────────────────────
 def _fetch_market():
     # When live, use Upstox for real-time index prices
@@ -1135,15 +994,15 @@ def _fetch_ticker():
             if result:
                 return result
 
-    intraday_batch, daily_batch = _get_batch()
+    # Fallback: use the shared daily batch (already chunked + cached, no extra download)
+    daily_batch = _get_daily_batch()
     result = []
     for sym in TICKER_SYMBOLS:
         try:
-            intra = _get_ticker_df(intraday_batch, sym)
             daily = _get_ticker_df(daily_batch, sym)
-            if intra is None or daily is None or len(daily) < 2:
+            if daily is None or len(daily) < 2:
                 continue
-            price      = round(float(intra["Close"].iloc[-1]), 2)
+            price      = round(float(daily["Close"].iloc[-1]), 2)
             prev_close = float(daily["Close"].iloc[-2])
             change_pct = round((price - prev_close) / prev_close * 100, 2)
             result.append({"symbol": sym.replace(".NS", ""), "price": price, "change_pct": change_pct})
@@ -1423,8 +1282,8 @@ def debug_screener():
         "instrument_map_sz": len(_instrument_map),
         "futures_map_sz":    len(_futures_map),
         "live_quote_count":  len(live_quotes) if live_quotes else 0,
-        "daily_batch_shape": str(daily_batch.shape) if daily_batch is not None else "None",
-        "daily_batch_empty": (daily_batch is None or daily_batch.empty),
+        "daily_batch_shape": f"{len(daily_batch)} symbols" if isinstance(daily_batch, dict) else str(daily_batch.shape) if daily_batch is not None else "None",
+        "daily_batch_empty": (not daily_batch),
     }
 
     sample = []

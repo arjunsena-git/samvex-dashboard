@@ -3,7 +3,7 @@ services:
     name: samvex-api
     env: python
     region: singapore        # closest to India / IST timezone
-    plan: free
+    plan: starter
     buildCommand: pip install -r requirements.txt
     startCommand: gunicorn api:app --timeout 120 --workers 1 --bind 0.0.0.0:$PORT
     envVars:
