@@ -662,6 +662,18 @@ def _screen_new(setup: int, direction: str) -> list:
             if intra is None or len(intra) < 1 or daily is None or len(daily) < 2:
                 continue
 
+            # Reject stale bars — yfinance period="1d" returns last session even on
+            # non-trading days; discard if the candle date doesn't match today (IST)
+            try:
+                candle_ts = intra.index[0]
+                candle_date = (candle_ts.astimezone(ist).date()
+                               if getattr(candle_ts, "tzinfo", None)
+                               else candle_ts.date())
+                if candle_date != datetime.now(ist).date():
+                    continue
+            except Exception:
+                pass
+
             # ── Previous-day reference levels ─────────────────────
             pdh        = float(daily["High"].iloc[-2])
             pdl        = float(daily["Low"].iloc[-2])
