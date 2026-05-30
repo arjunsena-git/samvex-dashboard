@@ -239,7 +239,9 @@
     .sym {
       font-weight: 700; font-size: 13px;
       color: var(--accent); letter-spacing: .3px;
+      text-decoration: none;
     }
+    .sym:hover { text-decoration: underline; }
     .price { font-weight: 600; }
     .pill {
       display: inline-block;
@@ -970,7 +972,7 @@
         text-transform:uppercase;letter-spacing:.4px;display:block;margin-top:2px;">${s.setup}</span>`;
       const candleColor = s.candle_range_pct <= 0.5 ? "var(--green)" : "var(--yellow)";
       return `<tr>
-        <td><span class="sym">${s.symbol}</span>${setupBadge}</td>
+        <td><a class="sym" href="https://www.tradingview.com/chart/?symbol=NSE:${s.symbol}" target="_blank" rel="noopener noreferrer">${s.symbol}</a>${setupBadge}</td>
         <td class="price" style="color:var(--${color})">₹${s.price.toLocaleString("en-IN")}</td>
         <td><span class="pill pill-${s.gap_pct >= 0 ? "green" : "red"}">${sign(s.gap_pct)}${s.gap_pct}%</span></td>
         <td class="price" style="color:var(--accent)">
@@ -1359,7 +1361,7 @@
       const pSign = s.price_chg_pct >= 0 ? "+" : "";
       const oSign = s.oi_chg_pct   >= 0 ? "+" : "";
       return `<tr>
-        <td><span class="sym">${s.symbol}</span></td>
+        <td><a class="sym" href="https://www.tradingview.com/chart/?symbol=NSE:${s.symbol}" target="_blank" rel="noopener noreferrer">${s.symbol}</a></td>
         <td class="price">${fmt(s.last_price)}</td>
         <td><span class="pill pill-${pDir}">${pSign}${s.price_chg_pct}%</span></td>
         <td style="font-weight:700;color:var(--${oiDir})">${oSign}${s.oi_chg_pct}%</td>
