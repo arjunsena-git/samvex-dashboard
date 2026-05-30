@@ -189,6 +189,12 @@
       padding: 4px 10px; cursor: pointer; font-size: 12px;
     }
     .refresh-btn:hover { color: var(--text); border-color: var(--accent); }
+    .csv-btn {
+      background: var(--bg-card-2); border: 1px solid var(--border);
+      color: var(--text-muted); border-radius: 6px;
+      padding: 4px 10px; cursor: pointer; font-size: 12px; margin-left: 6px;
+    }
+    .csv-btn:hover { color: var(--green); border-color: var(--green); }
 
     /* ── Criteria chips ──────────────────────────────────────────── */
     .criteria-row {
@@ -484,6 +490,7 @@
           Trend Breakout &nbsp;<span style="font-size:11px;color:var(--text-muted);font-weight:400;">Close &gt; PDH</span>
         </div>
         <button class="refresh-btn" onclick="loadS1Bullish()">↺ Refresh</button>
+        <button class="csv-btn" onclick="downloadCSV('s1-bull','setup1_bullish')">↓ CSV</button>
       </div>
       <div class="criteria-row">
         <span class="chip chip-orange">Opens inside range</span>
@@ -512,6 +519,7 @@
           Trend Breakdown &nbsp;<span style="font-size:11px;color:var(--text-muted);font-weight:400;">Close &lt; PDL</span>
         </div>
         <button class="refresh-btn" onclick="loadS1Bearish()">↺ Refresh</button>
+        <button class="csv-btn" onclick="downloadCSV('s1-bear','setup1_bearish')">↓ CSV</button>
       </div>
       <div class="criteria-row">
         <span class="chip chip-orange">Opens inside range</span>
@@ -550,6 +558,7 @@
           Bear Trap &nbsp;<span style="font-size:11px;color:var(--text-muted);font-weight:400;">False breakdown → recovery above PDL</span>
         </div>
         <button class="refresh-btn" onclick="loadS2Bullish()">↺ Refresh</button>
+        <button class="csv-btn" onclick="downloadCSV('s2-bull','setup2_bear_trap')">↓ CSV</button>
       </div>
       <div class="criteria-row">
         <span class="chip chip-orange">Opens near / below PDL</span>
@@ -577,6 +586,7 @@
           Bull Trap &nbsp;<span style="font-size:11px;color:var(--text-muted);font-weight:400;">False breakout → rejection below PDH</span>
         </div>
         <button class="refresh-btn" onclick="loadS2Bearish()">↺ Refresh</button>
+        <button class="csv-btn" onclick="downloadCSV('s2-bear','setup2_bull_trap')">↓ CSV</button>
       </div>
       <div class="criteria-row">
         <span class="chip chip-orange">Opens near / above PDH</span>
@@ -872,12 +882,38 @@
     }).join("");
   }
 
+  // ── CSV download ──────────────────────────────────────────────
+  const _panelData = {};
+
+  function downloadCSV(panelKey, filename) {
+    const rows = _panelData[panelKey];
+    if (!rows || rows.length === 0) { alert("No data to download — load the panel first."); return; }
+    const headers = ["Symbol","Setup","Price","Gap%","PDH","PDL","Candle Range%","Volume Ratio","Entry","SL","SL%","T1","T2","R:R"];
+    const lines = [headers.join(",")];
+    const ist = new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" }).replace(/,/g, "");
+    rows.forEach(r => {
+      lines.push([
+        r.symbol, r.setup, r.price, r.gap_pct,
+        r.pdh, r.pdl, r.candle_range_pct, r.volume_ratio,
+        r.entry, r.sl, r.sl_pct, r.t1, r.t2, r.risk_reward
+      ].join(","));
+    });
+    lines.push("", `# Downloaded: ${ist} IST`);
+    const blob = new Blob([lines.join("\n")], { type: "text/csv" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `${filename}_${new Date().toISOString().slice(0,10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+
   // ── Four setup loaders ────────────────────────────────────────
   async function _loadSetup(endpoint, tbodyId, direction, refLevelKey, countId) {
     const tbody = document.getElementById(tbodyId);
     tbody.innerHTML = `<tr><td colspan="7"><div class="empty-state"><div class="spinner"></div>Scanning…</div></td></tr>`;
     try {
       const data = await fetchWithRetry(`${API}/api/${endpoint}`, tbody, 7);
+      _panelData[tbodyId.replace("-body", "")] = data;
       renderSetupRows(data, tbodyId, direction, refLevelKey);
       if (countId) document.getElementById(countId).textContent = data.length;
       return data;
