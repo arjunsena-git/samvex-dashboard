@@ -507,6 +507,11 @@
       <div class="idx-price">—</div>
       <div class="idx-change">—</div>
     </div>
+    <div class="idx-card" id="idx-sensex">
+      <div class="idx-label">SENSEX</div>
+      <div class="idx-price">—</div>
+      <div class="idx-change">—</div>
+    </div>
     <div class="idx-card" id="idx-banknifty">
       <div class="idx-label">BANK NIFTY</div>
       <div class="idx-price">—</div>
@@ -1136,8 +1141,9 @@
       const res = await fetch(`${API}/api/market`);
       const data = await res.json();
 
-      const nifty = data["NIFTY 50"];
-      const bank  = data["BANK NIFTY"];
+      const nifty   = data["NIFTY 50"];
+      const sensex  = data["SENSEX"];
+      const bank    = data["BANK NIFTY"];
 
       if (nifty) {
         const el = document.getElementById("idx-nifty");
@@ -1145,6 +1151,13 @@
         el.querySelector(".idx-price").textContent = nifty.price.toLocaleString("en-IN");
         el.querySelector(".idx-change").innerHTML =
           `<span style="color:var(--${c})">${sign(nifty.change_pct)}${nifty.change_pct}%</span>`;
+      }
+      if (sensex) {
+        const el = document.getElementById("idx-sensex");
+        const c = changeClass(sensex.change_pct);
+        el.querySelector(".idx-price").textContent = sensex.price.toLocaleString("en-IN");
+        el.querySelector(".idx-change").innerHTML =
+          `<span style="color:var(--${c})">${sign(sensex.change_pct)}${sensex.change_pct}%</span>`;
       }
       if (bank) {
         const el = document.getElementById("idx-banknifty");

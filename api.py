@@ -950,7 +950,7 @@ def _fetch_market():
         try:
             r = _http.get(
                 f"{UPSTOX_BASE}/market-quote/quotes",
-                params={"instrument_key": "NSE_INDEX|Nifty 50,NSE_INDEX|Nifty Bank"},
+                params={"instrument_key": "NSE_INDEX|Nifty 50,NSE_INDEX|Nifty Bank,BSE_INDEX|SENSEX"},
                 headers=_upstox_headers(),
                 timeout=10,
             )
@@ -966,6 +966,8 @@ def _fetch_market():
                         result["NIFTY 50"]   = {"price": round(lp, 2), "change_pct": chg}
                     elif "Nifty Bank" in k:
                         result["BANK NIFTY"] = {"price": round(lp, 2), "change_pct": chg}
+                    elif "SENSEX" in k.upper():
+                        result["SENSEX"]     = {"price": round(lp, 2), "change_pct": chg}
                 if result:
                     print(f"[Market] Upstox indices: {list(result.keys())}")
                     return result
@@ -973,7 +975,7 @@ def _fetch_market():
             print(f"[Market] Upstox index error: {e}")
 
     # Fallback: Yahoo Finance delayed data
-    indices = {"NIFTY 50": "^NSEI", "BANK NIFTY": "^NSEBANK"}
+    indices = {"NIFTY 50": "^NSEI", "SENSEX": "^BSESN", "BANK NIFTY": "^NSEBANK"}
     result  = {}
     for name, sym in indices.items():
         try:
