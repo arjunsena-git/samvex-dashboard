@@ -457,83 +457,138 @@
       <div class="sub" id="top-loser-val">Loading…</div>
     </div>
     <div class="summary-card">
-      <div class="label">Bullish Setups</div>
-      <div class="value" id="bullish-count" style="color:var(--green)">—</div>
-      <div class="sub">F&O stocks with upside potential</div>
+      <div class="label">Trend Signals</div>
+      <div class="value" id="s1-count" style="color:var(--green)">—</div>
+      <div class="sub">Setup 1 · PDH breakouts &amp; PDL breakdowns</div>
     </div>
     <div class="summary-card">
-      <div class="label">Bearish Setups</div>
-      <div class="value" id="bearish-count" style="color:var(--red)">—</div>
-      <div class="sub">F&O stocks with downside potential</div>
+      <div class="label">Trap Signals</div>
+      <div class="value" id="s2-count" style="color:var(--accent)">—</div>
+      <div class="sub">Setup 2 · Bear traps &amp; bull traps</div>
     </div>
   </div>
 
-  <!-- Scanner panels -->
+  <!-- ── Setup 1: Directional Trend (Kumar sir) ─────────────────── -->
+  <div class="section-divider">
+    <div class="section-divider-line"></div>
+    <div class="section-divider-title">Setup 1 — Directional Trend · First 15-Min Candle Closes Beyond PDH / PDL</div>
+    <div class="section-divider-line"></div>
+  </div>
   <div class="scanner-grid">
 
-    <!-- ── Bullish Stocks ──────────────────────────────────────── -->
+    <!-- Setup 1 Bullish: Trend Breakout -->
     <div class="panel">
       <div class="panel-header">
         <div class="panel-title">
           <span class="dot dot-green"></span>
-          Bullish Stocks
+          Trend Breakout &nbsp;<span style="font-size:11px;color:var(--text-muted);font-weight:400;">Close &gt; PDH</span>
         </div>
-        <button class="refresh-btn" onclick="loadBullish()">↺ Refresh</button>
+        <button class="refresh-btn" onclick="loadS1Bullish()">↺ Refresh</button>
       </div>
       <div class="criteria-row">
-        <span class="chip chip-green">Gap Drive 9:15–10:45</span>
-        <span class="chip chip-blue">Momentum 10:45–12:45</span>
-        <span class="chip chip-orange">Trend 12:45–15:30</span>
-        <span class="chip chip-green">Volume Confirmed</span>
-        <span class="chip chip-orange">Move Potential</span>
+        <span class="chip chip-green">Close &gt; PDH</span>
+        <span class="chip chip-blue">Candle Range ≤1%</span>
+        <span class="chip chip-green">Vol ≥1.5×</span>
+        <span class="chip chip-blue">Price &gt;₹100</span>
+        <span class="chip chip-blue">Nifty 500</span>
       </div>
       <table>
-        <thead>
-          <tr>
-            <th>Symbol</th>
-            <th>Price</th>
-            <th>Gap</th>
-            <th>Volume</th>
-            <th>Value (Cr)</th>
-            <th>Potential ▾</th>
-            <th>Trade Plan</th>
-          </tr>
-        </thead>
-        <tbody id="bullish-body">
+        <thead><tr>
+          <th>Symbol</th><th>Price</th><th>Gap</th>
+          <th>PDH</th><th>Candle</th><th>Volume</th><th>Trade Plan</th>
+        </tr></thead>
+        <tbody id="s1-bull-body">
           <tr><td colspan="7"><div class="empty-state"><div class="spinner"></div>Loading…</div></td></tr>
         </tbody>
       </table>
     </div>
 
-    <!-- ── Bearish Stocks ──────────────────────────────────────── -->
+    <!-- Setup 1 Bearish: Trend Breakdown -->
     <div class="panel">
       <div class="panel-header">
         <div class="panel-title">
           <span class="dot dot-red"></span>
-          Bearish Stocks
+          Trend Breakdown &nbsp;<span style="font-size:11px;color:var(--text-muted);font-weight:400;">Close &lt; PDL</span>
         </div>
-        <button class="refresh-btn" onclick="loadBearish()">↺ Refresh</button>
+        <button class="refresh-btn" onclick="loadS1Bearish()">↺ Refresh</button>
       </div>
       <div class="criteria-row">
-        <span class="chip chip-red">Gap Drive 9:15–10:45</span>
-        <span class="chip chip-blue">Momentum 10:45–12:45</span>
-        <span class="chip chip-orange">Trend 12:45–15:30</span>
-        <span class="chip chip-red">Volume Confirmed</span>
-        <span class="chip chip-orange">Move Potential</span>
+        <span class="chip chip-red">Close &lt; PDL</span>
+        <span class="chip chip-blue">Candle Range ≤1%</span>
+        <span class="chip chip-red">Vol ≥1.5×</span>
+        <span class="chip chip-blue">Price &gt;₹100</span>
+        <span class="chip chip-blue">Nifty 500</span>
       </div>
       <table>
-        <thead>
-          <tr>
-            <th>Symbol</th>
-            <th>Price</th>
-            <th>Gap</th>
-            <th>Volume</th>
-            <th>Value (Cr)</th>
-            <th>Potential ▾</th>
-            <th>Trade Plan</th>
-          </tr>
-        </thead>
-        <tbody id="bearish-body">
+        <thead><tr>
+          <th>Symbol</th><th>Price</th><th>Gap</th>
+          <th>PDL</th><th>Candle</th><th>Volume</th><th>Trade Plan</th>
+        </tr></thead>
+        <tbody id="s1-bear-body">
+          <tr><td colspan="7"><div class="empty-state"><div class="spinner"></div>Loading…</div></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+  </div>
+
+  <!-- ── Setup 2: Reversal / Trap (Aravind) ──────────────────────── -->
+  <div class="section-divider" style="margin-top:24px;">
+    <div class="section-divider-line"></div>
+    <div class="section-divider-title">Setup 2 — Reversal / Trap · Bear Traps &amp; Bull Traps at Key Levels</div>
+    <div class="section-divider-line"></div>
+  </div>
+  <div class="scanner-grid">
+
+    <!-- Setup 2 Bullish: Bear Trap -->
+    <div class="panel">
+      <div class="panel-header">
+        <div class="panel-title">
+          <span class="dot dot-green"></span>
+          Bear Trap &nbsp;<span style="font-size:11px;color:var(--text-muted);font-weight:400;">False breakdown → recovery above PDL</span>
+        </div>
+        <button class="refresh-btn" onclick="loadS2Bullish()">↺ Refresh</button>
+      </div>
+      <div class="criteria-row">
+        <span class="chip chip-orange">Opens near / below PDL</span>
+        <span class="chip chip-orange">Gap Down ≤2%</span>
+        <span class="chip chip-green">Closes above PDL (Green)</span>
+        <span class="chip chip-blue">Candle Range ≤1%</span>
+        <span class="chip chip-green">Vol ≥1.5×</span>
+      </div>
+      <table>
+        <thead><tr>
+          <th>Symbol</th><th>Price</th><th>Gap</th>
+          <th>PDL</th><th>Candle</th><th>Volume</th><th>Trade Plan</th>
+        </tr></thead>
+        <tbody id="s2-bull-body">
+          <tr><td colspan="7"><div class="empty-state"><div class="spinner"></div>Loading…</div></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Setup 2 Bearish: Bull Trap -->
+    <div class="panel">
+      <div class="panel-header">
+        <div class="panel-title">
+          <span class="dot dot-red"></span>
+          Bull Trap &nbsp;<span style="font-size:11px;color:var(--text-muted);font-weight:400;">False breakout → rejection below PDH</span>
+        </div>
+        <button class="refresh-btn" onclick="loadS2Bearish()">↺ Refresh</button>
+      </div>
+      <div class="criteria-row">
+        <span class="chip chip-orange">Opens near / above PDH</span>
+        <span class="chip chip-orange">Gap Up ≤2%</span>
+        <span class="chip chip-red">Closes below PDH (Red)</span>
+        <span class="chip chip-blue">Candle Range ≤1%</span>
+        <span class="chip chip-red">Vol ≥1.5×</span>
+      </div>
+      <table>
+        <thead><tr>
+          <th>Symbol</th><th>Price</th><th>Gap</th>
+          <th>PDH</th><th>Candle</th><th>Volume</th><th>Trade Plan</th>
+        </tr></thead>
+        <tbody id="s2-bear-body">
           <tr><td colspan="7"><div class="empty-state"><div class="spinner"></div>Loading…</div></td></tr>
         </tbody>
       </table>
@@ -774,83 +829,82 @@
   }
 
   function potentialCell(s, direction) {
-    const arrow = direction === "bullish" ? "▲" : "▼";
-    const cls   = s.confidence === "HIGH" ? "pot-high" : "pot-med";
-    const badge = s.setup_type
-      ? `<span style="font-size:9px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:.4px;">${s.setup_type}</span>`
-      : "";
-    return `<div class="pot-wrap">
-      ${badge}
-      <span class="pot-value ${cls}">${arrow} ${s.projected_pct}%</span>
-      <span style="display:flex;gap:4px;align-items:center;">
-        <span class="conf-badge conf-${s.confidence}">${s.confidence}</span>
-        <span style="color:var(--text-muted);font-size:10px;">ADR ${s.adr_pct}%</span>
-      </span>
-    </div>`;
+    // Legacy — kept for any remaining callers
+    return `<div style="color:var(--text-muted);font-size:11px;">${s.setup || "—"}</div>`;
   }
 
-  function renderRows(data, tbody, direction) {
-    const el = document.getElementById(tbody);
+  // ── Setup row renderer ────────────────────────────────────────
+  // refLevelKey: "pdh" or "pdl" — which level to show in the 4th column
+  function renderSetupRows(data, tbodyId, direction, refLevelKey) {
+    const el      = document.getElementById(tbodyId);
+    const bullish = direction === "bullish";
+    const color   = bullish ? "green" : "red";
     if (!data || data.length === 0) {
-      loadCandidates(direction, tbody);
+      el.innerHTML = `<tr><td colspan="7"><div class="empty-state">
+        No signals from today's 9:15–9:30 AM candle.
+        <span style="color:var(--text-muted);font-size:11px;display:block;margin-top:4px;">
+          Signals fire at 9:30 AM and stay visible all day · check back after open
+        </span>
+      </div></td></tr>`;
       return;
     }
-    const color = direction === "bullish" ? "green" : "red";
-    el.innerHTML = data.map((s) => {
-      const iMove = s.intraday_move != null ? s.intraday_move : null;
-      const iColor = iMove != null ? (iMove >= 0 ? "green" : "red") : color;
-      const moveCell = iMove != null
-        ? `<div style="display:flex;flex-direction:column;gap:2px;">
-             <span class="pill pill-${color}" style="font-size:10px;">${sign(s.gap_pct)}${s.gap_pct}% gap</span>
-             <span class="pill pill-${iColor}" style="font-size:10px;">${sign(iMove)}${iMove}% intra</span>
-           </div>`
-        : `<span class="pill pill-${color}">${sign(s.gap_pct)}${s.gap_pct}%</span>`;
+    el.innerHTML = data.map(s => {
+      const refLevel = refLevelKey === "pdh" ? s.pdh : s.pdl;
+      const refLabel = refLevelKey === "pdh" ? "PDH" : "PDL";
+      const gapColor = s.gap_pct >= 0 ? "var(--green)" : "var(--red)";
+      const setupBadge = `<span style="font-size:9px;color:var(--accent);font-weight:700;
+        text-transform:uppercase;letter-spacing:.4px;display:block;margin-top:2px;">${s.setup}</span>`;
+      const candleColor = s.candle_range_pct <= 0.5 ? "var(--green)" : "var(--yellow)";
       return `<tr>
-        <td><span class="sym">${s.symbol}</span></td>
-        <td class="price">${fmt(s.price)}</td>
-        <td>${moveCell}</td>
+        <td><span class="sym">${s.symbol}</span>${setupBadge}</td>
+        <td class="price" style="color:var(--${color})">₹${s.price.toLocaleString("en-IN")}</td>
+        <td><span class="pill pill-${s.gap_pct >= 0 ? "green" : "red"}">${sign(s.gap_pct)}${s.gap_pct}%</span></td>
+        <td class="price" style="color:var(--accent)">
+          <span style="font-size:9px;color:var(--text-muted);">${refLabel} </span>
+          ₹${Number(refLevel).toLocaleString("en-IN")}
+        </td>
+        <td><span style="font-size:11px;color:${candleColor}">${s.candle_range_pct.toFixed(2)}%</span></td>
         <td>${volBar(s.volume_ratio)}</td>
-        <td class="inst-value">₹${s.traded_value_crores} Cr</td>
-        <td>${potentialCell(s, direction)}</td>
         ${tradePlanCell(s, direction)}
       </tr>`;
     }).join("");
   }
 
-  async function loadCandidates(direction, tbody) {
-    const el = document.getElementById(tbody);
+  // ── Four setup loaders ────────────────────────────────────────
+  async function _loadSetup(endpoint, tbodyId, direction, refLevelKey, countId) {
+    const tbody = document.getElementById(tbodyId);
+    tbody.innerHTML = `<tr><td colspan="7"><div class="empty-state"><div class="spinner"></div>Scanning…</div></td></tr>`;
     try {
-      const res  = await fetch(`${API}/api/candidates/${direction}`);
-      const data = await res.json();
-      if (!data || data.length === 0) {
-        el.innerHTML = `<tr><td colspan="7"><div class="empty-state">
-          No ${direction} setups detected.<br>
-          <small>Market conditions not aligned right now — check OI scanner for signals</small>
-        </div></td></tr>`;
-        return;
-      }
-      const color = direction === "bullish" ? "green" : "red";
-      el.innerHTML = `<tr><td colspan="7" style="padding:6px 18px 2px;background:var(--bg-card-2)">
-        <span style="font-size:10px;color:var(--text-muted);font-weight:700;letter-spacing:.5px;text-transform:uppercase;">
-          Watching — directionally aligned, building toward criteria</span></td></tr>` +
-        data.map(s => {
-          const volColor = s.vol_ok ? "green" : "yellow";
-          const valColor = s.val_ok ? "green" : "yellow";
-          const moveVal  = s.day_move != null ? s.day_move : s.gap_pct;
-          const moveColor = moveVal >= 0 ? "green" : "red";
-          return `<tr style="opacity:.85">
-            <td><span class="sym">${s.symbol}</span></td>
-            <td class="price">${fmt(s.price)}</td>
-            <td><span class="pill pill-${moveColor}">${sign(moveVal)}${moveVal}%</span></td>
-            <td><span class="pill pill-${volColor}">${s.volume_ratio}×</span></td>
-            <td class="inst-value"><span class="pill pill-${valColor}">₹${s.value_cr} Cr</span></td>
-            <td style="color:var(--text-muted);font-size:11px;">${s.criteria_met}/3 filters</td>
-          </tr>`;
-        }).join("");
-    } catch (_) {
-      el.innerHTML = `<tr><td colspan="7"><div class="empty-state">No setups found.</div></td></tr>`;
+      const data = await fetchWithRetry(`${API}/api/${endpoint}`, tbody, 7);
+      renderSetupRows(data, tbodyId, direction, refLevelKey);
+      if (countId) document.getElementById(countId).textContent = data.length;
+      return data;
+    } catch (e) {
+      tbody.innerHTML = `<tr><td colspan="7"><div class="empty-state">
+        Server unreachable —
+        <a href="javascript:void(0)" onclick="_loadSetup('${endpoint}','${tbodyId}','${direction}','${refLevelKey}','${countId || ''}')"
+           style="color:var(--accent);text-decoration:underline;">Retry</a>
+      </div></td></tr>`;
+      return [];
     }
   }
+
+  async function loadS1Bullish() {
+    const data = await _loadSetup("setup1/bullish", "s1-bull-body", "bullish", "pdh", "s1-count");
+    if (data.length) {
+      document.getElementById("top-gainer-sym").textContent = data[0].symbol;
+      document.getElementById("top-gainer-val").textContent = `+${data[0].gap_pct.toFixed(2)}%  ₹${data[0].price}`;
+    }
+  }
+  async function loadS1Bearish() {
+    const data = await _loadSetup("setup1/bearish", "s1-bear-body", "bearish", "pdl", null);
+    if (data.length) {
+      document.getElementById("top-loser-sym").textContent = data[0].symbol;
+      document.getElementById("top-loser-val").textContent = `${data[0].gap_pct.toFixed(2)}%  ₹${data[0].price}`;
+    }
+  }
+  async function loadS2Bullish() { return _loadSetup("setup2/bullish", "s2-bull-body", "bullish", "pdl", "s2-count"); }
+  async function loadS2Bearish() { return _loadSetup("setup2/bearish", "s2-bear-body", "bearish", "pdh", null); }
 
   // ── Market index cards ────────────────────────────────────────
   async function loadMarket() {
@@ -1121,8 +1175,8 @@
   // ── Auto-refresh every 5 min ──────────────────────────────────
   async function refreshAll() {
     await Promise.all([loadMarket(), loadStatus()]);
-    await loadBullish();
-    await Promise.all([loadBearish(), loadTicker(), loadOI()]);
+    await Promise.all([loadS1Bullish(), loadS1Bearish(), loadS2Bullish(), loadS2Bearish()]);
+    await Promise.all([loadTicker(), loadOI()]);
     stampUpdated();
   }
 

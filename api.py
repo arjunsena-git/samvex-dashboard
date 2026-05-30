@@ -47,6 +47,46 @@ FNO_STOCKS = [
     "AUBANK.NS", "IDBI.NS", "KFINTECH.NS", "CDSL.NS",
 ]
 
+# ── Live Nifty 500 universe ────────────────────────────────────────
+# Fetched fresh each trading day from niftyindices.com.
+# Falls back to FNO_STOCKS if the fetch fails.
+NIFTY500_CSV_URL = "https://www.niftyindices.com/IndexConstituents/ind_nifty500list.csv"
+_nifty500_cache: dict = {"symbols": [], "date": ""}
+
+
+def _load_nifty500() -> list:
+    """Return current Nifty 500 symbol list with .NS suffix. Cached for the day."""
+    ist   = pytz.timezone("Asia/Kolkata")
+    today = datetime.now(ist).strftime("%Y-%m-%d")
+    if _nifty500_cache["symbols"] and _nifty500_cache["date"] == today:
+        return _nifty500_cache["symbols"]
+    try:
+        r = _http.get(
+            NIFTY500_CSV_URL, timeout=15,
+            headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                                   "AppleWebKit/537.36 (KHTML, like Gecko) "
+                                   "Chrome/120.0.0.0 Safari/537.36"},
+        )
+        df  = pd.read_csv(io.StringIO(r.text))
+        col = next((c for c in df.columns if "symbol" in c.lower()), None)
+        if not col:
+            raise ValueError(f"No symbol column. Cols: {list(df.columns)}")
+        syms = [
+            f"{str(s).strip().upper()}.NS"
+            for s in df[col].dropna()
+            if str(s).strip() and str(s).strip().upper() not in ("SYMBOL", "NAN", "")
+        ]
+        if len(syms) < 100:
+            raise ValueError(f"Only {len(syms)} symbols parsed")
+        _nifty500_cache["symbols"] = syms
+        _nifty500_cache["date"]    = today
+        print(f"[Nifty500] {len(syms)} symbols loaded for {today}")
+    except Exception as e:
+        print(f"[Nifty500] Load failed: {e} — using FNO fallback ({len(FNO_STOCKS)} stocks)")
+        if not _nifty500_cache["symbols"]:
+            _nifty500_cache["symbols"] = FNO_STOCKS
+    return _nifty500_cache["symbols"]
+
 # ── In-memory cache ────────────────────────────────────────────────
 _cache: dict = {}
 _batch_lock  = threading.Lock()
@@ -159,11 +199,12 @@ def _load_token_on_startup():
     return None, 0.0, None
 
 
-# ── Startup: always pre-warm maps and daily data (no auth needed) ──
-# Instrument maps and daily Yahoo batch are auth-independent — load them
-# immediately so the first screener request doesn't have to wait 30-60s.
+# ── Startup: always pre-warm everything auth-independent ──────────
+# Load instrument maps, Nifty 500 list, and daily Yahoo batch in background
+# so the first screener request doesn't have to wait 30-60s.
 threading.Thread(target=lambda: _load_instrument_map(), daemon=True).start()
 threading.Thread(target=lambda: _load_futures_map(),    daemon=True).start()
+threading.Thread(target=lambda: _load_nifty500(),       daemon=True).start()
 threading.Thread(target=lambda: _get_daily_batch(),     daemon=True).start()
 
 # ── Startup token load ─────────────────────────────────────────────
@@ -442,9 +483,9 @@ def _fetch_live_quotes():
 
 
 
-# ── Yahoo Finance batch (daily only when Upstox is live) ──────────
+# ── Yahoo Finance batch (daily — Nifty 500 universe) ──────────────
 def _fetch_daily_only():
-    tickers = " ".join(FNO_STOCKS)
+    tickers = " ".join(_load_nifty500() or FNO_STOCKS)
     return yf.download(
         tickers=tickers,
         interval="1d", period="15d",
@@ -504,6 +545,36 @@ def _get_batch():
         return result
 
 
+# ── Yahoo Finance 15-min intraday batch (for first-candle screener) ─
+SCREEN_TTL = 300   # 5-min screener result cache
+
+def _fetch_intraday_15m():
+    """Batch 15-min bars for full Nifty 500 universe."""
+    tickers = " ".join(_load_nifty500() or FNO_STOCKS)
+    return yf.download(
+        tickers=tickers,
+        interval="15m", period="1d",
+        group_by="ticker", auto_adjust=False,
+        threads=True, progress=False,
+    )
+
+
+def _get_15m_batch():
+    now = time.time()
+    if "15m_batch" in _cache:
+        data, ts = _cache["15m_batch"]
+        if now - ts < SCREEN_TTL:
+            return data
+    with _batch_lock:
+        if "15m_batch" in _cache:
+            data, ts = _cache["15m_batch"]
+            if now - ts < SCREEN_TTL:
+                return data
+        result = _fetch_intraday_15m()
+        _cache["15m_batch"] = (result, time.time())
+        return result
+
+
 def _get_ticker_df(batch, ticker):
     try:
         if isinstance(batch.columns, pd.MultiIndex):
@@ -515,16 +586,180 @@ def _get_ticker_df(batch, ticker):
         return None
 
 
-# ── Time-adaptive screener core ────────────────────────────────────
-# Phase 1 Gap Drive  (0–90 min  / 9:15–10:45): gap + momentum + surging volume
-# Phase 2 Momentum   (90–225 min/ 10:45–12:45): day move + near high/low + building volume
-# Phase 3 Trend      (225+ min  / 12:45–15:30): sustained trend + strong volume + near extreme
+# ── Screener: Setup 1 (Directional Trend) + Setup 2 (Reversal/Trap) ─
+#
+# Both setups are based on the FIRST 15-MINUTE CANDLE (9:15–9:30 AM IST).
+# Signals fire once the candle completes and remain valid all day.
+#
+# Common filters (all setups):
+#   • First 15-min candle full range (High–Low) ≤ 1% of open   [answer 2B]
+#   • Volume paced to full day ≥ 1.5× previous day             [answer 1A]
+#   • Current price > ₹100
+#   • Stock in Nifty 500 universe                               [answer 5C]
+#
+# Setup 1 — Directional Trend (Kumar sir):
+#   Bullish : first 15-min candle closes ABOVE Previous Day High (PDH)
+#   Bearish : first 15-min candle closes BELOW Previous Day Low  (PDL)
+#
+# Setup 2 — Reversal / Trap (Aravind):
+#   Bullish (Bear Trap)  : opens near/below PDL (within 1% above PDL [answer 3B]),
+#                          gap down ≤ 2%, first candle closes ABOVE PDL as green candle
+#   Bearish (Bull Trap)  : opens near/above PDH (within 1% below PDH),
+#                          gap up ≤ 2%, first candle closes BELOW PDH as red candle
 
-def _adr(daily):
-    lookback = daily.iloc[-11:-1] if len(daily) >= 11 else daily.iloc[:-1]
-    return float(
-        ((lookback["High"] - lookback["Low"]) / lookback["Close"]).mean() * 100
-    ) if len(lookback) > 0 else 2.0
+
+def _screen_new(setup: int, direction: str) -> list:
+    """
+    Unified screener for Setup 1 (Directional Trend) and Setup 2 (Reversal/Trap).
+    Uses the first 15-min candle (9:15–9:30 AM). Results valid all day once fired.
+    """
+    universe     = _load_nifty500() or FNO_STOCKS
+    batch_15m    = _get_15m_batch()
+    batch_daily  = _get_daily_batch()
+    bullish      = direction == "bullish"
+
+    # Live prices from Upstox (for entry price in trade plan)
+    live_quotes = None
+    if _is_live():
+        live_quotes = _cached("live_quotes", _fetch_live_quotes, ttl=LIVE_TTL)
+
+    results = []
+
+    for symbol in universe:
+        try:
+            # ── Data fetch ────────────────────────────────────────
+            intra = _get_ticker_df(batch_15m,   symbol)
+            daily = _get_ticker_df(batch_daily, symbol)
+
+            # Need at least 1 intraday 15m bar and 2 daily bars (yesterday + today)
+            if intra is None or len(intra) < 1 or daily is None or len(daily) < 2:
+                continue
+
+            # ── Previous-day reference levels ─────────────────────
+            pdh        = float(daily["High"].iloc[-2])
+            pdl        = float(daily["Low"].iloc[-2])
+            prev_close = float(daily["Close"].iloc[-2])
+            prev_vol   = float(daily["Volume"].iloc[-2])
+
+            if pdh <= 0 or pdl <= 0 or prev_close <= 0 or prev_vol <= 0:
+                continue
+
+            # ── First 15-min candle (9:15–9:30 AM) ───────────────
+            c_open  = float(intra["Open"].iloc[0])
+            c_high  = float(intra["High"].iloc[0])
+            c_low   = float(intra["Low"].iloc[0])
+            c_close = float(intra["Close"].iloc[0])
+            c_vol   = float(intra["Volume"].iloc[0])
+
+            if c_open <= 0 or c_vol <= 0:
+                continue
+
+            # ── Current price (Upstox live if available) ──────────
+            if live_quotes:
+                q  = live_quotes.get(symbol)
+                lp = float(q.get("last_price", 0) or 0) if q else 0
+                current_price = lp if lp > 0 else float(intra["Close"].iloc[-1])
+            else:
+                current_price = float(intra["Close"].iloc[-1])
+
+            # ── Price gate: > ₹100 ────────────────────────────────
+            if current_price < 100:
+                continue
+
+            # ── Candle full range (High–Low) ≤ 1% of open ─────────
+            candle_range_pct = (c_high - c_low) / c_open * 100
+            if candle_range_pct > 1.0:
+                continue
+
+            # ── Volume: 15-min paced to full day ≥ 1.5× prev day ─
+            paced_vol = (c_vol / 15.0) * 375.0
+            vol_ratio = paced_vol / prev_vol
+            if vol_ratio < 1.5:
+                continue
+
+            gap_pct = (c_open - prev_close) / prev_close * 100
+
+            # ── Setup-specific filters ────────────────────────────
+            if setup == 1:
+                # Directional Trend: first candle closes beyond prev-day extreme
+                if bullish:
+                    if c_close <= pdh:
+                        continue
+                    sl_level  = pdh
+                    sl_label  = "Below PDH"
+                    setup_tag = "Trend Breakout"
+                else:
+                    if c_close >= pdl:
+                        continue
+                    sl_level  = pdl
+                    sl_label  = "Above PDL"
+                    setup_tag = "Trend Breakdown"
+
+            else:  # setup == 2
+                if bullish:
+                    # Bear Trap: opens near/below PDL, gap down ≤ 2%,
+                    # first candle recovers above PDL as a green (bullish) candle
+                    if not (c_open <= pdl * 1.01        # within 1% above PDL
+                            and -2.0 <= gap_pct < 0     # gap down, max 2%
+                            and c_close > pdl            # closes above PDL
+                            and c_close > c_open):       # green candle
+                        continue
+                    sl_level  = pdl
+                    sl_label  = "Below PDL"
+                    setup_tag = "Bear Trap"
+                else:
+                    # Bull Trap: opens near/above PDH, gap up ≤ 2%,
+                    # first candle rejects below PDH as a red (bearish) candle
+                    if not (c_open >= pdh * 0.99        # within 1% below PDH
+                            and 0 < gap_pct <= 2.0      # gap up, max 2%
+                            and c_close < pdh            # closes below PDH
+                            and c_close < c_open):       # red candle
+                        continue
+                    sl_level  = pdh
+                    sl_label  = "Above PDH"
+                    setup_tag = "Bull Trap"
+
+            # ── Trade plan: structural SL + 1.5R / 3R targets ─────
+            # SL is 0.3% beyond the key level (small buffer to avoid noise)
+            if bullish:
+                sl   = round(sl_level * 0.997, 2)
+                risk = current_price - sl
+            else:
+                sl   = round(sl_level * 1.003, 2)
+                risk = sl - current_price
+
+            if risk <= 0:
+                continue
+
+            sl_pct = round(risk / current_price * 100, 2)
+            sign_  = 1 if bullish else -1
+            t1     = round(current_price + sign_ * risk * 1.5, 2)
+            t2     = round(current_price + sign_ * risk * 3.0, 2)
+
+            results.append({
+                "symbol":           symbol.replace(".NS", ""),
+                "price":            round(current_price, 2),
+                "gap_pct":          round(gap_pct, 2),
+                "candle_range_pct": round(candle_range_pct, 2),
+                "volume_ratio":     round(vol_ratio, 2),
+                "pdh":              round(pdh, 2),
+                "pdl":              round(pdl, 2),
+                "c_close":          round(c_close, 2),
+                "setup":            setup_tag,
+                "entry":            round(current_price, 2),
+                "sl":               sl,
+                "sl_pct":           sl_pct,
+                "sl_label":         sl_label,
+                "t1":               t1,
+                "t2":               t2,
+                "risk_reward":      1.5,
+            })
+
+        except Exception:
+            continue
+
+    results.sort(key=lambda x: x["volume_ratio"], reverse=True)
+    return results[:10]
 
 
 def _screen_result(symbol, current_price, gap_pct, intraday_move, day_move,
@@ -968,7 +1203,8 @@ def oauth_callback():
     threading.Thread(target=_load_futures_map, daemon=True).start()
 
     # Clear screener cache so next load uses live data immediately
-    for k in ("bullish", "bearish", "live_quotes", "ticker", "oi_buildup", "market"):
+    for k in ("s1_bull", "s1_bear", "s2_bull", "s2_bear",
+              "live_quotes", "15m_batch", "ticker", "oi_buildup", "market"):
         _cache.pop(k, None)
 
     redirect_url = FRONTEND_URL if FRONTEND_URL else None
@@ -1010,7 +1246,8 @@ def set_token():
     _upstox_token["expires_at"]   = time.time() + 23 * 3600
     _save_token(_upstox_token["access_token"], _upstox_token["expires_at"])
     # Invalidate screener cache so next request uses live data immediately
-    for k in ("bullish", "bearish", "live_quotes", "ticker", "oi_buildup", "market"):
+    for k in ("s1_bull", "s1_bear", "s2_bull", "s2_bear",
+              "live_quotes", "15m_batch", "ticker", "oi_buildup", "market"):
         _cache.pop(k, None)
     threading.Thread(target=_load_instrument_map, daemon=True).start()
     threading.Thread(target=_load_futures_map, daemon=True).start()
@@ -1037,19 +1274,21 @@ def auth_status():
     })
 
 
-@app.route("/api/bullish")
-def bullish():
-    return jsonify(_cached("bullish", _screen, "bullish"))
+@app.route("/api/setup1/bullish")
+def api_s1_bull():
+    return jsonify(_cached("s1_bull", _screen_new, 1, "bullish", ttl=SCREEN_TTL))
 
-@app.route("/api/bearish")
-def bearish():
-    return jsonify(_cached("bearish", _screen, "bearish"))
+@app.route("/api/setup1/bearish")
+def api_s1_bear():
+    return jsonify(_cached("s1_bear", _screen_new, 1, "bearish", ttl=SCREEN_TTL))
 
-@app.route("/api/candidates/<direction>")
-def candidates(direction):
-    if direction not in ("bullish", "bearish"):
-        return jsonify([])
-    return jsonify(_cached(f"cand_{direction}", _screen_candidates, direction, ttl=LIVE_TTL))
+@app.route("/api/setup2/bullish")
+def api_s2_bull():
+    return jsonify(_cached("s2_bull", _screen_new, 2, "bullish", ttl=SCREEN_TTL))
+
+@app.route("/api/setup2/bearish")
+def api_s2_bear():
+    return jsonify(_cached("s2_bear", _screen_new, 2, "bearish", ttl=SCREEN_TTL))
 
 @app.route("/api/market")
 def market():
