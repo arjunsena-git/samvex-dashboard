@@ -670,15 +670,14 @@ def _screen_new(setup: int, direction: str) -> list:
 
             # Reject stale bars — yfinance period="1d" returns last session even on
             # non-trading days; discard if the candle date doesn't match today (IST)
+            _ist = pytz.timezone("Asia/Kolkata")
+            candle_ts = intra.index[0]
             try:
-                candle_ts = intra.index[0]
-                candle_date = (candle_ts.astimezone(ist).date()
-                               if getattr(candle_ts, "tzinfo", None)
-                               else candle_ts.date())
-                if candle_date != datetime.now(ist).date():
-                    continue
+                candle_date = candle_ts.astimezone(_ist).date() if candle_ts.tzinfo else candle_ts.date()
             except Exception:
-                pass
+                candle_date = candle_ts.date() if hasattr(candle_ts, "date") else None
+            if candle_date != datetime.now(_ist).date():
+                continue
 
             # ── Previous-day reference levels ─────────────────────
             pdh        = float(daily["High"].iloc[-2])
