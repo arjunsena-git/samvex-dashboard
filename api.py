@@ -16,6 +16,12 @@ import requests as _http
 app = Flask(__name__)
 CORS(app)
 
+@app.after_request
+def no_cache(response):
+    if flask_req.path.startswith("/api/"):
+        response.headers["Cache-Control"] = "no-store"
+    return response
+
 # NSE F&O eligible stocks — verified symbols on Yahoo Finance
 FNO_STOCKS = [
     # Large caps / Index heavyweights
