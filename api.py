@@ -17,34 +17,68 @@ CORS(app)
 
 # NSE F&O eligible stocks — verified symbols on Yahoo Finance
 FNO_STOCKS = [
+    # Large caps / Index heavyweights
     "RELIANCE.NS", "TCS.NS", "INFY.NS", "HDFCBANK.NS", "ICICIBANK.NS",
     "SBIN.NS", "AXISBANK.NS", "BAJFINANCE.NS", "KOTAKBANK.NS", "LT.NS",
-    "WIPRO.NS", "HCLTECH.NS", "SUNPHARMA.NS", "TATASTEEL.NS", "NTPC.NS",
+    "HCLTECH.NS", "TATASTEEL.NS", "NTPC.NS",
     "POWERGRID.NS", "COALINDIA.NS", "ONGC.NS", "IOC.NS", "BPCL.NS",
     "HINDUNILVR.NS", "ITC.NS", "MARUTI.NS", "M&M.NS", "ASIANPAINT.NS",
     "NESTLEIND.NS", "BAJAJ-AUTO.NS", "HEROMOTOCO.NS", "EICHERMOT.NS",
     "ULTRACEMCO.NS", "GRASIM.NS", "SHREECEM.NS", "ADANIENT.NS", "ADANIPORTS.NS",
     "ADANIGREEN.NS", "ADANIPOWER.NS", "JSWSTEEL.NS", "HINDALCO.NS", "VEDL.NS",
+    "TATAMOTORS.NS", "TATAPOWER.NS", "TATACONSUM.NS", "MCDOWELL-N.NS",
+    # Banks & NBFCs
     "INDUSINDBK.NS", "FEDERALBNK.NS", "BANDHANBNK.NS", "IDFCFIRSTB.NS", "PNB.NS",
     "BANKBARODA.NS", "CANBK.NS", "UNIONBANK.NS", "SBICARD.NS", "BAJAJFINSV.NS",
     "MUTHOOTFIN.NS", "CHOLAFIN.NS", "MANAPPURAM.NS", "RECLTD.NS", "PFC.NS",
+    "AUBANK.NS", "IDBI.NS", "UCOBANK.NS", "IOB.NS", "CENTRALBK.NS", "MAHABANK.NS",
+    "KFINTECH.NS", "CDSL.NS", "BSE.NS", "MCX.NS",
+    # Pharma
     "APOLLOHOSP.NS", "DRREDDY.NS", "CIPLA.NS", "DIVISLAB.NS", "BIOCON.NS",
     "LUPIN.NS", "AUROPHARMA.NS", "ALKEM.NS", "ABBOTINDIA.NS", "TORNTPHARM.NS",
-    "TECHM.NS", "MPHASIS.NS", "COFORGE.NS", "PERSISTENT.NS",
-    "PAYTM.NS", "DELHIVERY.NS", "POLICYBZR.NS",
+    "GLENMARK.NS", "IPCALAB.NS", "NATCOPHARM.NS", "GRANULES.NS",
+    "LAURUSLABS.NS", "PFIZER.NS", "SANOFI.NS",
+    # IT
+    "TECHM.NS", "MPHASIS.NS", "COFORGE.NS", "PERSISTENT.NS", "LTTS.NS",
+    "KPITTECH.NS", "CYIENT.NS", "OFSS.NS", "WIPRO.NS", "SUNPHARMA.NS",
+    # New-age / Fintech
+    "PAYTM.NS", "DELHIVERY.NS", "POLICYBZR.NS", "NYKAA.NS", "ZOMATO.NS",
+    "NAUKRI.NS", "INDIAMART.NS",
+    # Defence / PSU
     "IRCTC.NS", "IRFC.NS", "HAL.NS", "BEL.NS", "BHEL.NS",
-    "SAIL.NS", "NMDC.NS", "HUDCO.NS", "RVNL.NS",
+    "SAIL.NS", "NMDC.NS", "HUDCO.NS", "RVNL.NS", "COCHINSHIP.NS",
+    "MIDHANI.NS", "BEML.NS", "NLCINDIA.NS", "SJVN.NS", "NHPC.NS",
+    "HINDPETRO.NS", "MRPL.NS", "OIL.NS", "GUJGASLTD.NS",
+    # Consumer / Retail
     "TITAN.NS", "TRENT.NS", "JUBLFOOD.NS", "DEVYANI.NS", "WESTLIFE.NS",
-    "VOLTAS.NS", "HAVELLS.NS", "CUMMINSIND.NS", "SIEMENS.NS", "ABB.NS",
-    "PIDILITIND.NS", "BERGEPAINT.NS", "KANSAINER.NS", "INDIGO.NS",
     "UNITDSPR.NS", "UBL.NS", "GODREJCP.NS", "DABUR.NS",
     "MARICO.NS", "COLPAL.NS", "EMAMILTD.NS", "PATANJALI.NS", "VBL.NS",
+    "RADICO.NS", "GODFRYPHLP.NS",
+    # Industrials / Capital goods
+    "VOLTAS.NS", "HAVELLS.NS", "CUMMINSIND.NS", "SIEMENS.NS", "ABB.NS",
+    "PIDILITIND.NS", "BERGEPAINT.NS", "KANSAINER.NS", "POLYCAB.NS",
+    "KEI.NS", "APLAPOLLO.NS", "SOLARINDS.NS",
+    "GRINDWELL.NS", "SCHAEFFLER.NS", "TIMKEN.NS", "SKFINDIA.NS",
+    "THERMAX.NS", "KIRLOSKAR.NS", "JYOTHYLAB.NS",
+    # Oil & Gas / Utilities
     "PETRONET.NS", "GAIL.NS", "MGL.NS", "IGL.NS", "CONCOR.NS",
-    "KPITTECH.NS", "LTTS.NS", "CYIENT.NS", "OFSS.NS",
-    "SOLARINDS.NS", "POLYCAB.NS", "KEI.NS", "APLAPOLLO.NS",
+    "INDIGO.NS", "SPICEJET.NS",
+    # Real estate
     "LODHA.NS", "DLF.NS", "GODREJPROP.NS", "PRESTIGE.NS", "OBEROIRLTY.NS",
-    "UCOBANK.NS", "IOB.NS", "CENTRALBK.NS", "MAHABANK.NS",
-    "AUBANK.NS", "IDBI.NS", "KFINTECH.NS", "CDSL.NS",
+    "PHOENIXLTD.NS", "SOBHA.NS",
+    # Metals / Mining
+    "HINDZINC.NS", "NATIONALUM.NS", "RATNAMANI.NS", "WELSPUNIND.NS",
+    "JINDALSTEL.NS", "JSWENERGY.NS", "JSPL.NS",
+    # Auto ancillaries
+    "MOTHERSON.NS", "BOSCHLTD.NS", "BALKRISIND.NS", "APOLLOTYRE.NS",
+    "CEATLTD.NS", "MRF.NS", "EXIDEIND.NS", "AMARAJABAT.NS",
+    # Chemicals / Specialty
+    "UPL.NS", "AARTIIND.NS", "DEEPAKNITRITE.NS", "NAVINFLUOR.NS",
+    "FLUOROCHEM.NS", "ALKYLAMINE.NS", "CLEAN.NS",
+    # Cement / Building materials
+    "ACC.NS", "AMBUJACEM.NS", "RAMCOCEM.NS", "JKCEMENT.NS", "HEIDELBERG.NS",
+    # Insurance
+    "SBILIFE.NS", "HDFCLIFE.NS", "ICICIPRULI.NS", "LICI.NS",
 ]
 
 # ── Live Nifty 500 universe ────────────────────────────────────────
@@ -681,7 +715,10 @@ def _screen_new(setup: int, direction: str) -> list:
 
             # ── Setup-specific filters ────────────────────────────
             if setup == 1:
-                # Directional Trend: first candle closes beyond prev-day extreme
+                # Directional Trend: stock opens INSIDE previous day range,
+                # then breaks PDH (bullish) or PDL (bearish) in first 15 min
+                if not (pdl < c_open < pdh):
+                    continue
                 if bullish:
                     if c_close <= pdh:
                         continue
