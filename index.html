@@ -92,7 +92,11 @@
       padding: 8px 16px;
       text-align: right;
       min-width: 140px;
+      text-decoration: none;
+      cursor: pointer;
+      transition: border-color .15s;
     }
+    a.idx-card:hover { border-color: var(--accent); }
     .idx-label { font-size: 11px; color: var(--text-muted); font-weight: 600; letter-spacing:.5px; }
     .idx-price { font-size: 17px; font-weight: 700; }
     .idx-change { font-size: 12px; font-weight: 600; }
@@ -504,21 +508,21 @@
   </div>
 
   <div class="header-indices" id="header-indices">
-    <div class="idx-card" id="idx-nifty">
+    <a class="idx-card" id="idx-nifty" href="https://www.tradingview.com/chart/?symbol=NSE:NIFTY" target="_blank" rel="noopener noreferrer">
       <div class="idx-label">NIFTY 50</div>
       <div class="idx-price">—</div>
       <div class="idx-change">—</div>
-    </div>
-    <div class="idx-card" id="idx-sensex">
+    </a>
+    <a class="idx-card" id="idx-sensex" href="https://www.tradingview.com/chart/?symbol=BSE:SENSEX" target="_blank" rel="noopener noreferrer">
       <div class="idx-label">SENSEX</div>
       <div class="idx-price">—</div>
       <div class="idx-change">—</div>
-    </div>
-    <div class="idx-card" id="idx-banknifty">
+    </a>
+    <a class="idx-card" id="idx-banknifty" href="https://www.tradingview.com/chart/?symbol=NSE:BANKNIFTY" target="_blank" rel="noopener noreferrer">
       <div class="idx-label">BANK NIFTY</div>
       <div class="idx-price">—</div>
       <div class="idx-change">—</div>
-    </div>
+    </a>
     <div class="idx-card" id="ai-brief-card" style="display:none">
       <div class="idx-label">MARKET SENTIMENT</div>
       <div id="ai-sentiment-word" class="idx-price">—</div>
