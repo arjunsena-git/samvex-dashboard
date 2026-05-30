@@ -5,3 +5,4 @@ gunicorn
 pytz
 pandas
 requests
+anthropic

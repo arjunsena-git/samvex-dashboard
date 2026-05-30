@@ -408,6 +408,48 @@
       .summary-row  { grid-template-columns: 1fr 1fr; }
       .header-indices { display: none; }
     }
+
+    /* ── AI Insights ─────────────────────────────────────────────── */
+    .ai-brief-card {
+      background: linear-gradient(135deg, rgba(79,142,247,.07), rgba(124,58,237,.07));
+      border: 1px solid rgba(79,142,247,.22);
+      border-radius: var(--radius);
+      padding: 14px 20px;
+      margin-bottom: 16px;
+    }
+    .ai-brief-header {
+      font-size: 10px; font-weight: 700; letter-spacing: .7px;
+      color: var(--accent); text-transform: uppercase;
+      display: flex; align-items: center; gap: 6px;
+      margin-bottom: 8px;
+    }
+    .ai-powered-by {
+      margin-left: auto;
+      font-size: 9px; color: var(--text-muted);
+      font-weight: 400; letter-spacing: .2px; text-transform: none;
+    }
+    .ai-brief-text {
+      font-size: 14px; line-height: 1.65; color: var(--text);
+      transition: opacity .4s;
+    }
+    .ai-brief-meta {
+      font-size: 11px; color: var(--text-muted); margin-top: 7px;
+    }
+    .ai-loading {
+      font-size: 13px; color: var(--text-muted); font-style: italic;
+    }
+    .ai-explain-row td {
+      background: rgba(79,142,247,.03) !important;
+      padding: 5px 18px !important;
+      border-bottom: 1px solid var(--border);
+    }
+    .ai-explain-row:hover td { background: rgba(79,142,247,.06) !important; }
+    .ai-explain-content {
+      font-size: 12px; font-style: italic; color: var(--text-muted);
+      display: flex; align-items: flex-start; gap: 6px;
+      transition: opacity .35s;
+    }
+    .ai-spark { color: var(--accent); font-style: normal; font-size: 10px; flex-shrink: 0; }
   </style>
 </head>
 <body>
@@ -476,6 +518,16 @@
       <div class="value" id="s2-count" style="color:var(--accent)">—</div>
       <div class="sub">Setup 2 · Bear traps &amp; bull traps</div>
     </div>
+  </div>
+
+  <!-- ── AI Market Brief ──────────────────────────────────────────── -->
+  <div id="ai-brief-card" class="ai-brief-card" style="display:none">
+    <div class="ai-brief-header">
+      <span class="ai-spark">✦</span> AI Market Brief
+      <span class="ai-powered-by">Powered by Claude</span>
+    </div>
+    <div id="ai-brief-text" class="ai-brief-text ai-loading">Analyzing market conditions…</div>
+    <div id="ai-brief-meta" class="ai-brief-meta"></div>
   </div>
 
   <!-- ── Single CSV download for all screener panels ─────────────── -->
@@ -946,6 +998,10 @@
       _registerPanel(tbodyId.replace("-body", ""), label || endpoint, data);
       renderSetupRows(data, tbodyId, direction, refLevelKey);
       if (countId) document.getElementById(countId).textContent = data.length;
+      // Non-blocking: load AI insights after table is visible
+      const sk = endpoint.includes("setup1") ? (direction === "bullish" ? "s1_bull" : "s1_bear")
+                                              : (direction === "bullish" ? "s2_bull" : "s2_bear");
+      loadInsights(sk, tbodyId, data);
       return data;
     } catch (e) {
       tbody.innerHTML = `<tr><td colspan="7"><div class="empty-state">
@@ -975,6 +1031,62 @@
   }
   async function loadS2Bullish() { return _loadSetup("setup2/bullish", "s2-bull-body", "bullish", "pdl", "s2-count", "Setup 2 — Bear Trap (Bullish · False breakdown → recovery above PDL)"); }
   async function loadS2Bearish() { return _loadSetup("setup2/bearish", "s2-bear-body", "bearish", "pdh", null,      "Setup 2 — Bull Trap (Bearish · False breakout → rejection below PDH)"); }
+
+  // ── AI Market Brief ───────────────────────────────────────────
+  async function loadMarketBrief() {
+    const card = document.getElementById("ai-brief-card");
+    const text = document.getElementById("ai-brief-text");
+    const meta = document.getElementById("ai-brief-meta");
+    card.style.display = "";
+    try {
+      const res  = await fetch(`${API}/api/insights/market-brief`);
+      const data = await res.json();
+      if (!data.enabled || !data.brief) { card.style.display = "none"; return; }
+      text.classList.remove("ai-loading");
+      text.style.opacity = "0";
+      text.textContent   = data.brief;
+      requestAnimationFrame(() => { text.style.opacity = "1"; });
+      if (data.breadth_pct !== undefined) {
+        meta.textContent = `Breadth: ${data.breadth_pct}% of Nifty 500 stocks up today`;
+      }
+    } catch (_) { card.style.display = "none"; }
+  }
+
+  // ── AI Setup Insights ─────────────────────────────────────────
+  async function loadInsights(setupKey, tbodyId, screenerData) {
+    if (!screenerData || screenerData.length === 0) return;
+    await new Promise(r => setTimeout(r, 1800));
+    try {
+      const res  = await fetch(`${API}/api/insights/setup-explain?setup=${setupKey}`);
+      const data = await res.json();
+      if (!data.enabled || !data.explanations || data.explanations.length === 0) return;
+      injectInsights(tbodyId, data.explanations, screenerData);
+    } catch (_) {}
+  }
+
+  function injectInsights(tbodyId, explanations, screenerData) {
+    const tbody = document.getElementById(tbodyId);
+    if (!tbody) return;
+    const bySymbol = {};
+    explanations.forEach(e => { bySymbol[e.symbol] = e.explanation; });
+    const rows = [...tbody.querySelectorAll("tr:not(.ai-explain-row)")];
+    rows.forEach((row, i) => {
+      const sym = screenerData[i]?.symbol;
+      const exp = sym && bySymbol[sym];
+      if (!exp) return;
+      const tr = document.createElement("tr");
+      tr.className = "ai-explain-row";
+      tr.innerHTML = `<td colspan="7">
+        <div class="ai-explain-content" style="opacity:0">
+          <span class="ai-spark">✦</span>${exp}
+        </div>
+      </td>`;
+      row.after(tr);
+      requestAnimationFrame(() => {
+        tr.querySelector(".ai-explain-content").style.opacity = "1";
+      });
+    });
+  }
 
   // ── Market index cards ────────────────────────────────────────
   async function loadMarket() {
@@ -1246,7 +1358,7 @@
   async function refreshAll() {
     await Promise.all([loadMarket(), loadStatus()]);
     await Promise.all([loadS1Bullish(), loadS1Bearish(), loadS2Bullish(), loadS2Bearish()]);
-    await Promise.all([loadTicker(), loadOI()]);
+    await Promise.all([loadTicker(), loadOI(), loadMarketBrief()]);
     stampUpdated();
   }
 

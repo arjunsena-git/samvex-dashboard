@@ -125,7 +125,8 @@ def _load_nifty500() -> list:
 # ── In-memory cache ────────────────────────────────────────────────
 _cache: dict = {}
 _batch_lock  = threading.Lock()
-CACHE_TTL    = 300   # 5 min for Yahoo batch + daily data
+CACHE_TTL    = 300   # 5 min — general cache (market data, etc.)
+DAILY_TTL    = 600   # 10 min — daily batch (changes slowly; staggered from 15m to avoid simultaneous expiry)
 LIVE_TTL     = 60    # 1 min for Upstox live quotes
 
 
@@ -558,16 +559,16 @@ def _fetch_daily_only() -> dict:
 
 
 def _get_daily_batch():
-    """Daily Yahoo data for ADR — 5-min cache, single download at a time."""
+    """Daily Yahoo data for ADR — 10-min cache, single download at a time."""
     now = time.time()
     if "daily_only" in _cache:
         data, ts = _cache["daily_only"]
-        if now - ts < CACHE_TTL:
+        if now - ts < DAILY_TTL:
             return data
     with _batch_lock:
         if "daily_only" in _cache:
             data, ts = _cache["daily_only"]
-            if now - ts < CACHE_TTL:
+            if now - ts < DAILY_TTL:
                 return data
         result = _fetch_daily_only()
         _cache["daily_only"] = (result, time.time())
@@ -575,7 +576,8 @@ def _get_daily_batch():
 
 
 # ── Yahoo Finance 15-min intraday batch (for first-candle screener) ─
-SCREEN_TTL = 300   # 5-min screener result cache
+SCREEN_TTL   = 300   # 5-min screener result cache
+INSIGHTS_TTL = 300   # 5-min AI insights cache (aligned with screener)
 
 def _fetch_intraday_15m() -> dict:
     """Batch 15-min bars for Nifty 500 universe, chunked to stay within 512 MB."""
@@ -1355,6 +1357,156 @@ def ping():
 @app.route("/")
 def index():
     return jsonify({"service": "Samvex Trading API", "status": "running"})
+
+
+# ── AI Insights (Claude Haiku) ─────────────────────────────────────
+def _get_ai_client():
+    key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if not key:
+        return None
+    try:
+        import anthropic
+        return anthropic.Anthropic(api_key=key)
+    except ImportError:
+        print("[AI] anthropic package not installed")
+        return None
+
+
+def _compute_breadth() -> dict:
+    """Count Nifty 500 stocks up vs down today using cached daily batch."""
+    batch = _get_daily_batch()
+    if not batch:
+        return {"up": 0, "down": 0, "total": 0, "up_pct": 0}
+    up = down = 0
+    for df in batch.values():
+        try:
+            if len(df) >= 2:
+                if float(df["Close"].iloc[-1]) > float(df["Close"].iloc[-2]):
+                    up += 1
+                else:
+                    down += 1
+        except Exception:
+            pass
+    total = up + down
+    return {"up": up, "down": down, "total": total,
+            "up_pct": round(up / total * 100) if total > 0 else 0}
+
+
+def _generate_market_brief() -> dict:
+    client = _get_ai_client()
+    if not client:
+        return {"brief": "", "breadth_pct": 0}
+    try:
+        market    = _fetch_market()
+        breadth   = _compute_breadth()
+        nifty     = market.get("NIFTY 50",   {})
+        banknifty = market.get("BANK NIFTY", {})
+
+        if not nifty and not banknifty:
+            return {"brief": "", "breadth_pct": 0}
+        if breadth["total"] < 50:
+            return {"brief": "", "breadth_pct": 0}
+
+        prompt = (
+            "You are a concise market analyst for Indian equity markets. "
+            "Write exactly 2 sentences for a professional equity trader. "
+            "Sentence 1: state market direction and breadth mood with the actual numbers. "
+            "Sentence 2: name one specific key level or sector to watch and why. "
+            "No emojis. No filler phrases. Be direct.\n\n"
+            f"Nifty 50: {nifty.get('price','N/A')} ({nifty.get('change_pct',0):+.2f}%)\n"
+            f"Bank Nifty: {banknifty.get('price','N/A')} ({banknifty.get('change_pct',0):+.2f}%)\n"
+            f"Breadth: {breadth['up_pct']}% of Nifty 500 above previous close "
+            f"({breadth['up']} up / {breadth['down']} down)"
+        )
+        resp = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=120,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        return {"brief": resp.content[0].text.strip(), "breadth_pct": breadth["up_pct"]}
+    except Exception as e:
+        print(f"[AI] Market brief error: {e}")
+        return {"brief": "", "breadth_pct": 0}
+
+
+def _generate_setup_explanations(setup: int, direction: str, results: list) -> list:
+    client = _get_ai_client()
+    if not client or not results:
+        return []
+    try:
+        setup_names = {
+            (1, "bullish"): "Trend Breakout — first 15-min candle closed above Previous Day High",
+            (1, "bearish"): "Trend Breakdown — first 15-min candle closed below Previous Day Low",
+            (2, "bullish"): "Bear Trap — false breakdown recovered above PDL as a green candle",
+            (2, "bearish"): "Bull Trap — false breakout rejected below PDH as a red candle",
+        }
+        setup_name = setup_names.get((setup, direction), "")
+
+        lines = []
+        for s in results:
+            key_level = "PDH" if (setup == 1 and direction == "bullish") or \
+                                 (setup == 2 and direction == "bearish") else "PDL"
+            key_price = s.get("pdh") if key_level == "PDH" else s.get("pdl")
+            lines.append(
+                f"{s['symbol']}: price ₹{s['price']}, gap {s['gap_pct']:+.1f}%, "
+                f"candle close ₹{s['c_close']}, {key_level} ₹{key_price}, "
+                f"volume {s['volume_ratio']:.1f}x prev day"
+            )
+
+        prompt = (
+            f'These Indian stocks triggered a "{setup_name}" setup today.\n'
+            "For each stock write ONE sentence (max 15 words) describing the specific signal. "
+            "Use the actual numbers. Write like a trader briefing another trader. "
+            "No generic phrases like 'the stock showed strength'.\n\n"
+            + "\n".join(lines)
+            + '\n\nReturn ONLY valid JSON: {"SYMBOL": "sentence", ...}. No markdown.'
+        )
+        resp = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=600,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        import json
+        text = resp.content[0].text.strip()
+        if "```" in text:
+            parts = text.split("```")
+            text  = parts[1].lstrip("json\n").strip() if len(parts) >= 2 else text
+        parsed = json.loads(text)
+        return [{"symbol": s["symbol"], "explanation": parsed[s["symbol"]]}
+                for s in results if parsed.get(s["symbol"])]
+    except Exception as e:
+        print(f"[AI] Setup explanation error: {e}")
+        return []
+
+
+@app.route("/api/insights/market-brief")
+def insights_market_brief():
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        return jsonify({"brief": "", "enabled": False})
+    data = _cached("ai_market_brief", _generate_market_brief, ttl=INSIGHTS_TTL)
+    return jsonify({**data, "enabled": True})
+
+
+@app.route("/api/insights/setup-explain")
+def insights_setup_explain():
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        return jsonify({"explanations": [], "enabled": False})
+    setup_key = flask_req.args.get("setup", "s1_bull")
+    setup_map = {
+        "s1_bull": (1, "bullish"), "s1_bear": (1, "bearish"),
+        "s2_bull": (2, "bullish"), "s2_bear": (2, "bearish"),
+    }
+    if setup_key not in setup_map:
+        return jsonify({"error": "invalid setup"}), 400
+    setup_num, direction = setup_map[setup_key]
+    cached  = _cache.get(setup_key)
+    results = cached[0] if cached else _screen_new(setup_num, direction)
+    if not results:
+        return jsonify({"explanations": [], "enabled": True})
+    cache_key    = f"ai_explain_{setup_key}"
+    explanations = _cached(cache_key, _generate_setup_explanations, setup_num, direction, results,
+                           ttl=INSIGHTS_TTL)
+    return jsonify({"explanations": explanations, "enabled": True})
 
 
 if __name__ == "__main__":
