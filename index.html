@@ -963,8 +963,17 @@
     if (!data || data.length === 0) {
       el.innerHTML = `<tr><td colspan="7"><div class="empty-state">
         No signals from today's 9:15–9:30 AM candle.
-        <span style="color:var(--text-muted);font-size:11px;display:block;margin-top:4px;">
+        <span style="color:var(--text-muted);font-size:11px;display:block;margin-top:6px;">
           Signals fire at 9:30 AM and stay visible all day · check back after open
+        </span>
+        <span style="display:block;margin-top:8px;">
+          <a href="${API}/api/debug/screen-new" target="_blank" rel="noopener"
+             style="color:var(--accent);font-size:11px;text-decoration:underline;">
+            Diagnose why &rarr;
+          </a>
+          <span style="color:var(--text-muted);font-size:10px;margin-left:6px;">
+            (shows filter breakdown for all Nifty 500 stocks)
+          </span>
         </span>
       </div></td></tr>`;
       return;

@@ -1342,6 +1342,178 @@ def debug_screener():
     return jsonify(out)
 
 
+@app.route("/api/debug/screen-new")
+def debug_screen_new():
+    """
+    Full filter funnel for _screen_new() — hit this when screener shows 0 results.
+    Returns per-filter counts AND near-miss stocks (passed all common gates, failed setup only).
+    """
+    ist         = pytz.timezone("Asia/Kolkata")
+    now         = datetime.now(ist)
+    today       = now.date()
+    universe    = _load_nifty500() or FNO_STOCKS
+    batch_15m   = _get_15m_batch()
+    batch_daily = _get_daily_batch()
+
+    funnel = {
+        "universe":        len(universe),
+        "no_intra_data":   0,
+        "stale_candle":    0,
+        "no_prev_data":    0,
+        "price_below_100": 0,
+        "range_over_1pct": 0,
+        "vol_under_1_5x":  0,
+        "setup_fail":      0,
+        "s1_bull":         0,
+        "s1_bear":         0,
+        "s2_bull":         0,
+        "s2_bear":         0,
+    }
+
+    stale_sample = []   # first few examples of stale candles
+    near_misses  = []   # passed all common filters; shows why each failed setup
+
+    for symbol in universe:
+        intra = _get_ticker_df(batch_15m, symbol)
+        daily = _get_ticker_df(batch_daily, symbol)
+
+        if intra is None or len(intra) < 1 or daily is None or len(daily) < 2:
+            funnel["no_intra_data"] += 1
+            continue
+
+        # Stale candle check
+        candle_ts = intra.index[0]
+        try:
+            candle_date = candle_ts.astimezone(ist).date() if candle_ts.tzinfo else candle_ts.date()
+        except Exception:
+            candle_date = candle_ts.date() if hasattr(candle_ts, "date") else None
+
+        if candle_date != today:
+            funnel["stale_candle"] += 1
+            if len(stale_sample) < 3:
+                stale_sample.append({"symbol": symbol.replace(".NS", ""), "candle_date": str(candle_date)})
+            continue
+
+        # Previous-day reference levels
+        try:
+            pdh        = float(daily["High"].iloc[-2])
+            pdl        = float(daily["Low"].iloc[-2])
+            prev_close = float(daily["Close"].iloc[-2])
+            prev_vol   = float(daily["Volume"].iloc[-2])
+            if pdh <= 0 or pdl <= 0 or prev_close <= 0 or prev_vol <= 0:
+                raise ValueError("zero")
+        except Exception:
+            funnel["no_prev_data"] += 1
+            continue
+
+        c_open  = float(intra["Open"].iloc[0])
+        c_high  = float(intra["High"].iloc[0])
+        c_low   = float(intra["Low"].iloc[0])
+        c_close = float(intra["Close"].iloc[0])
+        c_vol   = float(intra["Volume"].iloc[0])
+        current = float(intra["Close"].iloc[-1])
+        gap_pct = round((c_open - prev_close) / prev_close * 100, 2) if prev_close > 0 else 0
+
+        if current < 100:
+            funnel["price_below_100"] += 1
+            continue
+
+        range_pct = round((c_high - c_low) / c_open * 100, 4) if c_open > 0 else 99
+        if range_pct > 1.0:
+            funnel["range_over_1pct"] += 1
+            continue
+
+        paced_vol = (c_vol / 15.0) * 375.0
+        vol_ratio = round(paced_vol / prev_vol, 2) if prev_vol > 0 else 0
+        if vol_ratio < 1.5:
+            funnel["vol_under_1_5x"] += 1
+            continue
+
+        # Passed all common filters — check each setup
+        row = {
+            "symbol":    symbol.replace(".NS", ""),
+            "price":     round(current, 2),
+            "c_open":    round(c_open, 2),
+            "c_close":   round(c_close, 2),
+            "pdh":       round(pdh, 2),
+            "pdl":       round(pdl, 2),
+            "gap_pct":   gap_pct,
+            "range_pct": round(range_pct, 2),
+            "vol_ratio": vol_ratio,
+            "setups_hit": [],
+            "why_no_setup": [],
+        }
+
+        # S1 Bullish: opens inside prev range, first candle closes above PDH
+        if pdl < c_open < pdh:
+            if c_close > pdh:
+                funnel["s1_bull"] += 1
+                row["setups_hit"].append("S1_BULL")
+            elif c_close < pdl:
+                funnel["s1_bear"] += 1
+                row["setups_hit"].append("S1_BEAR")
+            else:
+                row["why_no_setup"].append(
+                    f"S1: opened inside range ({round(pdl,0)}–{round(pdh,0)}) "
+                    f"but close ₹{round(c_close,1)} didn't break PDH/PDL"
+                )
+        else:
+            row["why_no_setup"].append(
+                f"S1: open ₹{round(c_open,1)} not inside prev range ({round(pdl,0)}–{round(pdh,0)})"
+            )
+
+        # S2 Bullish: Bear Trap
+        if c_open <= pdl * 1.01 and -2.0 <= gap_pct < 0 and c_close > pdl and c_close > c_open:
+            funnel["s2_bull"] += 1
+            row["setups_hit"].append("S2_BULL")
+        else:
+            reasons = []
+            if not (c_open <= pdl * 1.01): reasons.append(f"open ₹{round(c_open,1)} > PDL+1% (₹{round(pdl*1.01,1)})")
+            if not (-2.0 <= gap_pct < 0):  reasons.append(f"gap {gap_pct:+.2f}% not in (-2%, 0%)")
+            if not (c_close > pdl):         reasons.append(f"close ₹{round(c_close,1)} didn't recover above PDL ₹{round(pdl,1)}")
+            if not (c_close > c_open):      reasons.append("candle is red (need green for bear trap)")
+            if reasons:
+                row["why_no_setup"].append("S2 Bear Trap: " + "; ".join(reasons))
+
+        # S2 Bearish: Bull Trap
+        if c_open >= pdh * 0.99 and 0 < gap_pct <= 2.0 and c_close < pdh and c_close < c_open:
+            funnel["s2_bear"] += 1
+            row["setups_hit"].append("S2_BEAR")
+        else:
+            reasons = []
+            if not (c_open >= pdh * 0.99): reasons.append(f"open ₹{round(c_open,1)} < PDH-1% (₹{round(pdh*0.99,1)})")
+            if not (0 < gap_pct <= 2.0):   reasons.append(f"gap {gap_pct:+.2f}% not in (0%, 2%]")
+            if not (c_close < pdh):         reasons.append(f"close ₹{round(c_close,1)} didn't fall below PDH ₹{round(pdh,1)}")
+            if not (c_close < c_open):      reasons.append("candle is green (need red for bull trap)")
+            if reasons:
+                row["why_no_setup"].append("S2 Bull Trap: " + "; ".join(reasons))
+
+        if not row["setups_hit"]:
+            funnel["setup_fail"] += 1
+
+        near_misses.append(row)
+
+    near_misses.sort(key=lambda x: x["vol_ratio"], reverse=True)
+    passed = [r for r in near_misses if r["setups_hit"]]
+
+    return jsonify({
+        "time_ist":       now.strftime("%H:%M:%S"),
+        "date":           str(today),
+        "data_source":    "upstox_live" if _is_live() else "yahoo_15m",
+        "15m_batch_size": len(batch_15m) if batch_15m else 0,
+        "daily_batch_size": len(batch_daily) if batch_daily else 0,
+        "funnel": funnel,
+        "stale_sample":   stale_sample,
+        "passed_setups":  passed,
+        "near_misses_top20": near_misses[:20],
+        "legend": {
+            "funnel":        "Stocks eliminated at each filter stage (read top→bottom)",
+            "near_misses_top20": "Stocks that passed price/range/volume — shows exactly why each failed setup conditions",
+            "passed_setups": "Stocks that triggered at least one setup — should match screener output",
+        },
+    })
+
+
 @app.route("/api/debug/oi")
 def debug_oi():
     """Diagnostic: returns raw Upstox futures quote for 3 symbols so we can verify oi/oi_day_high/oi_day_low."""
