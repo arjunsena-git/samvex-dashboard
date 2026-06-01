@@ -710,15 +710,15 @@ def _screen_new(setup: int, direction: str) -> list:
             if current_price < 100:
                 continue
 
-            # ── Candle full range (High–Low) ≤ 1% of open ─────────
+            # ── Candle full range (High–Low) ≤ 1.5% of open ────────
             candle_range_pct = (c_high - c_low) / c_open * 100
-            if candle_range_pct > 1.0:
+            if candle_range_pct > 1.5:
                 continue
 
-            # ── Volume: 15-min paced to full day ≥ 1.5× prev day ─
+            # ── Volume: 15-min paced to full day ≥ 1.2× prev day ─
             paced_vol = (c_vol / 15.0) * 375.0
             vol_ratio = paced_vol / prev_vol
-            if vol_ratio < 1.5:
+            if vol_ratio < 1.2:
                 continue
 
             gap_pct = (c_open - prev_close) / prev_close * 100
@@ -746,7 +746,7 @@ def _screen_new(setup: int, direction: str) -> list:
                 if bullish:
                     # Bear Trap: opens near/below PDL, gap down ≤ 2%,
                     # first candle recovers above PDL as a green (bullish) candle
-                    if not (c_open <= pdl * 1.01        # within 1% above PDL
+                    if not (c_open <= pdl * 1.02        # within 2% above PDL
                             and -2.0 <= gap_pct < 0     # gap down, max 2%
                             and c_close > pdl            # closes above PDL
                             and c_close > c_open):       # green candle
@@ -757,7 +757,7 @@ def _screen_new(setup: int, direction: str) -> list:
                 else:
                     # Bull Trap: opens near/above PDH, gap up ≤ 2%,
                     # first candle rejects below PDH as a red (bearish) candle
-                    if not (c_open >= pdh * 0.99        # within 1% below PDH
+                    if not (c_open >= pdh * 0.98        # within 2% below PDH
                             and 0 < gap_pct <= 2.0      # gap up, max 2%
                             and c_close < pdh            # closes below PDH
                             and c_close < c_open):       # red candle
