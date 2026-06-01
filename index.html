@@ -194,6 +194,12 @@
       padding: 4px 10px; cursor: pointer; font-size: 12px;
     }
     .refresh-btn:hover { color: var(--text); border-color: var(--accent); }
+    .diag-link {
+      background: var(--bg-card-2); border: 1px solid var(--border);
+      color: var(--accent); border-radius: 6px; text-decoration: none;
+      padding: 4px 10px; font-size: 12px; cursor: pointer;
+    }
+    .diag-link:hover { border-color: var(--accent); opacity: .85; }
     .csv-btn {
       background: var(--bg-card-2); border: 1px solid var(--border);
       color: var(--text-muted); border-radius: 6px;
@@ -605,7 +611,10 @@
           <span class="dot dot-green"></span>
           Trend Breakout &nbsp;<span style="font-size:11px;color:var(--text-muted);font-weight:400;">Close &gt; PDH</span>
         </div>
-        <button class="refresh-btn" onclick="loadS1Bullish()">↺ Refresh</button>
+        <div style="display:flex;gap:6px;align-items:center;">
+          <a class="diag-link diagnose-link" target="_blank" rel="noopener">Diagnose ↗</a>
+          <button class="refresh-btn" onclick="loadS1Bullish()">↺ Refresh</button>
+        </div>
       </div>
       <div class="criteria-row">
         <span class="chip chip-orange">Opens inside range</span>
@@ -635,7 +644,10 @@
           <span class="dot dot-red"></span>
           Trend Breakdown &nbsp;<span style="font-size:11px;color:var(--text-muted);font-weight:400;">Close &lt; PDL</span>
         </div>
-        <button class="refresh-btn" onclick="loadS1Bearish()">↺ Refresh</button>
+        <div style="display:flex;gap:6px;align-items:center;">
+          <a class="diag-link diagnose-link" target="_blank" rel="noopener">Diagnose ↗</a>
+          <button class="refresh-btn" onclick="loadS1Bearish()">↺ Refresh</button>
+        </div>
       </div>
       <div class="criteria-row">
         <span class="chip chip-orange">Opens inside range</span>
@@ -675,7 +687,10 @@
           <span class="dot dot-green"></span>
           Bear Trap &nbsp;<span style="font-size:11px;color:var(--text-muted);font-weight:400;">False breakdown → recovery above PDL</span>
         </div>
-        <button class="refresh-btn" onclick="loadS2Bullish()">↺ Refresh</button>
+        <div style="display:flex;gap:6px;align-items:center;">
+          <a class="diag-link diagnose-link" target="_blank" rel="noopener">Diagnose ↗</a>
+          <button class="refresh-btn" onclick="loadS2Bullish()">↺ Refresh</button>
+        </div>
       </div>
       <div class="criteria-row">
         <span class="chip chip-orange">Opens near / below PDL</span>
@@ -704,7 +719,10 @@
           <span class="dot dot-red"></span>
           Bull Trap &nbsp;<span style="font-size:11px;color:var(--text-muted);font-weight:400;">False breakout → rejection below PDH</span>
         </div>
-        <button class="refresh-btn" onclick="loadS2Bearish()">↺ Refresh</button>
+        <div style="display:flex;gap:6px;align-items:center;">
+          <a class="diag-link diagnose-link" target="_blank" rel="noopener">Diagnose ↗</a>
+          <button class="refresh-btn" onclick="loadS2Bearish()">↺ Refresh</button>
+        </div>
       </div>
       <div class="criteria-row">
         <span class="chip chip-orange">Opens near / above PDH</span>
@@ -864,6 +882,7 @@
   const API = (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1")
     ? "http://localhost:5050"
     : "https://samvex-api.onrender.com";
+  document.querySelectorAll('.diagnose-link').forEach(el => el.href = API + '/debug/screen');
 
   // ── Fetch with retry (handles Render cold-start wake-up) ────────
   // Render free tier takes 30-60s to wake up after idle. We retry 3 times
