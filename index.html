@@ -270,6 +270,21 @@
     }
     .conf-HIGH { background: var(--green-dim); color: var(--green); }
     .conf-MED  { background: #2a1e00;          color: var(--yellow); }
+
+    /* Signal strength score cell */
+    .score-cell { text-align: center; min-width: 64px; }
+    .score-num  { font-size: 20px; font-weight: 900; line-height: 1; }
+    .score-STRONG { color: var(--green); }
+    .score-GOOD   { color: var(--yellow); }
+    .score-WATCH  { color: var(--text-muted); }
+    .score-pill {
+      display: inline-block; font-size: 9px; font-weight: 700;
+      letter-spacing: .5px; padding: 1px 7px; border-radius: 10px;
+      text-transform: uppercase; margin-top: 3px;
+    }
+    .spill-STRONG { background: var(--green-dim); color: var(--green); }
+    .spill-GOOD   { background: #2a1e00; color: var(--yellow); }
+    .spill-WATCH  { background: #1a1e2e; color: var(--text-muted); }
     .chip-orange { color: #fb923c; border-color: #fb923c; background: #2d1a00; }
 
     .pill-blue   { background: #1a2a4a; color: var(--accent); }
@@ -595,8 +610,8 @@
       <div class="criteria-row">
         <span class="chip chip-orange">Opens inside range</span>
         <span class="chip chip-green">Close &gt; PDH</span>
-        <span class="chip chip-blue">Candle Range ≤1%</span>
-        <span class="chip chip-green">Vol ≥1.5×</span>
+        <span class="chip chip-blue">Candle Range ≤1.5%</span>
+        <span class="chip chip-green">Vol ≥1.2×</span>
         <span class="chip chip-blue">Price &gt;₹100</span>
         <span class="chip chip-blue">Nifty 500</span>
       </div>
@@ -604,10 +619,10 @@
       <table>
         <thead><tr>
           <th>Symbol</th><th>Price</th><th>Gap</th>
-          <th>PDH</th><th>Candle</th><th>Volume</th><th>Trade Plan</th>
+          <th>PDH</th><th>Candle</th><th>Volume</th><th>Score</th><th>Trade Plan</th>
         </tr></thead>
         <tbody id="s1-bull-body">
-          <tr><td colspan="7"><div class="empty-state"><div class="spinner"></div>Loading…</div></td></tr>
+          <tr><td colspan="8"><div class="empty-state"><div class="spinner"></div>Loading…</div></td></tr>
         </tbody>
       </table>
       </div>
@@ -625,8 +640,8 @@
       <div class="criteria-row">
         <span class="chip chip-orange">Opens inside range</span>
         <span class="chip chip-red">Close &lt; PDL</span>
-        <span class="chip chip-blue">Candle Range ≤1%</span>
-        <span class="chip chip-red">Vol ≥1.5×</span>
+        <span class="chip chip-blue">Candle Range ≤1.5%</span>
+        <span class="chip chip-red">Vol ≥1.2×</span>
         <span class="chip chip-blue">Price &gt;₹100</span>
         <span class="chip chip-blue">Nifty 500</span>
       </div>
@@ -634,10 +649,10 @@
       <table>
         <thead><tr>
           <th>Symbol</th><th>Price</th><th>Gap</th>
-          <th>PDL</th><th>Candle</th><th>Volume</th><th>Trade Plan</th>
+          <th>PDL</th><th>Candle</th><th>Volume</th><th>Score</th><th>Trade Plan</th>
         </tr></thead>
         <tbody id="s1-bear-body">
-          <tr><td colspan="7"><div class="empty-state"><div class="spinner"></div>Loading…</div></td></tr>
+          <tr><td colspan="8"><div class="empty-state"><div class="spinner"></div>Loading…</div></td></tr>
         </tbody>
       </table>
       </div>
@@ -666,17 +681,17 @@
         <span class="chip chip-orange">Opens near / below PDL</span>
         <span class="chip chip-orange">Gap Down ≤2%</span>
         <span class="chip chip-green">Closes above PDL (Green)</span>
-        <span class="chip chip-blue">Candle Range ≤1%</span>
-        <span class="chip chip-green">Vol ≥1.5×</span>
+        <span class="chip chip-blue">Candle Range ≤1.5%</span>
+        <span class="chip chip-green">Vol ≥1.2×</span>
       </div>
       <div class="table-wrap">
       <table>
         <thead><tr>
           <th>Symbol</th><th>Price</th><th>Gap</th>
-          <th>PDL</th><th>Candle</th><th>Volume</th><th>Trade Plan</th>
+          <th>PDL</th><th>Candle</th><th>Volume</th><th>Score</th><th>Trade Plan</th>
         </tr></thead>
         <tbody id="s2-bull-body">
-          <tr><td colspan="7"><div class="empty-state"><div class="spinner"></div>Loading…</div></td></tr>
+          <tr><td colspan="8"><div class="empty-state"><div class="spinner"></div>Loading…</div></td></tr>
         </tbody>
       </table>
       </div>
@@ -695,17 +710,17 @@
         <span class="chip chip-orange">Opens near / above PDH</span>
         <span class="chip chip-orange">Gap Up ≤2%</span>
         <span class="chip chip-red">Closes below PDH (Red)</span>
-        <span class="chip chip-blue">Candle Range ≤1%</span>
-        <span class="chip chip-red">Vol ≥1.5×</span>
+        <span class="chip chip-blue">Candle Range ≤1.5%</span>
+        <span class="chip chip-red">Vol ≥1.2×</span>
       </div>
       <div class="table-wrap">
       <table>
         <thead><tr>
           <th>Symbol</th><th>Price</th><th>Gap</th>
-          <th>PDH</th><th>Candle</th><th>Volume</th><th>Trade Plan</th>
+          <th>PDH</th><th>Candle</th><th>Volume</th><th>Score</th><th>Trade Plan</th>
         </tr></thead>
         <tbody id="s2-bear-body">
-          <tr><td colspan="7"><div class="empty-state"><div class="spinner"></div>Loading…</div></td></tr>
+          <tr><td colspan="8"><div class="empty-state"><div class="spinner"></div>Loading…</div></td></tr>
         </tbody>
       </table>
       </div>
@@ -918,6 +933,16 @@
     </div>`;
   }
 
+  function scoreCell(s) {
+    if (s.confidence_score == null) return "<td></td>";
+    const score = s.confidence_score;
+    const label = s.confidence_label || "WATCH";
+    return `<td class="score-cell">
+      <div class="score-num score-${label}">${score}</div>
+      <div class="score-pill spill-${label}">${label}</div>
+    </td>`;
+  }
+
   function tradePlanCell(s, direction) {
     if (!s.entry || !s.sl || !s.t1) return "<td></td>";
     const bullish  = direction === "bullish";
@@ -961,13 +986,13 @@
     const bullish = direction === "bullish";
     const color   = bullish ? "green" : "red";
     if (!data || data.length === 0) {
-      el.innerHTML = `<tr><td colspan="7"><div class="empty-state">
+      el.innerHTML = `<tr><td colspan="8"><div class="empty-state">
         No signals from today's 9:15–9:30 AM candle.
         <span style="color:var(--text-muted);font-size:11px;display:block;margin-top:6px;">
           Signals fire at 9:30 AM and stay visible all day · check back after open
         </span>
         <span style="display:block;margin-top:8px;">
-          <a href="${API}/api/debug/screen-new" target="_blank" rel="noopener"
+          <a href="${API}/debug/screen" target="_blank" rel="noopener"
              style="color:var(--accent);font-size:11px;text-decoration:underline;">
             Diagnose why &rarr;
           </a>
@@ -995,6 +1020,7 @@
         </td>
         <td><span style="font-size:11px;color:${candleColor}">${s.candle_range_pct.toFixed(2)}%</span></td>
         <td>${volBar(s.volume_ratio)}</td>
+        ${scoreCell(s)}
         ${tradePlanCell(s, direction)}
       </tr>`;
     }).join("");
@@ -1053,9 +1079,9 @@
   // Any future panel added here is automatically included in the download.
   async function _loadSetup(endpoint, tbodyId, direction, refLevelKey, countId, label) {
     const tbody = document.getElementById(tbodyId);
-    tbody.innerHTML = `<tr><td colspan="7"><div class="empty-state"><div class="spinner"></div>Scanning…</div></td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="8"><div class="empty-state"><div class="spinner"></div>Scanning…</div></td></tr>`;
     try {
-      const data = await fetchWithRetry(`${API}/api/${endpoint}`, tbody, 7);
+      const data = await fetchWithRetry(`${API}/api/${endpoint}`, tbody, 8);
       _registerPanel(tbodyId.replace("-body", ""), label || endpoint, data);
       renderSetupRows(data, tbodyId, direction, refLevelKey);
       if (countId) document.getElementById(countId).textContent = data.length;
@@ -1065,7 +1091,7 @@
       loadInsights(sk, tbodyId, data);
       return data;
     } catch (e) {
-      tbody.innerHTML = `<tr><td colspan="7"><div class="empty-state">
+      tbody.innerHTML = `<tr><td colspan="8"><div class="empty-state">
         Server unreachable —
         <a href="javascript:void(0)" onclick="_loadSetup('${endpoint}','${tbodyId}','${direction}','${refLevelKey}','${countId || ''}','${label || ''}')"
            style="color:var(--accent);text-decoration:underline;">Retry</a>
@@ -1139,7 +1165,7 @@
       if (!exp) return;
       const tr = document.createElement("tr");
       tr.className = "ai-explain-row";
-      tr.innerHTML = `<td colspan="7">
+      tr.innerHTML = `<td colspan="8">
         <div class="ai-explain-content" style="opacity:0">
           <span class="ai-spark">✦</span>${exp}
         </div>

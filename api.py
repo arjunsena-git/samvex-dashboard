@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, redirect, request as flask_req
+from flask import Flask, jsonify, redirect, request as flask_req, Response
 from flask_cors import CORS
 import yfinance as yf
 import pandas as pd
@@ -783,23 +783,37 @@ def _screen_new(setup: int, direction: str) -> list:
             t1     = round(current_price + sign_ * risk * 1.5, 2)
             t2     = round(current_price + sign_ * risk * 3.0, 2)
 
+            # Confidence score 0–100: volume conviction (40) + breakout depth (35) + candle tightness (25)
+            vol_s = min((vol_ratio - 1.2) / 1.3, 1.0) * 40
+            if setup == 1:
+                dp    = (c_close - pdh) / pdh * 100 if bullish else (pdl - c_close) / pdl * 100
+                dep_s = min(dp / 0.6, 1.0) * 35
+            else:
+                dp    = (c_close - pdl) / pdl * 100 if bullish else (pdh - c_close) / pdh * 100
+                dep_s = min(dp / 0.4, 1.0) * 35
+            rng_s      = max(1.0 - candle_range_pct / 1.5, 0) * 25
+            conf_score = round(vol_s + dep_s + rng_s)
+            conf_label = "STRONG" if conf_score >= 65 else "GOOD" if conf_score >= 40 else "WATCH"
+
             results.append({
-                "symbol":           symbol.replace(".NS", ""),
-                "price":            round(current_price, 2),
-                "gap_pct":          round(gap_pct, 2),
-                "candle_range_pct": round(candle_range_pct, 2),
-                "volume_ratio":     round(vol_ratio, 2),
-                "pdh":              round(pdh, 2),
-                "pdl":              round(pdl, 2),
-                "c_close":          round(c_close, 2),
-                "setup":            setup_tag,
-                "entry":            round(current_price, 2),
-                "sl":               sl,
-                "sl_pct":           sl_pct,
-                "sl_label":         sl_label,
-                "t1":               t1,
-                "t2":               t2,
-                "risk_reward":      1.5,
+                "symbol":            symbol.replace(".NS", ""),
+                "price":             round(current_price, 2),
+                "gap_pct":           round(gap_pct, 2),
+                "candle_range_pct":  round(candle_range_pct, 2),
+                "volume_ratio":      round(vol_ratio, 2),
+                "pdh":               round(pdh, 2),
+                "pdl":               round(pdl, 2),
+                "c_close":           round(c_close, 2),
+                "setup":             setup_tag,
+                "entry":             round(current_price, 2),
+                "sl":                sl,
+                "sl_pct":            sl_pct,
+                "sl_label":          sl_label,
+                "t1":                t1,
+                "t2":                t2,
+                "risk_reward":       1.5,
+                "confidence_score":  conf_score,
+                "confidence_label":  conf_label,
             })
 
         except Exception:
@@ -1342,12 +1356,8 @@ def debug_screener():
     return jsonify(out)
 
 
-@app.route("/api/debug/screen-new")
-def debug_screen_new():
-    """
-    Full filter funnel for _screen_new() — hit this when screener shows 0 results.
-    Returns per-filter counts AND near-miss stocks (passed all common gates, failed setup only).
-    """
+def _build_screen_debug() -> dict:
+    """Shared data builder for both JSON and HTML debug endpoints."""
     ist         = pytz.timezone("Asia/Kolkata")
     now         = datetime.now(ist)
     today       = now.date()
@@ -1356,22 +1366,22 @@ def debug_screen_new():
     batch_daily = _get_daily_batch()
 
     funnel = {
-        "universe":        len(universe),
-        "no_intra_data":   0,
-        "stale_candle":    0,
-        "no_prev_data":    0,
-        "price_below_100": 0,
-        "range_over_1pct": 0,
-        "vol_under_1_5x":  0,
-        "setup_fail":      0,
-        "s1_bull":         0,
-        "s1_bear":         0,
-        "s2_bull":         0,
-        "s2_bear":         0,
+        "universe":           len(universe),
+        "no_intra_data":      0,
+        "stale_candle":       0,
+        "no_prev_data":       0,
+        "price_below_100":    0,
+        "range_over_1_5pct":  0,
+        "vol_under_1_2x":     0,
+        "setup_fail":         0,
+        "s1_bull":            0,
+        "s1_bear":            0,
+        "s2_bull":            0,
+        "s2_bear":            0,
     }
 
-    stale_sample = []   # first few examples of stale candles
-    near_misses  = []   # passed all common filters; shows why each failed setup
+    stale_sample = []
+    near_misses  = []
 
     for symbol in universe:
         intra = _get_ticker_df(batch_15m, symbol)
@@ -1381,7 +1391,6 @@ def debug_screen_new():
             funnel["no_intra_data"] += 1
             continue
 
-        # Stale candle check
         candle_ts = intra.index[0]
         try:
             candle_date = candle_ts.astimezone(ist).date() if candle_ts.tzinfo else candle_ts.date()
@@ -1394,7 +1403,6 @@ def debug_screen_new():
                 stale_sample.append({"symbol": symbol.replace(".NS", ""), "candle_date": str(candle_date)})
             continue
 
-        # Previous-day reference levels
         try:
             pdh        = float(daily["High"].iloc[-2])
             pdl        = float(daily["Low"].iloc[-2])
@@ -1419,32 +1427,31 @@ def debug_screen_new():
             continue
 
         range_pct = round((c_high - c_low) / c_open * 100, 4) if c_open > 0 else 99
-        if range_pct > 1.0:
-            funnel["range_over_1pct"] += 1
+        if range_pct > 1.5:
+            funnel["range_over_1_5pct"] += 1
             continue
 
         paced_vol = (c_vol / 15.0) * 375.0
         vol_ratio = round(paced_vol / prev_vol, 2) if prev_vol > 0 else 0
-        if vol_ratio < 1.5:
-            funnel["vol_under_1_5x"] += 1
+        if vol_ratio < 1.2:
+            funnel["vol_under_1_2x"] += 1
             continue
 
-        # Passed all common filters — check each setup
         row = {
-            "symbol":    symbol.replace(".NS", ""),
-            "price":     round(current, 2),
-            "c_open":    round(c_open, 2),
-            "c_close":   round(c_close, 2),
-            "pdh":       round(pdh, 2),
-            "pdl":       round(pdl, 2),
-            "gap_pct":   gap_pct,
-            "range_pct": round(range_pct, 2),
-            "vol_ratio": vol_ratio,
-            "setups_hit": [],
+            "symbol":       symbol.replace(".NS", ""),
+            "price":        round(current, 2),
+            "c_open":       round(c_open, 2),
+            "c_close":      round(c_close, 2),
+            "pdh":          round(pdh, 2),
+            "pdl":          round(pdl, 2),
+            "gap_pct":      gap_pct,
+            "range_pct":    round(range_pct, 2),
+            "vol_ratio":    vol_ratio,
+            "setups_hit":   [],
             "why_no_setup": [],
         }
 
-        # S1 Bullish: opens inside prev range, first candle closes above PDH
+        # S1: opens inside prev range, first candle breaks PDH/PDL
         if pdl < c_open < pdh:
             if c_close > pdh:
                 funnel["s1_bull"] += 1
@@ -1454,36 +1461,36 @@ def debug_screen_new():
                 row["setups_hit"].append("S1_BEAR")
             else:
                 row["why_no_setup"].append(
-                    f"S1: opened inside range ({round(pdl,0)}–{round(pdh,0)}) "
-                    f"but close ₹{round(c_close,1)} didn't break PDH/PDL"
+                    f"S1: opened inside range (Rs{round(pdl,0):g}–Rs{round(pdh,0):g}) "
+                    f"but close Rs{round(c_close,1)} didn't break PDH/PDL"
                 )
         else:
             row["why_no_setup"].append(
-                f"S1: open ₹{round(c_open,1)} not inside prev range ({round(pdl,0)}–{round(pdh,0)})"
+                f"S1: open Rs{round(c_open,1)} not inside prev range (Rs{round(pdl,0):g}–Rs{round(pdh,0):g})"
             )
 
-        # S2 Bullish: Bear Trap
-        if c_open <= pdl * 1.01 and -2.0 <= gap_pct < 0 and c_close > pdl and c_close > c_open:
+        # S2 Bull (Bear Trap): opens near/below PDL, gaps down, recovers green
+        if c_open <= pdl * 1.02 and -2.0 <= gap_pct < 0 and c_close > pdl and c_close > c_open:
             funnel["s2_bull"] += 1
             row["setups_hit"].append("S2_BULL")
         else:
             reasons = []
-            if not (c_open <= pdl * 1.01): reasons.append(f"open ₹{round(c_open,1)} > PDL+1% (₹{round(pdl*1.01,1)})")
+            if not (c_open <= pdl * 1.02): reasons.append(f"open Rs{round(c_open,1)} > PDL+2% (Rs{round(pdl*1.02,1)})")
             if not (-2.0 <= gap_pct < 0):  reasons.append(f"gap {gap_pct:+.2f}% not in (-2%, 0%)")
-            if not (c_close > pdl):         reasons.append(f"close ₹{round(c_close,1)} didn't recover above PDL ₹{round(pdl,1)}")
+            if not (c_close > pdl):         reasons.append(f"close Rs{round(c_close,1)} didn't recover above PDL Rs{round(pdl,1)}")
             if not (c_close > c_open):      reasons.append("candle is red (need green for bear trap)")
             if reasons:
                 row["why_no_setup"].append("S2 Bear Trap: " + "; ".join(reasons))
 
-        # S2 Bearish: Bull Trap
-        if c_open >= pdh * 0.99 and 0 < gap_pct <= 2.0 and c_close < pdh and c_close < c_open:
+        # S2 Bear (Bull Trap): opens near/above PDH, gaps up, rejects red
+        if c_open >= pdh * 0.98 and 0 < gap_pct <= 2.0 and c_close < pdh and c_close < c_open:
             funnel["s2_bear"] += 1
             row["setups_hit"].append("S2_BEAR")
         else:
             reasons = []
-            if not (c_open >= pdh * 0.99): reasons.append(f"open ₹{round(c_open,1)} < PDH-1% (₹{round(pdh*0.99,1)})")
+            if not (c_open >= pdh * 0.98): reasons.append(f"open Rs{round(c_open,1)} < PDH-2% (Rs{round(pdh*0.98,1)})")
             if not (0 < gap_pct <= 2.0):   reasons.append(f"gap {gap_pct:+.2f}% not in (0%, 2%]")
-            if not (c_close < pdh):         reasons.append(f"close ₹{round(c_close,1)} didn't fall below PDH ₹{round(pdh,1)}")
+            if not (c_close < pdh):         reasons.append(f"close Rs{round(c_close,1)} didn't fall below PDH Rs{round(pdh,1)}")
             if not (c_close < c_open):      reasons.append("candle is green (need red for bull trap)")
             if reasons:
                 row["why_no_setup"].append("S2 Bull Trap: " + "; ".join(reasons))
@@ -1496,22 +1503,220 @@ def debug_screen_new():
     near_misses.sort(key=lambda x: x["vol_ratio"], reverse=True)
     passed = [r for r in near_misses if r["setups_hit"]]
 
-    return jsonify({
-        "time_ist":       now.strftime("%H:%M:%S"),
-        "date":           str(today),
-        "data_source":    "upstox_live" if _is_live() else "yahoo_15m",
-        "15m_batch_size": len(batch_15m) if batch_15m else 0,
+    return {
+        "time_ist":         now.strftime("%H:%M:%S"),
+        "date":             str(today),
+        "data_source":      "upstox_live" if _is_live() else "yahoo_15m",
+        "15m_batch_size":   len(batch_15m) if batch_15m else 0,
         "daily_batch_size": len(batch_daily) if batch_daily else 0,
-        "funnel": funnel,
-        "stale_sample":   stale_sample,
-        "passed_setups":  passed,
+        "funnel":           funnel,
+        "stale_sample":     stale_sample,
+        "passed_setups":    passed,
         "near_misses_top20": near_misses[:20],
-        "legend": {
-            "funnel":        "Stocks eliminated at each filter stage (read top→bottom)",
-            "near_misses_top20": "Stocks that passed price/range/volume — shows exactly why each failed setup conditions",
-            "passed_setups": "Stocks that triggered at least one setup — should match screener output",
-        },
-    })
+    }
+
+
+@app.route("/api/debug/screen-new")
+def debug_screen_new():
+    """JSON version of the filter funnel — for programmatic use."""
+    d = _build_screen_debug()
+    d["legend"] = {
+        "funnel":            "Stocks eliminated at each filter stage (read top to bottom)",
+        "near_misses_top20": "Stocks that passed price/range/volume — shows why each failed setup conditions",
+        "passed_setups":     "Stocks that triggered at least one setup — should match screener output",
+    }
+    return jsonify(d)
+
+
+@app.route("/debug/screen")
+def debug_screen_ui():
+    """Human-readable HTML debug page for the trading team."""
+    d   = _build_screen_debug()
+    f   = d["funnel"]
+    u   = f["universe"]
+
+    src_label = "UPSTOX LIVE" if d["data_source"] == "upstox_live" else "YAHOO 15-MIN DELAY"
+    src_color = "#22c55e"     if d["data_source"] == "upstox_live" else "#f59e0b"
+    fired     = f["s1_bull"] + f["s1_bear"] + f["s2_bull"] + f["s2_bear"]
+    fired_cls = "bg" if fired > 0 else ""
+    fired_s   = "s" if fired != 1 else ""
+
+    # Funnel waterfall rows
+    remaining = u
+    wf = ""
+    for label, key, color in [
+        ("No intraday data",  "no_intra_data",     "#8892a4"),
+        ("Stale candle",      "stale_candle",      "#8892a4"),
+        ("No prev-day data",  "no_prev_data",      "#8892a4"),
+        ("Price < Rs100",     "price_below_100",   "#8892a4"),
+        ("Range > 1.5%",      "range_over_1_5pct", "#f59e0b"),
+        ("Volume < 1.2x",     "vol_under_1_2x",    "#fb923c"),
+        ("Setup conditions",  "setup_fail",        "#ef4444"),
+    ]:
+        dropped    = f[key]
+        remaining -= dropped
+        pct        = round(dropped / u * 100) if u > 0 else 0
+        bar_w      = min(dropped * 2, 280)
+        minus      = "−" if dropped else ""
+        wf += (
+            f"<tr>"
+            f"<td class='fl'>{label}</td>"
+            f"<td class='fd' style='color:{color}'>{minus}{dropped}"
+            f"<span class='fp'>({pct}%)</span></td>"
+            f"<td class='fb'><div class='bar' style='width:{bar_w}px;background:{color}'></div></td>"
+            f"<td class='fr'>{remaining}</td>"
+            f"</tr>\n"
+        )
+    fw = min(fired * 40, 280)
+    wf += (
+        f"<tr class='fired-row'>"
+        f"<td class='fl'>SIGNALS FIRED</td>"
+        f"<td class='fd'>+{fired}</td>"
+        f"<td class='fb'><div class='bar' style='width:{fw}px;background:#22c55e'></div></td>"
+        f"<td class='fr'>{fired}</td>"
+        f"</tr>"
+    )
+
+    # Signals fired
+    ph = ""
+    for s in d["passed_setups"]:
+        gc = s.get("gap_pct", 0)
+        gc_col = "#22c55e" if gc >= 0 else "#ef4444"
+        setup_col = "#22c55e" if any("BULL" in x for x in s["setups_hit"]) else "#ef4444"
+        gp = ("+" if gc >= 0 else "") + str(gc) + "%"
+        ph += (
+            f"<tr>"
+            f"<td class='sc'>{s['symbol']}</td>"
+            f"<td>Rs{s['price']}</td>"
+            f"<td style='color:{gc_col}'>{gp}</td>"
+            f"<td style='color:{setup_col};font-weight:700'>{', '.join(s['setups_hit'])}</td>"
+            f"<td class='nc'>{s['range_pct']}%</td>"
+            f"<td class='nc'>{s['vol_ratio']}x</td>"
+            f"<td></td>"
+            f"</tr>\n"
+        )
+    if not ph:
+        ph = "<tr><td colspan='7' class='em'>No signals fired today</td></tr>"
+
+    # Near-misses
+    nm = ""
+    for s in d["near_misses_top20"]:
+        gc = s.get("gap_pct", 0)
+        gc_col  = "#22c55e" if gc >= 0 else "#ef4444"
+        setups  = ", ".join(s["setups_hit"]) if s["setups_hit"] else ""
+        why     = "; ".join(s.get("why_no_setup", [])) or "Passed all setups"
+        hit_sty = "color:#22c55e;font-weight:700" if s["setups_hit"] else ""
+        gp      = ("+" if gc >= 0 else "") + str(gc) + "%"
+        nm += (
+            f"<tr>"
+            f"<td class='sc' style='{hit_sty}'>{s['symbol']}</td>"
+            f"<td>Rs{s['price']}</td>"
+            f"<td style='color:{gc_col}'>{gp}</td>"
+            f"<td class='nc'>{s['range_pct']}%</td>"
+            f"<td class='nc'>{s['vol_ratio']}x</td>"
+            f"<td style='color:#22c55e;font-weight:700'>{setups}</td>"
+            f"<td class='wc'>{why}</td>"
+            f"</tr>\n"
+        )
+    if not nm:
+        nm = "<tr><td colspan='7' class='em'>No near-misses — all stocks eliminated at common filters</td></tr>"
+
+    css = (
+        "*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}"
+        "body{background:#0f1117;color:#e2e8f0;font-family:'Segoe UI',system-ui,sans-serif;font-size:13px;padding:0 0 60px}"
+        "a{color:#4f8ef7;text-decoration:none}a:hover{text-decoration:underline}"
+        ".hdr{background:#181c27;border-bottom:1px solid #2a2f45;padding:16px 32px;display:flex;align-items:center;gap:14px}"
+        ".logo{width:32px;height:32px;background:linear-gradient(135deg,#4f8ef7,#7c3aed);border-radius:8px;flex-shrink:0}"
+        ".htitle{font-size:18px;font-weight:800;letter-spacing:-.3px}"
+        ".hsub{color:#8892a4;font-size:12px;margin-top:2px}"
+        ".sbadge{margin-left:auto;padding:4px 10px;border-radius:20px;font-size:10px;font-weight:700;letter-spacing:.5px;border:1px solid;flex-shrink:0}"
+        ".main{max-width:1100px;margin:0 auto;padding:28px 24px 0}"
+        ".section{background:#181c27;border:1px solid #2a2f45;border-radius:10px;margin-bottom:24px;overflow:hidden}"
+        ".sh{padding:14px 20px;border-bottom:1px solid #2a2f45;display:flex;align-items:center;gap:10px}"
+        ".sh h2{font-size:14px;font-weight:700}"
+        ".badge{background:#1a2a4a;color:#4f8ef7;padding:2px 9px;border-radius:20px;font-size:11px;font-weight:700}"
+        ".bg{background:#16422b;color:#22c55e}"
+        "table{width:100%;border-collapse:collapse}"
+        "th{text-align:left;padding:10px 16px;font-size:11px;color:#8892a4;font-weight:600;text-transform:uppercase;letter-spacing:.4px;border-bottom:1px solid #2a2f45}"
+        "td{padding:9px 16px;border-bottom:1px solid #1e2336;vertical-align:top}"
+        "tbody tr:last-child td{border-bottom:none}"
+        "tbody tr:hover{background:#1e2336}"
+        ".sc{color:#4f8ef7;font-weight:700}"
+        ".nc{color:#8892a4}"
+        ".wc{color:#8892a4;font-size:11px;line-height:1.55;max-width:400px}"
+        ".em{color:#8892a4;text-align:center;padding:20px}"
+        ".fl{color:#e2e8f0;font-weight:600;min-width:170px;padding:9px 16px}"
+        ".fd{min-width:110px;font-weight:700;font-size:13px;padding:9px 8px}"
+        ".fp{color:#8892a4;font-weight:400;font-size:11px;margin-left:4px}"
+        ".fb{min-width:300px;padding:9px 8px}"
+        ".bar{height:8px;border-radius:4px;min-width:2px}"
+        ".fr{color:#4f8ef7;font-weight:700;text-align:right;min-width:60px;padding:9px 16px}"
+        ".fired-row{background:#0c1a10}"
+        ".fired-row td{color:#22c55e!important;font-weight:800!important;font-size:14px!important}"
+        ".meta{background:#141820;border-top:1px solid #2a2f45;padding:10px 32px;font-size:11px;color:#8892a4;display:flex;flex-wrap:wrap;gap:20px}"
+        ".legend{background:#111520;border:1px solid #2a2f45;border-radius:8px;padding:14px 18px;margin-bottom:24px;font-size:11px;color:#8892a4;line-height:2}"
+        ".legend strong{color:#e2e8f0}"
+        ".fbreaks{display:flex;gap:24px;padding:10px 16px 14px;font-size:11px;color:#8892a4;flex-wrap:wrap}"
+    )
+
+    html = (
+        "<!DOCTYPE html><html lang='en'><head>"
+        "<meta charset='UTF-8'>"
+        "<meta name='viewport' content='width=device-width,initial-scale=1'>"
+        f"<title>Samvex Signal Debugger - {d['date']}</title>"
+        f"<style>{css}</style></head><body>"
+        "<div class='hdr'>"
+        "<div class='logo'></div>"
+        f"<div><div class='htitle'>Signal Debugger</div>"
+        f"<div class='hsub'>Samvex LLP &middot; {d['date']} at {d['time_ist']} IST</div></div>"
+        f"<span class='sbadge' style='color:{src_color};border-color:{src_color}'>{src_label}</span>"
+        "</div>"
+        "<div class='main'>"
+        "<div class='legend'><strong>How to read this page:</strong> "
+        "The funnel shows stocks eliminated at each filter gate. "
+        "Near-misses passed all price / range / volume filters — they are the closest to firing. "
+        "The last column shows exactly which condition each stock failed. "
+        "Refresh during live market hours (9:30 – 15:30 IST) for real-time results.</div>"
+        "<div class='section'>"
+        "<div class='sh'><h2>Filter Funnel</h2>"
+        f"<span class='badge'>{u} stocks scanned</span></div>"
+        "<table><thead><tr>"
+        "<th style='min-width:170px'>Filter Gate</th>"
+        "<th>Dropped</th><th style='min-width:300px'></th>"
+        "<th style='text-align:right'>Remaining</th>"
+        f"</tr></thead><tbody>{wf}</tbody></table>"
+        "<div class='fbreaks'>"
+        f"<span>S1 Breakout: <strong style='color:#22c55e'>{f['s1_bull']}</strong> bull "
+        f"/ <strong style='color:#ef4444'>{f['s1_bear']}</strong> bear</span>"
+        f"<span>S2 Trap: <strong style='color:#22c55e'>{f['s2_bull']}</strong> bear trap "
+        f"/ <strong style='color:#ef4444'>{f['s2_bear']}</strong> bull trap</span>"
+        "</div></div>"
+        "<div class='section'>"
+        f"<div class='sh'><h2>Signals That Fired</h2>"
+        f"<span class='badge {fired_cls}'>{fired} signal{fired_s}</span></div>"
+        "<table><thead><tr>"
+        "<th>Symbol</th><th>Price</th><th>Gap</th>"
+        "<th>Setup</th><th>Range</th><th>Vol Ratio</th><th>Notes</th>"
+        f"</tr></thead><tbody>{ph}</tbody></table></div>"
+        "<div class='section'>"
+        "<div class='sh'><h2>Near-Misses &mdash; passed common filters, failed setup</h2>"
+        f"<span class='badge'>{len(d['near_misses_top20'])} shown</span></div>"
+        "<table><thead><tr>"
+        "<th>Symbol</th><th>Price</th><th>Gap</th>"
+        "<th>Range</th><th>Vol Ratio</th><th>Setup Hit</th>"
+        "<th>Why Setup Didn't Fire</th>"
+        f"</tr></thead><tbody>{nm}</tbody></table></div>"
+        "</div>"
+        "<div class='meta'>"
+        f"<span>15m batch: {d['15m_batch_size']} symbols</span>"
+        f"<span>Daily batch: {d['daily_batch_size']} symbols</span>"
+        f"<span>Generated {d['date']} {d['time_ist']} IST</span>"
+        "<span style='margin-left:auto'><a href='/api/debug/screen-new'>Raw JSON &#x2197;</a></span>"
+        "</div>"
+        "</body></html>"
+    )
+
+    return Response(html, mimetype="text/html")
 
 
 @app.route("/api/debug/oi")
