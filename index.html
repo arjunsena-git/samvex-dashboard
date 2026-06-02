@@ -628,6 +628,7 @@
         <span class="chip chip-green">Close &gt; PDH</span>
         <span class="chip chip-blue">Candle Range ≤1.5%</span>
         <span class="chip chip-green">Vol ≥1.2×</span>
+        <span class="chip chip-green">RSI 60–70</span>
         <span class="chip chip-blue">Price &gt;₹100</span>
         <span class="chip chip-blue">Nifty 500</span>
       </div>
@@ -661,6 +662,7 @@
         <span class="chip chip-red">Close &lt; PDL</span>
         <span class="chip chip-blue">Candle Range ≤1.5%</span>
         <span class="chip chip-red">Vol ≥1.2×</span>
+        <span class="chip chip-red">RSI 30–40</span>
         <span class="chip chip-blue">Price &gt;₹100</span>
         <span class="chip chip-blue">Nifty 500</span>
       </div>
@@ -705,6 +707,7 @@
         <span class="chip chip-green">Closes above PDL (Green)</span>
         <span class="chip chip-blue">Candle Range ≤1.5%</span>
         <span class="chip chip-green">Vol ≥1.2×</span>
+        <span class="chip chip-green">RSI 60–70</span>
       </div>
       <div class="table-wrap">
       <table>
@@ -737,6 +740,7 @@
         <span class="chip chip-red">Closes below PDH (Red)</span>
         <span class="chip chip-blue">Candle Range ≤1.5%</span>
         <span class="chip chip-red">Vol ≥1.2×</span>
+        <span class="chip chip-red">RSI 30–40</span>
       </div>
       <div class="table-wrap">
       <table>
@@ -963,9 +967,11 @@
     if (s.confidence_score == null) return "<td></td>";
     const score = s.confidence_score;
     const label = s.confidence_label || "WATCH";
+    const rsiStr = s.rsi != null ? `<div style="font-size:9px;color:var(--text-muted);margin-top:3px;">RSI ${s.rsi}</div>` : "";
     return `<td class="score-cell">
       <div class="score-num score-${label}">${score}</div>
       <div class="score-pill spill-${label}">${label}</div>
+      ${rsiStr}
     </td>`;
   }
 

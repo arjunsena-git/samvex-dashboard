@@ -561,7 +561,7 @@ def _fetch_chunked(interval: str, period: str) -> dict:
 
 
 def _fetch_daily_only() -> dict:
-    return _fetch_chunked("1d", "15d")
+    return _fetch_chunked("1d", "30d")   # 30d needed for RSI-14 (needs ≥15 closes)
 
 
 def _get_daily_batch():
@@ -639,6 +639,24 @@ def _get_ticker_df(batch, ticker):
 #                          gap down ≤ 2%, first candle closes ABOVE PDL as green candle
 #   Bearish (Bull Trap)  : opens near/above PDH (within 1% below PDH),
 #                          gap up ≤ 2%, first candle closes BELOW PDH as red candle
+
+
+def _rsi14(closes):
+    """Wilder's RSI-14 on a pandas Series of daily closes. Returns None if < 15 values."""
+    s = closes.dropna()
+    if len(s) < 15:
+        return None
+    delta = s.diff().dropna()
+    gain  = delta.clip(lower=0)
+    loss  = (-delta).clip(lower=0)
+    avg_g = gain.iloc[:14].mean()
+    avg_l = loss.iloc[:14].mean()
+    for g, l in zip(gain.iloc[14:].values, loss.iloc[14:].values):
+        avg_g = (avg_g * 13 + g) / 14
+        avg_l = (avg_l * 13 + l) / 14
+    if avg_l == 0:
+        return 100.0
+    return round(100 - 100 / (1 + avg_g / avg_l), 1)
 
 
 def _screen_new(setup: int, direction: str) -> list:
@@ -719,6 +737,17 @@ def _screen_new(setup: int, direction: str) -> list:
             paced_vol = (c_vol / 15.0) * 375.0
             vol_ratio = paced_vol / prev_vol
             if vol_ratio < 1.2:
+                continue
+
+            # ── RSI-14 directional filter ─────────────────────────
+            # Bullish: RSI 60–70 (momentum building, not yet overbought)
+            # Bearish: RSI 30–40 (weakness building, not yet oversold)
+            rsi = _rsi14(daily["Close"].iloc[:-1])
+            if rsi is None:
+                continue
+            if bullish and not (60 <= rsi <= 70):
+                continue
+            if not bullish and not (30 <= rsi <= 40):
                 continue
 
             gap_pct = (c_open - prev_close) / prev_close * 100
@@ -814,6 +843,7 @@ def _screen_new(setup: int, direction: str) -> list:
                 "risk_reward":       1.5,
                 "confidence_score":  conf_score,
                 "confidence_label":  conf_label,
+                "rsi":               rsi,
             })
 
         except Exception:
@@ -1386,6 +1416,7 @@ def _build_screen_debug() -> dict:
         "price_below_100":    0,
         "range_over_1_5pct":  0,
         "vol_under_1_2x":     0,
+        "rsi_fail":           0,
         "setup_fail":         0,
         "s1_bull":            0,
         "s1_bear":            0,
@@ -1450,6 +1481,13 @@ def _build_screen_debug() -> dict:
             funnel["vol_under_1_2x"] += 1
             continue
 
+        rsi_val      = _rsi14(daily["Close"].iloc[:-1])
+        rsi_bull_ok  = rsi_val is not None and 60 <= rsi_val <= 70
+        rsi_bear_ok  = rsi_val is not None and 30 <= rsi_val <= 40
+        if not rsi_bull_ok and not rsi_bear_ok:
+            funnel["rsi_fail"] += 1
+            continue
+
         row = {
             "symbol":       symbol.replace(".NS", ""),
             "price":        round(current, 2),
@@ -1460,6 +1498,7 @@ def _build_screen_debug() -> dict:
             "gap_pct":      gap_pct,
             "range_pct":    round(range_pct, 2),
             "vol_ratio":    vol_ratio,
+            "rsi":          rsi_val,
             "setups_hit":   [],
             "why_no_setup": [],
         }
@@ -1467,11 +1506,21 @@ def _build_screen_debug() -> dict:
         # S1: opens inside prev range, first candle breaks PDH/PDL
         if pdl < c_open < pdh:
             if c_close > pdh:
-                funnel["s1_bull"] += 1
-                row["setups_hit"].append("S1_BULL")
+                if rsi_bull_ok:
+                    funnel["s1_bull"] += 1
+                    row["setups_hit"].append("S1_BULL")
+                else:
+                    row["why_no_setup"].append(
+                        f"S1 Breakout: price broke PDH but RSI {rsi_val} outside bullish range 60-70"
+                    )
             elif c_close < pdl:
-                funnel["s1_bear"] += 1
-                row["setups_hit"].append("S1_BEAR")
+                if rsi_bear_ok:
+                    funnel["s1_bear"] += 1
+                    row["setups_hit"].append("S1_BEAR")
+                else:
+                    row["why_no_setup"].append(
+                        f"S1 Breakdown: price broke PDL but RSI {rsi_val} outside bearish range 30-40"
+                    )
             else:
                 row["why_no_setup"].append(
                     f"S1: opened inside range (Rs{round(pdl,0):g}–Rs{round(pdh,0):g}) "
@@ -1484,8 +1533,13 @@ def _build_screen_debug() -> dict:
 
         # S2 Bull (Bear Trap): opens near/below PDL, gaps down, recovers green
         if c_open <= pdl * 1.02 and -2.0 <= gap_pct < 0 and c_close > pdl and c_close > c_open:
-            funnel["s2_bull"] += 1
-            row["setups_hit"].append("S2_BULL")
+            if rsi_bull_ok:
+                funnel["s2_bull"] += 1
+                row["setups_hit"].append("S2_BULL")
+            else:
+                row["why_no_setup"].append(
+                    f"S2 Bear Trap: price conditions met but RSI {rsi_val} outside bullish range 60-70"
+                )
         else:
             reasons = []
             if not (c_open <= pdl * 1.02): reasons.append(f"open Rs{round(c_open,1)} > PDL+2% (Rs{round(pdl*1.02,1)})")
@@ -1497,8 +1551,13 @@ def _build_screen_debug() -> dict:
 
         # S2 Bear (Bull Trap): opens near/above PDH, gaps up, rejects red
         if c_open >= pdh * 0.98 and 0 < gap_pct <= 2.0 and c_close < pdh and c_close < c_open:
-            funnel["s2_bear"] += 1
-            row["setups_hit"].append("S2_BEAR")
+            if rsi_bear_ok:
+                funnel["s2_bear"] += 1
+                row["setups_hit"].append("S2_BEAR")
+            else:
+                row["why_no_setup"].append(
+                    f"S2 Bull Trap: price conditions met but RSI {rsi_val} outside bearish range 30-40"
+                )
         else:
             reasons = []
             if not (c_open >= pdh * 0.98): reasons.append(f"open Rs{round(c_open,1)} < PDH-2% (Rs{round(pdh*0.98,1)})")
@@ -1564,6 +1623,7 @@ def debug_screen_ui():
         ("Price < Rs100",     "price_below_100",   "#8892a4"),
         ("Range > 1.5%",      "range_over_1_5pct", "#f59e0b"),
         ("Volume < 1.2x",     "vol_under_1_2x",    "#fb923c"),
+        ("RSI out of range",  "rsi_fail",           "#a78bfa"),
         ("Setup conditions",  "setup_fail",        "#ef4444"),
     ]:
         dropped    = f[key]
