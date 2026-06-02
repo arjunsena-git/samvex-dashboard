@@ -150,9 +150,10 @@ def _load_nifty500() -> list:
         except Exception as e:
             print(f"[Nifty500] {url} failed: {e}")
 
-    print(f"[Nifty500] All sources failed — FNO fallback ({len(FNO_STOCKS)} stocks)")
+    fno = _get_fno_universe()
+    print(f"[Nifty500] All sources failed — F&O fallback ({len(fno)} stocks)")
     if not _nifty500_cache["symbols"]:
-        _nifty500_cache["symbols"] = FNO_STOCKS
+        _nifty500_cache["symbols"] = fno
         _nifty500_cache["source"]  = "fno_fallback"
     return _nifty500_cache["symbols"]
 
@@ -501,6 +502,16 @@ def _load_futures_map():
     return _futures_map
 
 
+def _get_fno_universe() -> list:
+    """Return the live F&O eligible stock list derived from the Upstox NSE_FO
+    instruments CSV (exact NSE current list, no manual maintenance needed).
+    Falls back to the hardcoded FNO_STOCKS only if the futures map is empty."""
+    fmap = _load_futures_map()
+    if len(fmap) > 50:
+        return [f"{sym}.NS" for sym in fmap]
+    return FNO_STOCKS
+
+
 def _fetch_futures_quotes():
     """Batch fetch near-month futures quotes for all mapped F&O stocks."""
     fmap = _load_futures_map()
@@ -593,7 +604,7 @@ def _fetch_live_quotes():
     """Single batch call → live OHLCV for all F&O stocks."""
     imap = _load_instrument_map()
     keys, key_to_sym = [], {}
-    for sym in FNO_STOCKS:
+    for sym in _get_fno_universe():
         base = sym.replace(".NS", "")
         key  = imap.get(base)
         if key:
@@ -635,7 +646,7 @@ def _fetch_chunked(interval: str, period: str) -> dict:
     Previous approach (yf.download + threads=True) was spawning 100–200
     internal threads whose stack overhead was pushing us past 512 MB.
     """
-    universe = _load_nifty500() or FNO_STOCKS
+    universe = _load_nifty500() or _get_fno_universe()
 
     def _fetch_one(sym):
         try:
@@ -766,7 +777,7 @@ def _screen_new(setup: int, direction: str, rsi_filter: bool = True) -> list:
     Uses the first 15-min candle (9:15–9:30 AM). Results valid all day once fired.
     rsi_filter=False: skip RSI 60-70 / 30-40 gate (used for backfill recovery).
     """
-    universe     = _load_nifty500() or FNO_STOCKS
+    universe     = _load_nifty500() or _get_fno_universe()
     batch_15m    = _get_15m_batch()
     batch_daily  = _get_daily_batch()
     bullish      = direction == "bullish"
@@ -1225,7 +1236,7 @@ def _screen_candidates(direction):
     live_quotes = _cached("live_quotes", _fetch_live_quotes, ttl=LIVE_TTL) if _is_live() else None
     daily_batch = _get_daily_batch()
 
-    for symbol in FNO_STOCKS:
+    for symbol in _get_fno_universe():
         q = live_quotes.get(symbol) if live_quotes else None
         if not q:
             continue
@@ -1630,7 +1641,7 @@ def debug_screener():
     }
 
     sample = []
-    for sym in FNO_STOCKS[:12]:
+    for sym in (_get_fno_universe() or FNO_STOCKS)[:12]:
         q = live_quotes.get(sym) if live_quotes else None
         d = _get_ticker_df(daily_batch, sym) if daily_batch is not None else None
         info = {"sym": sym, "daily_ok": d is not None and len(d) >= 2}
@@ -1669,7 +1680,7 @@ def _build_screen_debug() -> dict:
     ist         = pytz.timezone("Asia/Kolkata")
     now         = datetime.now(ist)
     today       = now.date()
-    universe    = _load_nifty500() or FNO_STOCKS
+    universe    = _load_nifty500() or _get_fno_universe()
     batch_15m   = _get_15m_batch()
     batch_daily = _get_daily_batch()
 
@@ -2089,27 +2100,30 @@ def debug_oi():
 
 @app.route("/api/debug/universe")
 def debug_universe():
-    """Shows which source the Nifty 500 universe was loaded from and key coverage checks."""
-    symbols = _load_nifty500()
-    checks = {
-        "TATAELXSI": "TATAELXSI.NS" in symbols,
-        "LTIM":      "LTIM.NS"      in symbols,
-        "INFY":      "INFY.NS"      in symbols,
-        "TCS":       "TCS.NS"       in symbols,
-        "HDFCBANK":  "HDFCBANK.NS"  in symbols,
-        "COFORGE":   "COFORGE.NS"   in symbols,
-        "PERSISTENT":"PERSISTENT.NS"in symbols,
+    """Shows which source the screener universe was loaded from and key coverage checks."""
+    symbols  = _load_nifty500()
+    fno_live = _get_fno_universe()
+    checks   = {
+        "TATAELXSI":  "TATAELXSI.NS"  in symbols,
+        "LTIM":       "LTIM.NS"        in symbols,
+        "INFY":       "INFY.NS"        in symbols,
+        "TCS":        "TCS.NS"         in symbols,
+        "HDFCBANK":   "HDFCBANK.NS"    in symbols,
+        "COFORGE":    "COFORGE.NS"     in symbols,
+        "PERSISTENT": "PERSISTENT.NS"  in symbols,
     }
     return jsonify({
-        "universe_size": len(symbols),
-        "source":        _nifty500_cache.get("source", "unknown"),
-        "date":          _nifty500_cache.get("date", ""),
-        "coverage_checks": checks,
-        "sample_first10": symbols[:10],
+        "screener_universe_size": len(symbols),
+        "source":                 _nifty500_cache.get("source", "unknown"),
+        "date":                   _nifty500_cache.get("date", ""),
+        "fno_live_universe_size": len(fno_live),
+        "fno_source":             "upstox_futures_map" if len(fno_live) > 50 else "hardcoded_fallback",
+        "coverage_checks":        checks,
+        "sample_first10":         symbols[:10],
         "note": (
-            "source=fno_fallback means both live URLs failed — "
-            "screener scanned only the hardcoded F&O list (~145 stocks). "
-            "source=https://... means Nifty 500 loaded successfully."
+            "source=fno_fallback means Nifty 500 CSV failed — "
+            "screener used the live F&O list from Upstox futures map. "
+            "source=https://... means full Nifty 500 loaded successfully."
         ),
     })
 
