@@ -45,10 +45,11 @@ FNO_STOCKS = [
     "APOLLOHOSP.NS", "DRREDDY.NS", "CIPLA.NS", "DIVISLAB.NS", "BIOCON.NS",
     "LUPIN.NS", "AUROPHARMA.NS", "ALKEM.NS", "ABBOTINDIA.NS", "TORNTPHARM.NS",
     "GLENMARK.NS", "IPCALAB.NS", "NATCOPHARM.NS", "GRANULES.NS",
-    "LAURUSLABS.NS", "PFIZER.NS", "SANOFI.NS",
-    # IT
+    "LAURUSLABS.NS", "PFIZER.NS", "SANOFI.NS", "SUNPHARMA.NS",
+    # IT / Tech
     "TECHM.NS", "MPHASIS.NS", "COFORGE.NS", "PERSISTENT.NS", "LTTS.NS",
-    "KPITTECH.NS", "CYIENT.NS", "OFSS.NS", "WIPRO.NS", "SUNPHARMA.NS",
+    "KPITTECH.NS", "CYIENT.NS", "OFSS.NS", "WIPRO.NS",
+    "TATAELXSI.NS", "LTIM.NS", "ZENSARTECH.NS", "MASTEK.NS",
     # New-age / Fintech
     "PAYTM.NS", "DELHIVERY.NS", "POLICYBZR.NS", "NYKAA.NS", "ZOMATO.NS",
     "NAUKRI.NS", "INDIAMART.NS",
@@ -90,43 +91,69 @@ FNO_STOCKS = [
 ]
 
 # ── Live Nifty 500 universe ────────────────────────────────────────
-# Fetched fresh each trading day from niftyindices.com.
-# Falls back to FNO_STOCKS if the fetch fails.
-NIFTY500_CSV_URL = "https://www.niftyindices.com/IndexConstituents/ind_nifty500list.csv"
-_nifty500_cache: dict = {"symbols": [], "date": ""}
+# Tries NSE archives first (no JS challenge), then niftyindices.com with
+# Referer header. Falls back to FNO_STOCKS if both fail.
+_NIFTY500_SOURCES = [
+    (
+        "https://nsearchives.nseindia.com/content/indices/ind_nifty500list.csv",
+        {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                          "AppleWebKit/537.36 (KHTML, like Gecko) "
+                          "Chrome/120.0.0.0 Safari/537.36",
+            "Accept":          "text/csv,text/plain,*/*",
+            "Accept-Language": "en-US,en;q=0.9",
+        },
+    ),
+    (
+        "https://www.niftyindices.com/IndexConstituents/ind_nifty500list.csv",
+        {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                          "AppleWebKit/537.36 (KHTML, like Gecko) "
+                          "Chrome/120.0.0.0 Safari/537.36",
+            "Referer":         "https://www.niftyindices.com/",
+            "Accept":          "text/csv,text/plain,*/*",
+            "Accept-Language": "en-US,en;q=0.9",
+        },
+    ),
+]
+_nifty500_cache: dict = {"symbols": [], "date": "", "source": ""}
 
 
 def _load_nifty500() -> list:
-    """Return current Nifty 500 symbol list with .NS suffix. Cached for the day."""
+    """Return Nifty 500 symbol list (.NS suffix). Cached per trading day.
+    Tries NSE archives → niftyindices.com → FNO_STOCKS fallback."""
     ist   = pytz.timezone("Asia/Kolkata")
     today = datetime.now(ist).strftime("%Y-%m-%d")
     if _nifty500_cache["symbols"] and _nifty500_cache["date"] == today:
         return _nifty500_cache["symbols"]
-    try:
-        r = _http.get(
-            NIFTY500_CSV_URL, timeout=15,
-            headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                                   "AppleWebKit/537.36 (KHTML, like Gecko) "
-                                   "Chrome/120.0.0.0 Safari/537.36"},
-        )
-        df  = pd.read_csv(io.StringIO(r.text))
-        col = next((c for c in df.columns if "symbol" in c.lower()), None)
-        if not col:
-            raise ValueError(f"No symbol column. Cols: {list(df.columns)}")
-        syms = [
-            f"{str(s).strip().upper()}.NS"
-            for s in df[col].dropna()
-            if str(s).strip() and str(s).strip().upper() not in ("SYMBOL", "NAN", "")
-        ]
-        if len(syms) < 100:
-            raise ValueError(f"Only {len(syms)} symbols parsed")
-        _nifty500_cache["symbols"] = syms
-        _nifty500_cache["date"]    = today
-        print(f"[Nifty500] {len(syms)} symbols loaded for {today}")
-    except Exception as e:
-        print(f"[Nifty500] Load failed: {e} — using FNO fallback ({len(FNO_STOCKS)} stocks)")
-        if not _nifty500_cache["symbols"]:
-            _nifty500_cache["symbols"] = FNO_STOCKS
+
+    for url, headers in _NIFTY500_SOURCES:
+        try:
+            r = _http.get(url, timeout=15, headers=headers)
+            r.raise_for_status()
+            df  = pd.read_csv(io.StringIO(r.text))
+            col = next((c for c in df.columns if "symbol" in c.lower()), None)
+            if not col:
+                raise ValueError(f"No symbol column — cols: {list(df.columns)}")
+            syms = [
+                f"{str(s).strip().upper()}.NS"
+                for s in df[col].dropna()
+                if str(s).strip() and str(s).strip().upper() not in ("SYMBOL", "NAN", "")
+            ]
+            if len(syms) < 100:
+                raise ValueError(f"Only {len(syms)} symbols parsed")
+            _nifty500_cache["symbols"] = syms
+            _nifty500_cache["date"]    = today
+            _nifty500_cache["source"]  = url
+            print(f"[Nifty500] {len(syms)} symbols loaded from {url}")
+            return syms
+        except Exception as e:
+            print(f"[Nifty500] {url} failed: {e}")
+
+    print(f"[Nifty500] All sources failed — FNO fallback ({len(FNO_STOCKS)} stocks)")
+    if not _nifty500_cache["symbols"]:
+        _nifty500_cache["symbols"] = FNO_STOCKS
+        _nifty500_cache["source"]  = "fno_fallback"
     return _nifty500_cache["symbols"]
 
 # ── In-memory cache ────────────────────────────────────────────────
@@ -2058,6 +2085,33 @@ def debug_oi():
         })
     except Exception as e:
         return jsonify({"error": str(e)})
+
+
+@app.route("/api/debug/universe")
+def debug_universe():
+    """Shows which source the Nifty 500 universe was loaded from and key coverage checks."""
+    symbols = _load_nifty500()
+    checks = {
+        "TATAELXSI": "TATAELXSI.NS" in symbols,
+        "LTIM":      "LTIM.NS"      in symbols,
+        "INFY":      "INFY.NS"      in symbols,
+        "TCS":       "TCS.NS"       in symbols,
+        "HDFCBANK":  "HDFCBANK.NS"  in symbols,
+        "COFORGE":   "COFORGE.NS"   in symbols,
+        "PERSISTENT":"PERSISTENT.NS"in symbols,
+    }
+    return jsonify({
+        "universe_size": len(symbols),
+        "source":        _nifty500_cache.get("source", "unknown"),
+        "date":          _nifty500_cache.get("date", ""),
+        "coverage_checks": checks,
+        "sample_first10": symbols[:10],
+        "note": (
+            "source=fno_fallback means both live URLs failed — "
+            "screener scanned only the hardcoded F&O list (~145 stocks). "
+            "source=https://... means Nifty 500 loaded successfully."
+        ),
+    })
 
 
 @app.route("/api/ping")
