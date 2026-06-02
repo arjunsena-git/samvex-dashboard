@@ -586,8 +586,9 @@ SCREEN_TTL   = 300   # 5-min screener result cache
 INSIGHTS_TTL = 300   # 5-min AI insights cache (aligned with screener)
 
 def _fetch_intraday_15m() -> dict:
-    """Batch 15-min bars for Nifty 500 universe, chunked to stay within 512 MB."""
-    return _fetch_chunked("15m", "1d")
+    """Batch 15-min bars for Nifty 500 universe, chunked to stay within 512 MB.
+    5d gives ~125 bars/stock — enough history for RSI-14 on the 15-min timeframe."""
+    return _fetch_chunked("15m", "5d")
 
 
 def _get_15m_batch():
@@ -686,15 +687,19 @@ def _screen_new(setup: int, direction: str) -> list:
             if intra is None or len(intra) < 1 or daily is None or len(daily) < 2:
                 continue
 
-            # Reject stale bars — yfinance period="1d" returns last session even on
-            # non-trading days; discard if the candle date doesn't match today (IST)
+            # Filter multi-day 15-min batch to today's bars only (batch is now 5d)
             _ist = pytz.timezone("Asia/Kolkata")
-            candle_ts = intra.index[0]
+            today_date = datetime.now(_ist).date()
             try:
-                candle_date = candle_ts.astimezone(_ist).date() if candle_ts.tzinfo else candle_ts.date()
+                if intra.index.tz is not None:
+                    today_mask = intra.index.tz_convert(_ist).date == today_date
+                else:
+                    today_mask = [ts.date() == today_date for ts in intra.index]
+                today_intra = intra[today_mask]
             except Exception:
-                candle_date = candle_ts.date() if hasattr(candle_ts, "date") else None
-            if candle_date != datetime.now(_ist).date():
+                today_intra = intra.iloc[:0]
+
+            if len(today_intra) == 0:
                 continue
 
             # ── Previous-day reference levels ─────────────────────
@@ -707,11 +712,11 @@ def _screen_new(setup: int, direction: str) -> list:
                 continue
 
             # ── First 15-min candle (9:15–9:30 AM) ───────────────
-            c_open  = float(intra["Open"].iloc[0])
-            c_high  = float(intra["High"].iloc[0])
-            c_low   = float(intra["Low"].iloc[0])
-            c_close = float(intra["Close"].iloc[0])
-            c_vol   = float(intra["Volume"].iloc[0])
+            c_open  = float(today_intra["Open"].iloc[0])
+            c_high  = float(today_intra["High"].iloc[0])
+            c_low   = float(today_intra["Low"].iloc[0])
+            c_close = float(today_intra["Close"].iloc[0])
+            c_vol   = float(today_intra["Volume"].iloc[0])
 
             if c_open <= 0 or c_vol <= 0:
                 continue
@@ -739,10 +744,10 @@ def _screen_new(setup: int, direction: str) -> list:
             if vol_ratio < 1.2:
                 continue
 
-            # ── RSI-14 directional filter ─────────────────────────
-            # Bullish: RSI 60–70 (momentum building, not yet overbought)
-            # Bearish: RSI 30–40 (weakness building, not yet oversold)
-            rsi = _rsi14(daily["Close"].iloc[:-1])
+            # ── RSI-14 directional filter (15-min timeframe, matches TradingView) ──
+            # Uses the full multi-day 15-min series so RSI sees the same history
+            # a trader sees on a 15-min chart. Bullish: 60–70, Bearish: 30–40.
+            rsi = _rsi14(intra["Close"])
             if rsi is None:
                 continue
             if bullish and not (60 <= rsi <= 70):
@@ -1435,16 +1440,19 @@ def _build_screen_debug() -> dict:
             funnel["no_intra_data"] += 1
             continue
 
-        candle_ts = intra.index[0]
         try:
-            candle_date = candle_ts.astimezone(ist).date() if candle_ts.tzinfo else candle_ts.date()
+            if intra.index.tz is not None:
+                today_mask = intra.index.tz_convert(ist).date == today
+            else:
+                today_mask = [ts.date() == today for ts in intra.index]
+            today_intra = intra[today_mask]
         except Exception:
-            candle_date = candle_ts.date() if hasattr(candle_ts, "date") else None
+            today_intra = intra.iloc[:0]
 
-        if candle_date != today:
+        if len(today_intra) == 0:
             funnel["stale_candle"] += 1
             if len(stale_sample) < 3:
-                stale_sample.append({"symbol": symbol.replace(".NS", ""), "candle_date": str(candle_date)})
+                stale_sample.append({"symbol": symbol.replace(".NS", ""), "candle_date": "no today bar"})
             continue
 
         try:
@@ -1458,11 +1466,11 @@ def _build_screen_debug() -> dict:
             funnel["no_prev_data"] += 1
             continue
 
-        c_open  = float(intra["Open"].iloc[0])
-        c_high  = float(intra["High"].iloc[0])
-        c_low   = float(intra["Low"].iloc[0])
-        c_close = float(intra["Close"].iloc[0])
-        c_vol   = float(intra["Volume"].iloc[0])
+        c_open  = float(today_intra["Open"].iloc[0])
+        c_high  = float(today_intra["High"].iloc[0])
+        c_low   = float(today_intra["Low"].iloc[0])
+        c_close = float(today_intra["Close"].iloc[0])
+        c_vol   = float(today_intra["Volume"].iloc[0])
         current = float(intra["Close"].iloc[-1])
         gap_pct = round((c_open - prev_close) / prev_close * 100, 2) if prev_close > 0 else 0
 
@@ -1481,7 +1489,7 @@ def _build_screen_debug() -> dict:
             funnel["vol_under_1_2x"] += 1
             continue
 
-        rsi_val      = _rsi14(daily["Close"].iloc[:-1])
+        rsi_val      = _rsi14(intra["Close"])   # 15-min RSI, matches TradingView
         rsi_bull_ok  = rsi_val is not None and 60 <= rsi_val <= 70
         rsi_bear_ok  = rsi_val is not None and 30 <= rsi_val <= 40
         if not rsi_bull_ok and not rsi_bear_ok:
