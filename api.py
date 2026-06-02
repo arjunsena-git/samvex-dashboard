@@ -7,6 +7,7 @@ import pytz
 import time
 import math
 import threading
+import json
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import os
 import io
@@ -147,6 +148,77 @@ def _cached(key, fn, *args, ttl=CACHE_TTL):
     return result
 
 
+# ── Day-signal store ────────────────────────────────────────────────
+# Signals are locked at first run after 9:30 AM and served unchanged
+# for the rest of the day. Persisted to /tmp so they survive page
+# refreshes and process restarts without a new container build.
+_signal_store: dict = {}          # key: (setup, direction, "YYYY-MM-DD") → list
+_SIGNALS_DIR = "/tmp/samvex_signals"
+os.makedirs(_SIGNALS_DIR, exist_ok=True)
+
+_PANEL_LABELS = {
+    (1, "bullish"): "Setup 1 — Trend Breakout (Bullish · Close > PDH)",
+    (1, "bearish"): "Setup 1 — Trend Breakdown (Bearish · Close < PDL)",
+    (2, "bullish"): "Setup 2 — Bear Trap (Bullish · False breakdown → recovery above PDL)",
+    (2, "bearish"): "Setup 2 — Bull Trap (Bearish · False breakout → rejection below PDH)",
+}
+
+def _signals_path(date_str: str) -> str:
+    return os.path.join(_SIGNALS_DIR, f"signals_{date_str}.json")
+
+def _persist_signals(date_str: str) -> None:
+    """Write today's _signal_store to disk (called in a background thread)."""
+    try:
+        payload = {
+            f"{k[0]}|{k[1]}": v
+            for k, v in _signal_store.items()
+            if k[2] == date_str
+        }
+        with open(_signals_path(date_str), "w") as fh:
+            json.dump({"date": date_str, "panels": payload}, fh)
+    except Exception as exc:
+        print(f"[Signals] persist error: {exc}")
+
+def _load_persisted_signals() -> None:
+    """On server start, reload today's signals from disk into _signal_store."""
+    ist = pytz.timezone("Asia/Kolkata")
+    today_str = datetime.now(ist).strftime("%Y-%m-%d")
+    path = _signals_path(today_str)
+    if not os.path.exists(path):
+        return
+    try:
+        with open(path) as fh:
+            data = json.load(fh)
+        for k_str, signals in data.get("panels", {}).items():
+            setup_str, direction = k_str.split("|")
+            _signal_store[(int(setup_str), direction, today_str)] = signals
+        total = sum(len(v) for v in _signal_store.values())
+        print(f"[Signals] Restored {total} signals from {path}")
+    except Exception as exc:
+        print(f"[Signals] load error: {exc}")
+
+def _get_or_run_screen(setup: int, direction: str) -> list:
+    """Return today's locked signals for this panel, running the screener only
+    once on first call after 9:30 AM IST and freezing results for the day."""
+    ist = pytz.timezone("Asia/Kolkata")
+    today_str = datetime.now(ist).strftime("%Y-%m-%d")
+    key = (setup, direction, today_str)
+
+    if key in _signal_store:
+        return _signal_store[key]
+
+    # First run: _cached() deduplicates concurrent requests during the scan
+    cache_key = f"s{setup}_{'bull' if direction == 'bullish' else 'bear'}"
+    results = _cached(cache_key, _screen_new, setup, direction, ttl=SCREEN_TTL)
+
+    # Lock for the rest of the day and persist to disk
+    _signal_store[key] = results
+    threading.Thread(target=_persist_signals, args=(today_str,), daemon=True).start()
+    locked = "bullish ✓" if direction == "bullish" else "bearish ✓"
+    print(f"[Signals] Locked setup{setup} {locked}: {len(results)} signals @ {today_str}")
+    return results
+
+
 # ── Upstox OAuth + live data ───────────────────────────────────────
 UPSTOX_API_KEY    = os.environ.get("UPSTOX_API_KEY", "")
 UPSTOX_API_SECRET = os.environ.get("UPSTOX_API_SECRET", "")
@@ -248,6 +320,7 @@ threading.Thread(target=lambda: _load_instrument_map(), daemon=True).start()
 threading.Thread(target=lambda: _load_futures_map(),    daemon=True).start()
 threading.Thread(target=lambda: _load_nifty500(),       daemon=True).start()
 threading.Thread(target=lambda: _get_daily_batch(),     daemon=True).start()
+threading.Thread(target=_load_persisted_signals,        daemon=True).start()
 
 # ── Startup token load ─────────────────────────────────────────────
 _startup_token, _startup_expires, _startup_source = _load_token_on_startup()
@@ -1317,25 +1390,81 @@ def _candle_ready() -> bool:
 def api_s1_bull():
     if not _candle_ready():
         return jsonify([])
-    return jsonify(_cached("s1_bull", _screen_new, 1, "bullish", ttl=SCREEN_TTL))
+    return jsonify(_get_or_run_screen(1, "bullish"))
 
 @app.route("/api/setup1/bearish")
 def api_s1_bear():
     if not _candle_ready():
         return jsonify([])
-    return jsonify(_cached("s1_bear", _screen_new, 1, "bearish", ttl=SCREEN_TTL))
+    return jsonify(_get_or_run_screen(1, "bearish"))
 
 @app.route("/api/setup2/bullish")
 def api_s2_bull():
     if not _candle_ready():
         return jsonify([])
-    return jsonify(_cached("s2_bull", _screen_new, 2, "bullish", ttl=SCREEN_TTL))
+    return jsonify(_get_or_run_screen(2, "bullish"))
 
 @app.route("/api/setup2/bearish")
 def api_s2_bear():
     if not _candle_ready():
         return jsonify([])
-    return jsonify(_cached("s2_bear", _screen_new, 2, "bearish", ttl=SCREEN_TTL))
+    return jsonify(_get_or_run_screen(2, "bearish"))
+
+@app.route("/api/signals/today")
+def signals_today_json():
+    """Today's morning signals locked at first 9:30 AM run.
+    Safe to call at any time — returns the same data all day even after
+    the live screener would otherwise show 0 results by afternoon."""
+    ist = pytz.timezone("Asia/Kolkata")
+    today_str = datetime.now(ist).strftime("%Y-%m-%d")
+    panels = {}
+    for (setup, direction, date_str), signals in _signal_store.items():
+        if date_str == today_str:
+            label = _PANEL_LABELS.get((setup, direction), f"Setup {setup} {direction}")
+            panels[label] = signals
+    return jsonify({
+        "date":   today_str,
+        "panels": panels,
+        "total":  sum(len(v) for v in panels.values()),
+        "note":   "Locked at first 9:30 AM IST run. Unchanged for the rest of the trading day.",
+    })
+
+
+@app.route("/api/signals/today.csv")
+def signals_today_csv():
+    """Download today's morning signals as a CSV file."""
+    ist = pytz.timezone("Asia/Kolkata")
+    today_str = datetime.now(ist).strftime("%Y-%m-%d")
+    headers = ["Panel","Symbol","Setup","Price","Gap%","PDH","PDL",
+               "Candle%","Vol Ratio","Score","Label","RSI",
+               "Entry","SL","SL%","T1","T2","R:R"]
+    rows = ["# Samvex LLP — Today's Morning Signals (locked at 9:30 AM IST)",
+            f"# Date: {today_str}",
+            "",
+            ",".join(headers)]
+    for (setup, direction, date_str), signals in _signal_store.items():
+        if date_str != today_str or not signals:
+            continue
+        label = _PANEL_LABELS.get((setup, direction), f"Setup {setup} {direction}")
+        for s in signals:
+            rows.append(",".join(str(x) for x in [
+                f'"{label}"',
+                s.get("symbol",""), s.get("setup",""),
+                s.get("price",""), s.get("gap_pct",""),
+                s.get("pdh",""), s.get("pdl",""),
+                s.get("candle_range_pct",""), s.get("volume_ratio",""),
+                s.get("confidence_score",""), s.get("confidence_label",""),
+                s.get("rsi",""),
+                s.get("entry",""), s.get("sl",""), s.get("sl_pct",""),
+                s.get("t1",""), s.get("t2",""), s.get("risk_reward",""),
+            ]))
+    csv_text = "\n".join(rows)
+    return Response(
+        csv_text,
+        mimetype="text/csv",
+        headers={"Content-Disposition": f"attachment; filename=samvex_signals_{today_str}.csv"},
+    )
+
 
 @app.route("/api/market")
 def market():

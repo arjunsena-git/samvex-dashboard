@@ -652,9 +652,14 @@
     </div>
   </div>
 
-  <!-- ── Single CSV download for all screener panels ─────────────── -->
-  <div class="csv-toolbar">
-    <button class="csv-btn" onclick="downloadAllCSV()">↓ Download All Signals (CSV)</button>
+  <!-- ── CSV download row ─────────────────────────────────────────── -->
+  <div class="csv-toolbar" style="gap:8px;">
+    <button class="csv-btn" onclick="downloadAllCSV()">↓ Download Visible Signals (CSV)</button>
+    <a  id="today-csv-btn" class="csv-btn"
+        style="text-decoration:none;display:inline-flex;align-items:center;"
+        title="Downloads today's 9:30 AM signals — reliable even if panels show empty by afternoon">
+      ↓ Download Today's Signals (Locked · API)
+    </a>
   </div>
 
   <!-- ── Setup 1: Directional Trend (Kumar sir) ─────────────────── -->
@@ -968,6 +973,7 @@
     ? "http://localhost:5050"
     : "https://samvex-api.onrender.com";
   document.querySelectorAll('.diagnose-link').forEach(el => el.href = API + '/debug/screen');
+  document.getElementById('today-csv-btn').href = API + '/api/signals/today.csv';
 
   // ── Fetch with retry (handles Render cold-start wake-up) ────────
   // Render free tier takes 30-60s to wake up after idle. We retry 3 times
