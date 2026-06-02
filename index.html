@@ -653,12 +653,17 @@
   </div>
 
   <!-- ── CSV download row ─────────────────────────────────────────── -->
-  <div class="csv-toolbar" style="gap:8px;">
-    <button class="csv-btn" onclick="downloadAllCSV()">↓ Download Visible Signals (CSV)</button>
-    <a  id="today-csv-btn" class="csv-btn"
-        style="text-decoration:none;display:inline-flex;align-items:center;"
-        title="Downloads today's 9:30 AM signals — reliable even if panels show empty by afternoon">
-      ↓ Download Today's Signals (Locked · API)
+  <div class="csv-toolbar" style="gap:8px;flex-wrap:wrap;">
+    <button class="csv-btn" onclick="downloadAllCSV()">↓ Download Visible Signals</button>
+    <a id="today-csv-btn" class="csv-btn"
+       style="text-decoration:none;display:inline-flex;align-items:center;"
+       title="Today's 9:30 AM signals locked at first run — same list all day">
+      ↓ Today's Locked Signals (CSV)
+    </a>
+    <a id="backfill-csv-btn" class="csv-btn"
+       style="text-decoration:none;display:inline-flex;align-items:center;border-color:#f59e0b;color:#f59e0b;"
+       title="Structural breakouts only — RSI filter skipped. Use when locked signals are missing.">
+      ↓ Recover Today's Signals (No RSI filter)
     </a>
   </div>
 
@@ -973,7 +978,8 @@
     ? "http://localhost:5050"
     : "https://samvex-api.onrender.com";
   document.querySelectorAll('.diagnose-link').forEach(el => el.href = API + '/debug/screen');
-  document.getElementById('today-csv-btn').href = API + '/api/signals/today.csv';
+  document.getElementById('today-csv-btn').href    = API + '/api/signals/today.csv';
+  document.getElementById('backfill-csv-btn').href = API + '/api/signals/backfill.csv';
 
   // ── Fetch with retry (handles Render cold-start wake-up) ────────
   // Render free tier takes 30-60s to wake up after idle. We retry 3 times

@@ -733,10 +733,11 @@ def _rsi14(closes):
     return round(100 - 100 / (1 + avg_g / avg_l), 1)
 
 
-def _screen_new(setup: int, direction: str) -> list:
+def _screen_new(setup: int, direction: str, rsi_filter: bool = True) -> list:
     """
     Unified screener for Setup 1 (Directional Trend) and Setup 2 (Reversal/Trap).
     Uses the first 15-min candle (9:15–9:30 AM). Results valid all day once fired.
+    rsi_filter=False: skip RSI 60-70 / 30-40 gate (used for backfill recovery).
     """
     universe     = _load_nifty500() or FNO_STOCKS
     batch_15m    = _get_15m_batch()
@@ -821,12 +822,13 @@ def _screen_new(setup: int, direction: str) -> list:
             # Uses the full multi-day 15-min series so RSI sees the same history
             # a trader sees on a 15-min chart. Bullish: 60–70, Bearish: 30–40.
             rsi = _rsi14(intra["Close"])
-            if rsi is None:
-                continue
-            if bullish and not (60 <= rsi <= 70):
-                continue
-            if not bullish and not (30 <= rsi <= 40):
-                continue
+            if rsi_filter:
+                if rsi is None:
+                    continue
+                if bullish and not (60 <= rsi <= 70):
+                    continue
+                if not bullish and not (30 <= rsi <= 40):
+                    continue
 
             gap_pct = (c_open - prev_close) / prev_close * 100
 
@@ -1409,6 +1411,79 @@ def api_s2_bear():
     if not _candle_ready():
         return jsonify([])
     return jsonify(_get_or_run_screen(2, "bearish"))
+
+@app.route("/api/signals/backfill")
+def signals_backfill():
+    """Recover today's morning breakout stocks without the RSI filter.
+    Use this when the server was restarted after 9:30 AM and _signal_store
+    is empty. Returns all stocks that met the structural conditions
+    (first candle closed above PDH / below PDL, volume, candle range)
+    with their current RSI shown for reference."""
+    if not _candle_ready():
+        return jsonify({"error": "Market not open yet — first candle not closed."}), 400
+    ist = pytz.timezone("Asia/Kolkata")
+    today_str = datetime.now(ist).strftime("%Y-%m-%d")
+    panels = {}
+    for setup in [1, 2]:
+        for direction in ["bullish", "bearish"]:
+            label = _PANEL_LABELS.get((setup, direction), "")
+            # Run without RSI filter to recover structural signals
+            signals = _screen_new(setup, direction, rsi_filter=False)
+            panels[label] = signals
+            # Populate _signal_store so the regular endpoints also return these
+            key = (setup, direction, today_str)
+            if key not in _signal_store:
+                _signal_store[key] = signals
+    threading.Thread(target=_persist_signals, args=(today_str,), daemon=True).start()
+    total = sum(len(v) for v in panels.values())
+    print(f"[Backfill] Recovered {total} structural signals for {today_str} (RSI filter skipped)")
+    return jsonify({
+        "date":   today_str,
+        "panels": panels,
+        "total":  total,
+        "note":   "RSI filter skipped — structural breakout/breakdown only. RSI values shown for reference.",
+    })
+
+
+@app.route("/api/signals/backfill.csv")
+def signals_backfill_csv():
+    """CSV version of /api/signals/backfill for direct download."""
+    if not _candle_ready():
+        return Response("# Market not open yet", mimetype="text/csv")
+    ist = pytz.timezone("Asia/Kolkata")
+    today_str = datetime.now(ist).strftime("%Y-%m-%d")
+    headers = ["Panel","Symbol","Setup","Price","Gap%","PDH","PDL",
+               "Candle%","Vol Ratio","Score","Label","RSI (current)",
+               "Entry","SL","SL%","T1","T2","R:R"]
+    rows = [
+        "# Samvex LLP — Today's Structural Breakout Recovery",
+        "# RSI filter skipped — shows all stocks that met first-candle structure conditions",
+        f"# Date: {today_str}  |  Generated: {datetime.now(ist).strftime('%H:%M IST')}",
+        "",
+        ",".join(headers),
+    ]
+    for setup in [1, 2]:
+        for direction in ["bullish", "bearish"]:
+            label = _PANEL_LABELS.get((setup, direction), "")
+            signals = _screen_new(setup, direction, rsi_filter=False)
+            for s in signals:
+                rows.append(",".join(str(x) for x in [
+                    f'"{label}"',
+                    s.get("symbol",""), s.get("setup",""),
+                    s.get("price",""), s.get("gap_pct",""),
+                    s.get("pdh",""), s.get("pdl",""),
+                    s.get("candle_range_pct",""), s.get("volume_ratio",""),
+                    s.get("confidence_score",""), s.get("confidence_label",""),
+                    s.get("rsi",""),
+                    s.get("entry",""), s.get("sl",""), s.get("sl_pct",""),
+                    s.get("t1",""), s.get("t2",""), s.get("risk_reward",""),
+                ]))
+    return Response(
+        "\n".join(rows),
+        mimetype="text/csv",
+        headers={"Content-Disposition": f"attachment; filename=samvex_backfill_{today_str}.csv"},
+    )
+
 
 @app.route("/api/signals/today")
 def signals_today_json():
