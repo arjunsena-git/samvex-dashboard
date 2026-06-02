@@ -819,7 +819,7 @@ def _screen_new(setup: int, direction: str) -> list:
         except Exception:
             continue
 
-    results.sort(key=lambda x: x["volume_ratio"], reverse=True)
+    results.sort(key=lambda x: x["confidence_score"], reverse=True)
     return results[:10]
 
 
