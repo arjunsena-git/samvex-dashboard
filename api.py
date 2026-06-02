@@ -2,7 +2,7 @@ from flask import Flask, jsonify, redirect, request as flask_req, Response
 from flask_cors import CORS
 import yfinance as yf
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, time as _dtime
 import pytz
 import time
 import math
@@ -1244,20 +1244,33 @@ def auth_status():
     })
 
 
+def _candle_ready() -> bool:
+    """First 15-min candle (9:15–9:30 AM IST) closes at exactly 9:30. Guard against
+    reading an in-progress bar that yfinance starts serving from 9:15 onward."""
+    return datetime.now(pytz.timezone("Asia/Kolkata")).time() >= _dtime(9, 30)
+
 @app.route("/api/setup1/bullish")
 def api_s1_bull():
+    if not _candle_ready():
+        return jsonify([])
     return jsonify(_cached("s1_bull", _screen_new, 1, "bullish", ttl=SCREEN_TTL))
 
 @app.route("/api/setup1/bearish")
 def api_s1_bear():
+    if not _candle_ready():
+        return jsonify([])
     return jsonify(_cached("s1_bear", _screen_new, 1, "bearish", ttl=SCREEN_TTL))
 
 @app.route("/api/setup2/bullish")
 def api_s2_bull():
+    if not _candle_ready():
+        return jsonify([])
     return jsonify(_cached("s2_bull", _screen_new, 2, "bullish", ttl=SCREEN_TTL))
 
 @app.route("/api/setup2/bearish")
 def api_s2_bear():
+    if not _candle_ready():
+        return jsonify([])
     return jsonify(_cached("s2_bear", _screen_new, 2, "bearish", ttl=SCREEN_TTL))
 
 @app.route("/api/market")

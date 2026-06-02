@@ -1005,10 +1005,16 @@
     const bullish = direction === "bullish";
     const color   = bullish ? "green" : "red";
     if (!data || data.length === 0) {
+      const istNow = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
+      const preMarket = istNow.getHours() < 9 || (istNow.getHours() === 9 && istNow.getMinutes() < 30);
       el.innerHTML = `<tr><td colspan="8"><div class="empty-state">
-        No signals from today's 9:15–9:30 AM candle.
+        ${preMarket
+          ? `<span style="color:var(--yellow);font-size:13px;font-weight:700;">Candle forming…</span>`
+          : `No signals from today's 9:15–9:30 AM candle.`}
         <span style="color:var(--text-muted);font-size:11px;display:block;margin-top:6px;">
-          Signals fire at 9:30 AM and stay visible all day · check back after open
+          ${preMarket
+            ? "First candle closes at 9:30 AM IST · screener will fire automatically"
+            : "Signals fire at 9:30 AM and stay visible all day · check back after open"}
         </span>
         <span style="display:block;margin-top:8px;">
           <a href="${API}/debug/screen" target="_blank" rel="noopener"
