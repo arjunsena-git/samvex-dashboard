@@ -449,6 +449,60 @@
     .table-wrap::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
     .table-wrap table { min-width: 540px; }
 
+    /* ── Scroll-to-top button ───────────────────────────────────── */
+    #scroll-top-btn {
+      position: fixed; bottom: 28px; left: 28px;
+      background: var(--bg-card-2); border: 1px solid var(--border);
+      color: var(--text-muted); border-radius: 8px;
+      padding: 7px 14px; cursor: pointer; font-size: 13px; font-weight: 600;
+      box-shadow: 0 4px 16px rgba(0,0,0,.4);
+      opacity: 0; pointer-events: none;
+      transition: opacity .25s, border-color .15s, color .15s;
+      z-index: 8000; letter-spacing: .3px;
+    }
+    #scroll-top-btn.visible { opacity: 1; pointer-events: auto; }
+    #scroll-top-btn:hover   { border-color: var(--accent); color: var(--accent); }
+
+    /* ── Panel fullscreen overlay ────────────────────────────────── */
+    #panel-overlay {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,.82);
+      z-index: 9000; display: none;
+      padding: 16px; overflow: hidden;
+    }
+    #panel-overlay.open { display: flex; }
+    .panel-overlay-inner {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: 0 8px 48px rgba(0,0,0,.6);
+      flex: 1; display: flex; flex-direction: column; overflow: hidden;
+    }
+    .panel-overlay-hdr {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 14px 20px;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg-card-2);
+      flex-shrink: 0;
+    }
+    .panel-overlay-body { overflow: auto; flex: 1; }
+    .panel-overlay-body .criteria-row { border-top: none; }
+    .panel-overlay-body .table-wrap { overflow-x: auto; }
+    .panel-overlay-body .table-wrap table { min-width: 600px; }
+    .close-overlay-btn {
+      background: var(--bg-card); border: 1px solid var(--border);
+      color: var(--text-muted); border-radius: 6px;
+      padding: 5px 14px; cursor: pointer; font-size: 13px; font-weight: 600;
+      white-space: nowrap;
+    }
+    .close-overlay-btn:hover { border-color: var(--red); color: var(--red); }
+    .expand-btn {
+      background: var(--bg-card-2); border: 1px solid var(--border);
+      color: var(--text-muted); border-radius: 6px;
+      padding: 4px 10px; cursor: pointer; font-size: 12px;
+    }
+    .expand-btn:hover { border-color: var(--accent); color: var(--accent); }
+
     /* ── Responsive ──────────────────────────────────────────────── */
     @media (max-width: 900px) {
       .scanner-grid { grid-template-columns: 1fr; }
@@ -621,6 +675,7 @@
         <div style="display:flex;gap:6px;align-items:center;">
           <a class="diag-link diagnose-link" target="_blank" rel="noopener">Diagnose ↗</a>
           <button class="refresh-btn" onclick="loadS1Bullish()">↺ Refresh</button>
+          <button class="expand-btn" onclick="expandPanel(this)" title="Full screen (Esc to close)">⤢ Expand</button>
         </div>
       </div>
       <div class="criteria-row">
@@ -655,6 +710,7 @@
         <div style="display:flex;gap:6px;align-items:center;">
           <a class="diag-link diagnose-link" target="_blank" rel="noopener">Diagnose ↗</a>
           <button class="refresh-btn" onclick="loadS1Bearish()">↺ Refresh</button>
+          <button class="expand-btn" onclick="expandPanel(this)" title="Full screen (Esc to close)">⤢ Expand</button>
         </div>
       </div>
       <div class="criteria-row">
@@ -699,6 +755,7 @@
         <div style="display:flex;gap:6px;align-items:center;">
           <a class="diag-link diagnose-link" target="_blank" rel="noopener">Diagnose ↗</a>
           <button class="refresh-btn" onclick="loadS2Bullish()">↺ Refresh</button>
+          <button class="expand-btn" onclick="expandPanel(this)" title="Full screen (Esc to close)">⤢ Expand</button>
         </div>
       </div>
       <div class="criteria-row">
@@ -732,6 +789,7 @@
         <div style="display:flex;gap:6px;align-items:center;">
           <a class="diag-link diagnose-link" target="_blank" rel="noopener">Diagnose ↗</a>
           <button class="refresh-btn" onclick="loadS2Bearish()">↺ Refresh</button>
+          <button class="expand-btn" onclick="expandPanel(this)" title="Full screen (Esc to close)">⤢ Expand</button>
         </div>
       </div>
       <div class="criteria-row">
@@ -777,6 +835,7 @@
           <span class="chip chip-green" style="font-size:9px;padding:2px 6px;">Long Buildup</span>
           <span class="chip chip-blue"  style="font-size:9px;padding:2px 6px;">Short Covering</span>
           <button class="refresh-btn" onclick="loadOI()">↺</button>
+          <button class="expand-btn" onclick="expandPanel(this)" title="Full screen (Esc to close)">⤢ Expand</button>
         </div>
       </div>
       <div class="table-wrap">
@@ -808,6 +867,7 @@
           <span class="chip chip-red"    style="font-size:9px;padding:2px 6px;">Short Buildup</span>
           <span class="chip chip-orange" style="font-size:9px;padding:2px 6px;">Long Unwinding</span>
           <button class="refresh-btn" onclick="loadOI()">↺</button>
+          <button class="expand-btn" onclick="expandPanel(this)" title="Full screen (Esc to close)">⤢ Expand</button>
         </div>
       </div>
       <div class="table-wrap">
@@ -886,6 +946,20 @@
   Screener refreshes every 5 min during market hours &nbsp;·&nbsp;
   <span id="last-updated">—</span>
 </footer>
+
+<!-- ── Scroll-to-top ────────────────────────────────────────────── -->
+<button id="scroll-top-btn" onclick="window.scrollTo({top:0,behavior:'smooth'})" title="Back to top">↑ Top</button>
+
+<!-- ── Panel fullscreen overlay ─────────────────────────────────── -->
+<div id="panel-overlay" role="dialog" aria-modal="true">
+  <div class="panel-overlay-inner">
+    <div class="panel-overlay-hdr">
+      <div id="overlay-title" class="panel-title"></div>
+      <button class="close-overlay-btn" onclick="closePanel()">✕ Close</button>
+    </div>
+    <div class="panel-overlay-body" id="overlay-body"></div>
+  </div>
+</div>
 
 <!-- ── Scripts ──────────────────────────────────────────────────── -->
 <script>
@@ -1496,6 +1570,35 @@
     await Promise.all([loadTicker(), loadOI(), loadMarketBrief()]);
     stampUpdated();
   }
+
+  // ── Scroll-to-top ─────────────────────────────────────────────
+  window.addEventListener('scroll', () => {
+    document.getElementById('scroll-top-btn').classList.toggle('visible', window.scrollY > 300);
+  }, { passive: true });
+
+  // ── Panel fullscreen expand ───────────────────────────────────
+  function expandPanel(btn) {
+    const panel     = btn.closest('.panel');
+    const titleEl   = panel.querySelector('.panel-title');
+    const criteria  = panel.querySelector('.criteria-row');
+    const tableWrap = panel.querySelector('.table-wrap');
+
+    document.getElementById('overlay-title').innerHTML = titleEl ? titleEl.innerHTML : '';
+    const ob = document.getElementById('overlay-body');
+    ob.innerHTML = '';
+    if (criteria)  ob.appendChild(criteria.cloneNode(true));
+    if (tableWrap) ob.appendChild(tableWrap.cloneNode(true));
+
+    document.getElementById('panel-overlay').classList.add('open');
+    document.body.style.overflow = 'hidden';
+  }
+
+  function closePanel() {
+    document.getElementById('panel-overlay').classList.remove('open');
+    document.body.style.overflow = '';
+  }
+
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') closePanel(); });
 
   // ── Boot ──────────────────────────────────────────────────────
   refreshAll();
