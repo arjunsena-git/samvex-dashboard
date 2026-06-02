@@ -246,6 +246,13 @@
     tbody tr:hover { background: var(--bg-card-2); }
     tbody td { padding: 11px 18px; vertical-align: middle; }
     tbody td:last-child { text-align: right; }
+    thead th:first-child,
+    tbody td:first-child {
+      position: sticky; left: 0; z-index: 1;
+    }
+    thead th:first-child { background: var(--bg-card-2); box-shadow: 2px 0 8px rgba(0,0,0,.4); }
+    tbody td:first-child { background: var(--bg-card);   box-shadow: 2px 0 8px rgba(0,0,0,.4); }
+    tbody tr:hover td:first-child { background: var(--bg-card-2); }
 
     .sym {
       font-weight: 700; font-size: 13px;
