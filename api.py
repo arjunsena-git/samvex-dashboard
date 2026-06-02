@@ -993,7 +993,33 @@ def _analyze_smart(symbol, quote, daily_batch, direction, elapsed_min):
 
 
 # ── Market index data ──────────────────────────────────────────────
+_INDEX_YF = {"NIFTY 50": "^NSEI", "SENSEX": "^BSESN", "BANK NIFTY": "^NSEBANK"}
+_INDEX_KEY = {
+    "Nifty 50":  "NIFTY 50",
+    "Nifty Bank": "BANK NIFTY",
+    "SENSEX":    "SENSEX",
+}
+
+def _yf_prev_closes() -> dict:
+    """Fetch yesterday's confirmed close for each index from Yahoo Finance.
+    Uses 5d period so we always get at least 2 confirmed trading days even
+    across weekends or holidays."""
+    out = {}
+    for name, sym in _INDEX_YF.items():
+        try:
+            d = yf.Ticker(sym).history(interval="1d", period="5d")
+            if len(d) >= 2:
+                out[name] = float(d["Close"].iloc[-2])
+        except Exception:
+            pass
+    return out
+
 def _fetch_market():
+    # Pre-fetch prev_close from yfinance — reliable baseline for % change.
+    # Upstox NSE_INDEX quotes return prev_close_price = 0, so we always need
+    # this as a fallback regardless of live/delayed mode.
+    yf_prev = _yf_prev_closes()
+
     # When live, use Upstox for real-time index prices
     if _is_live():
         try:
@@ -1007,32 +1033,35 @@ def _fetch_market():
                 result = {}
                 for k, v in r.json().get("data", {}).items():
                     lp = float(v.get("last_price", 0) or 0)
-                    pc = float(v.get("prev_close_price", 0) or (v.get("ohlc") or {}).get("close", 0) or 0)
                     if lp <= 0:
                         continue
+                    # Determine index name
+                    idx_name = next((n for frag, n in _INDEX_KEY.items() if frag in k), None)
+                    if not idx_name:
+                        continue
+                    # Upstox NSE_INDEX instruments return prev_close_price = 0.
+                    # Cascade: Upstox field → ohlc.close → yfinance prev day.
+                    pc = float(v.get("prev_close_price", 0) or
+                               (v.get("ohlc") or {}).get("close", 0) or
+                               yf_prev.get(idx_name, 0))
                     chg = round((lp - pc) / pc * 100, 2) if pc > 0 else 0
-                    if "Nifty 50" in k:
-                        result["NIFTY 50"]   = {"price": round(lp, 2), "change_pct": chg}
-                    elif "Nifty Bank" in k:
-                        result["BANK NIFTY"] = {"price": round(lp, 2), "change_pct": chg}
-                    elif "SENSEX" in k.upper():
-                        result["SENSEX"]     = {"price": round(lp, 2), "change_pct": chg}
+                    result[idx_name] = {"price": round(lp, 2), "change_pct": chg}
+                    print(f"[Market] {idx_name}: lp={lp} pc={pc} chg={chg}%")
                 if result:
-                    print(f"[Market] Upstox indices: {list(result.keys())}")
                     return result
         except Exception as e:
             print(f"[Market] Upstox index error: {e}")
 
-    # Fallback: Yahoo Finance delayed data
-    indices = {"NIFTY 50": "^NSEI", "SENSEX": "^BSESN", "BANK NIFTY": "^NSEBANK"}
-    result  = {}
-    for name, sym in indices.items():
+    # Fallback: Yahoo Finance delayed data (5d period avoids holiday edge cases)
+    result = {}
+    for name, sym in _INDEX_YF.items():
         try:
-            d = yf.Ticker(sym).history(interval="1d", period="2d")
+            d = yf.Ticker(sym).history(interval="1d", period="5d")
             if len(d) >= 2:
-                prev, curr = d["Close"].iloc[-2], d["Close"].iloc[-1]
+                prev = float(d["Close"].iloc[-2])
+                curr = float(d["Close"].iloc[-1])
                 result[name] = {
-                    "price":      round(float(curr), 2),
+                    "price":      round(curr, 2),
                     "change_pct": round((curr - prev) / prev * 100, 2),
                 }
         except Exception:
