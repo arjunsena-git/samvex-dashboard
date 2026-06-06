@@ -1067,6 +1067,8 @@
     const t1Color  = bullish ? "var(--green)" : "var(--red)";
     const t2Color  = "#22d3ee";
     const slNote   = s.sl_label ? `<span style="font-size:9px;color:var(--text-muted);font-style:italic;margin-left:4px;">${s.sl_label}</span>` : "";
+    const dzStr    = s.demand_zone != null ? `₹${fmt(s.demand_zone)}` : "—";
+    const szStr    = s.supply_zone != null ? `₹${fmt(s.supply_zone)}` : "—";
     return `<td>
       <div class="tp-cell">
         <div class="tp-row">
@@ -1085,6 +1087,14 @@
           <span class="tp-price" style="color:${slColor}">₹${fmt(s.sl)}</span>
           <span style="font-size:10px;color:${slColor};margin-left:3px;opacity:.75;">(${s.sl_pct}%)</span>
           ${slNote}
+        </div>
+        <div class="tp-row" style="margin-top:4px;border-top:1px solid rgba(255,255,255,.07);padding-top:4px;">
+          <span class="tp-label" style="color:var(--green);font-size:9px;font-weight:700;">DZ</span>
+          <span class="tp-price" style="color:var(--green)">${dzStr}</span>
+          <span style="font-size:9px;color:var(--text-muted);margin-left:3px;">demand</span>
+          <span class="tp-label" style="color:var(--red);font-size:9px;font-weight:700;margin-left:10px;">SZ</span>
+          <span class="tp-price" style="color:var(--red)">${szStr}</span>
+          <span style="font-size:9px;color:var(--text-muted);margin-left:3px;">supply</span>
         </div>
       </div>
     </td>`;
@@ -1162,12 +1172,13 @@
     _panelData[key] = { label, rows };
   }
 
-  const CSV_HEADERS = ["Symbol","Setup","Price","Gap%","PDH","PDL","Key Level","Key Label","Vol Ratio","Entry","SL","SL%","T1","T2","R:R"];
+  const CSV_HEADERS = ["Symbol","Setup","Price","Gap%","PDH","PDL","Key Level","Key Label","Vol Ratio","Demand Zone","Supply Zone","Entry","SL","SL%","T1","T2","R:R"];
 
   function _rowToCSV(r) {
     return [r.symbol, r.setup, r.price, r.gap_pct, r.pdh, r.pdl,
-            r.key_level, r.key_label, r.volume_ratio, r.entry, r.sl,
-            r.sl_pct, r.t1, r.t2, r.risk_reward].join(",");
+            r.key_level, r.key_label, r.volume_ratio,
+            r.demand_zone ?? "", r.supply_zone ?? "",
+            r.entry, r.sl, r.sl_pct, r.t1, r.t2, r.risk_reward].join(",");
   }
 
   function downloadAllCSV() {

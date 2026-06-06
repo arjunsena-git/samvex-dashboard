@@ -852,6 +852,12 @@ def _screen_smc(setup: int, direction: str) -> list:
             avg_candle_vol = day_vol / n_bars if n_bars > 0 else 1
             sw_highs, sw_lows = _detect_swings(highs, lows, lookback=2)
 
+            # Demand / Supply zones from confirmed intraday swing points
+            above_sh    = [(idx, p) for idx, p in sw_highs if p > current_price]
+            below_sl    = [(idx, p) for idx, p in sw_lows  if p < current_price]
+            supply_zone = round(min(above_sh, key=lambda x: x[1])[1], 2) if above_sh else round(pdh, 2)
+            demand_zone = round(max(below_sl, key=lambda x: x[1])[1], 2) if below_sl else round(pdl, 2)
+
             signal = None
 
             if setup == 1:
@@ -1004,6 +1010,8 @@ def _screen_smc(setup: int, direction: str) -> list:
                 "risk_reward":      1.5,
                 "confidence_score": conf_score,
                 "confidence_label": conf_label,
+                "demand_zone":      demand_zone,
+                "supply_zone":      supply_zone,
             })
 
         except Exception:
@@ -1317,7 +1325,7 @@ def signals_backfill_csv():
     today_str = datetime.now(ist).strftime("%Y-%m-%d")
     headers = ["Panel","Symbol","Setup","Price","Gap%","PDH","PDL",
                "Key Level","Key Label","Vol Ratio","Score","Label",
-               "Entry","SL","SL%","T1","T2","R:R"]
+               "Demand Zone","Supply Zone","Entry","SL","SL%","T1","T2","R:R"]
     rows = [
         "# Samvex LLP — SMC Screener Backfill",
         f"# Date: {today_str}  |  Generated: {datetime.now(ist).strftime('%H:%M IST')}",
@@ -1337,6 +1345,7 @@ def signals_backfill_csv():
                     s.get("key_level",""), s.get("key_label",""),
                     s.get("volume_ratio",""),
                     s.get("confidence_score",""), s.get("confidence_label",""),
+                    s.get("demand_zone",""), s.get("supply_zone",""),
                     s.get("entry",""), s.get("sl",""), s.get("sl_pct",""),
                     s.get("t1",""), s.get("t2",""), s.get("risk_reward",""),
                 ]))
@@ -1374,7 +1383,7 @@ def signals_today_csv():
     today_str = datetime.now(ist).strftime("%Y-%m-%d")
     headers = ["Panel","Symbol","Setup","Price","Gap%","PDH","PDL",
                "Key Level","Key Label","Vol Ratio","Score","Label",
-               "Entry","SL","SL%","T1","T2","R:R"]
+               "Demand Zone","Supply Zone","Entry","SL","SL%","T1","T2","R:R"]
     rows = ["# Samvex LLP — Today's SMC Signals",
             f"# Date: {today_str}",
             "",
@@ -1392,6 +1401,7 @@ def signals_today_csv():
                 s.get("key_level",""), s.get("key_label",""),
                 s.get("volume_ratio",""),
                 s.get("confidence_score",""), s.get("confidence_label",""),
+                s.get("demand_zone",""), s.get("supply_zone",""),
                 s.get("entry",""), s.get("sl",""), s.get("sl_pct",""),
                 s.get("t1",""), s.get("t2",""), s.get("risk_reward",""),
             ]))
