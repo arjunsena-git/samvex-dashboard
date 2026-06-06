@@ -1440,6 +1440,62 @@ def status():
         "data_source": "upstox_live" if _is_live() else "yahoo_delayed",
     })
 
+@app.route("/api/chart/<symbol>")
+def chart_candles(symbol):
+    """Live intraday 15-min candles from Upstox for the chart modal.
+    Returns 401 if Upstox is not authenticated — no Yahoo Finance fallback."""
+    if not _is_live():
+        return jsonify({
+            "error":    "upstox_not_authenticated",
+            "message":  "Upstox token not active. Please re-authenticate to view live charts.",
+            "auth_url": "/auth/login",
+        }), 401
+
+    imap = _load_instrument_map()
+    base = symbol.upper().replace(".NS", "")
+    ikey = imap.get(base)
+    if not ikey:
+        return jsonify({
+            "error":   "symbol_not_found",
+            "message": f"{base} not found in Upstox instrument map.",
+        }), 404
+
+    try:
+        encoded_key = ikey.replace("|", "%7C")
+        r = _http.get(
+            f"{UPSTOX_BASE}/historical-candle/intraday/{encoded_key}/15minute",
+            headers=_upstox_headers(),
+            timeout=15,
+        )
+        if r.status_code != 200:
+            return jsonify({
+                "error":   "upstox_api_error",
+                "message": f"Upstox returned HTTP {r.status_code}.",
+            }), 502
+
+        raw = r.json().get("data", {}).get("candles", [])
+        candles = []
+        for c in raw:
+            try:
+                unix_ts = int(pd.Timestamp(c[0]).timestamp())
+                candles.append({
+                    "time":   unix_ts,
+                    "open":   round(float(c[1]), 2),
+                    "high":   round(float(c[2]), 2),
+                    "low":    round(float(c[3]), 2),
+                    "close":  round(float(c[4]), 2),
+                    "volume": int(c[5]),
+                })
+            except Exception:
+                continue
+
+        candles.sort(key=lambda x: x["time"])
+        return jsonify({"symbol": base, "interval": "15m", "candles": candles})
+
+    except Exception as e:
+        return jsonify({"error": "fetch_error", "message": str(e)}), 500
+
+
 @app.route("/api/oi-buildup")
 def oi_buildup():
     if not _is_live():

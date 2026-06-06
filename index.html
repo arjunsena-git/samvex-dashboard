@@ -569,8 +569,64 @@
       transition: opacity .35s;
     }
     .ai-spark { color: var(--accent); font-style: normal; font-size: 10px; flex-shrink: 0; }
+
+    /* ── Chart button ────────────────────────────────────────────── */
+    .chart-btn {
+      display: inline-block; margin-top: 5px;
+      padding: 2px 8px; font-size: 10px; font-weight: 600;
+      background: rgba(79,142,247,.1); border: 1px solid rgba(79,142,247,.28);
+      border-radius: 4px; color: var(--accent); cursor: pointer;
+      transition: background .15s; white-space: nowrap;
+    }
+    .chart-btn:hover { background: rgba(79,142,247,.22); }
+
+    /* ── Chart modal overlay ─────────────────────────────────────── */
+    .chart-overlay {
+      display: none; position: fixed; inset: 0;
+      background: rgba(0,0,0,.78); z-index: 1000;
+      align-items: center; justify-content: center;
+      padding: 20px; overflow-y: auto;
+    }
+    .chart-overlay.open { display: flex; }
+    .chart-modal {
+      background: #0f1117; border: 1px solid var(--border);
+      border-radius: 12px; width: 100%; max-width: 980px;
+      overflow: hidden; box-shadow: 0 8px 48px rgba(0,0,0,.6);
+    }
+    .chart-hdr {
+      display: flex; align-items: flex-start; padding: 14px 20px;
+      border-bottom: 1px solid var(--border); gap: 12px;
+    }
+    .chart-hdr h3 { font-size: 16px; font-weight: 800; }
+    .chart-hdr .chart-sub { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+    .chart-close {
+      margin-left: auto; background: none; border: none;
+      color: var(--text-muted); font-size: 22px; cursor: pointer;
+      padding: 0 4px; line-height: 1; flex-shrink: 0;
+    }
+    .chart-close:hover { color: var(--text); }
+    #chart-container { width: 100%; height: 460px; position: relative; }
+    .chart-error-state {
+      display: flex; flex-direction: column; align-items: center;
+      justify-content: center; height: 460px; gap: 12px;
+      color: var(--text-muted); text-align: center; padding: 24px;
+    }
+    .chart-legend {
+      display: flex; flex-wrap: wrap; align-items: center;
+      gap: 10px 16px; padding: 10px 20px;
+      border-top: 1px solid var(--border); font-size: 11px;
+    }
+    .chart-legend .lv { display: flex; align-items: center; gap: 5px; }
+    .chart-legend .lv-dot {
+      width: 10px; height: 2px; border-radius: 1px; flex-shrink: 0;
+    }
+    .chart-src-note {
+      padding: 6px 20px; font-size: 10px; color: var(--green);
+      background: rgba(34,197,94,.06); border-top: 1px solid var(--border);
+    }
   </style>
 </head>
+<script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
 <body>
 
 <!-- ── Ticker tape ──────────────────────────────────────────────── -->
@@ -1136,6 +1192,15 @@
       return;
     }
     el.innerHTML = data.map(s => {
+      // Store signal levels so the chart modal can read them
+      _chartData[`${s.symbol}_${tbodyId}`] = {
+        direction, setup: s.setup || "",
+        entry: s.entry, sl: s.sl, t1: s.t1, t2: s.t2,
+        pdh: s.pdh, pdl: s.pdl,
+        dz: s.demand_zone, sz: s.supply_zone,
+        keyLevel: s.key_level, keyLabel: s.key_label || "",
+      };
+
       const refLevel = refLevelKey === "pdh" ? s.pdh : s.pdl;
       const refLabel = refLevelKey === "pdh" ? "PDH" : "PDL";
       const gapColor = s.gap_pct >= 0 ? "var(--green)" : "var(--red)";
@@ -1144,8 +1209,13 @@
       const keyLevelStr = s.key_level != null
         ? `<span style="font-size:9px;color:var(--text-muted);display:block;margin-top:2px;">${s.key_label || ''} ₹${Number(s.key_level).toLocaleString("en-IN")}</span>`
         : "";
+      const chartBtn = `<button class="chart-btn" onclick="openChartModal('${s.symbol}','${tbodyId}')">&#128200; Live Chart</button>`;
       return `<tr>
-        <td><a class="sym" href="https://www.tradingview.com/chart/?symbol=NSE:${s.symbol}" target="_blank" rel="noopener noreferrer">${s.symbol}</a>${setupBadge}</td>
+        <td>
+          <a class="sym" href="https://www.tradingview.com/chart/?symbol=NSE:${s.symbol}" target="_blank" rel="noopener noreferrer">${s.symbol}</a>
+          ${setupBadge}
+          ${chartBtn}
+        </td>
         <td class="price" style="color:var(--${color})">₹${s.price.toLocaleString("en-IN")}</td>
         <td><span class="pill pill-${s.gap_pct >= 0 ? "green" : "red"}">${sign(s.gap_pct)}${s.gap_pct}%</span></td>
         <td class="price" style="color:var(--accent)">
@@ -1621,7 +1691,137 @@
     document.body.style.overflow = '';
   }
 
-  document.addEventListener('keydown', e => { if (e.key === 'Escape') closePanel(); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') { closePanel(); closeChartModal(); } });
+
+  // ── Chart modal ───────────────────────────────────────────────
+  let   _chartInstance = null;
+  const _chartData     = {};   // "SYMBOL_tbodyId" → signal levels
+
+  function openChartModal(symbol, tbodyId) {
+    const sig = _chartData[`${symbol}_${tbodyId}`];
+    if (!sig) return;
+
+    document.getElementById("chart-sym").textContent = symbol;
+    document.getElementById("chart-sub").textContent = sig.setup || "";
+    document.getElementById("chart-overlay").classList.add("open");
+    document.body.style.overflow = "hidden";
+
+    const container = document.getElementById("chart-container");
+    container.innerHTML =
+      `<div class="chart-error-state"><div class="spinner"></div><span>Fetching live 15-min candles…</span></div>`;
+    document.getElementById("chart-legend").innerHTML = "";
+
+    _fetchAndRenderChart(symbol, sig, container);
+  }
+
+  async function _fetchAndRenderChart(symbol, sig, container) {
+    try {
+      const res  = await fetch(`${API}/api/chart/${symbol}`);
+      const data = await res.json();
+
+      if (!res.ok) {
+        container.innerHTML = `
+          <div class="chart-error-state">
+            <div style="color:var(--yellow);font-size:28px;">&#9888;</div>
+            <div style="font-weight:700;font-size:14px;color:var(--text);">Live data unavailable</div>
+            <div style="font-size:12px;line-height:1.65;max-width:380px;">
+              ${data.message || "Upstox not authenticated."}
+            </div>
+            <a href="${API}/auth/login" target="_blank" rel="noopener"
+               style="margin-top:10px;padding:9px 22px;background:rgba(79,142,247,.12);
+                      color:var(--accent);border:1px solid var(--accent);border-radius:6px;
+                      font-size:12px;font-weight:700;text-decoration:none;">
+              Re-authenticate Upstox &#8594;
+            </a>
+          </div>`;
+        return;
+      }
+
+      _renderLWChart(container, data.candles, sig);
+
+    } catch (err) {
+      container.innerHTML = `
+        <div class="chart-error-state">
+          <div style="color:var(--red);font-size:22px;">&#10005;</div>
+          <div>Failed to load chart data</div>
+          <div style="font-size:11px;color:var(--text-muted);">${err.message}</div>
+        </div>`;
+    }
+  }
+
+  function _renderLWChart(container, candles, sig) {
+    if (_chartInstance) { _chartInstance.remove(); _chartInstance = null; }
+
+    container.innerHTML = `<div id="lw-chart" style="width:100%;height:460px;"></div>`;
+    const el = document.getElementById("lw-chart");
+
+    _chartInstance = LightweightCharts.createChart(el, {
+      width:  el.clientWidth,
+      height: 460,
+      layout: { background: { color: "#0f1117" }, textColor: "#e2e8f0" },
+      grid:   { vertLines: { color: "#1e2336" }, horzLines: { color: "#1e2336" } },
+      crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
+      rightPriceScale: { borderColor: "#2a2f45" },
+      timeScale: { borderColor: "#2a2f45", timeVisible: true, secondsVisible: false },
+      localization: {
+        timeFormatter: t => new Date(t * 1000).toLocaleTimeString("en-IN", {
+          timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit", hour12: false
+        })
+      }
+    });
+
+    const cs = _chartInstance.addCandlestickSeries({
+      upColor: "#22c55e", downColor: "#ef4444",
+      borderUpColor: "#22c55e", borderDownColor: "#ef4444",
+      wickUpColor: "#22c55e", wickDownColor: "#ef4444",
+    });
+
+    cs.setData(candles.map(c => ({
+      time: c.time, open: c.open, high: c.high, low: c.low, close: c.close
+    })));
+
+    const D = LightweightCharts.LineStyle.Dashed;
+    const S = LightweightCharts.LineStyle.Solid;
+
+    const levels = [
+      { p: sig.pdh,   color: "#8892a4", style: D, w: 1, title: "PDH"   },
+      { p: sig.pdl,   color: "#8892a4", style: D, w: 1, title: "PDL"   },
+      { p: sig.dz,    color: "#22c55e", style: D, w: 1, title: "DZ"    },
+      { p: sig.sz,    color: "#ef4444", style: D, w: 1, title: "SZ"    },
+      { p: sig.entry, color: "#e2e8f0", style: S, w: 2, title: "Entry" },
+      { p: sig.sl,    color: "#ef4444", style: S, w: 2, title: "SL"    },
+      { p: sig.t1,    color: "#22c55e", style: S, w: 2, title: "T1"    },
+      { p: sig.t2,    color: "#22d3ee", style: S, w: 2, title: "T2"    },
+    ];
+
+    for (const lv of levels) {
+      if (!lv.p) continue;
+      cs.createPriceLine({
+        price: parseFloat(lv.p), color: lv.color,
+        lineWidth: lv.w, lineStyle: lv.style,
+        axisLabelVisible: true, title: lv.title,
+      });
+    }
+
+    _chartInstance.timeScale().fitContent();
+
+    // Legend
+    const sep = `<span style="color:var(--border);margin:0 2px;">|</span>`;
+    document.getElementById("chart-legend").innerHTML =
+      levels.filter(l => l.p).map(l =>
+        `<span class="lv">
+           <span class="lv-dot" style="background:${l.color};${l.style===D?"opacity:.6":""}"></span>
+           <span style="color:var(--text-muted);font-weight:600;">${l.title}</span>
+           <span style="color:var(--text);">&#8377;${Number(l.p).toLocaleString("en-IN")}</span>
+         </span>`
+      ).join(sep);
+  }
+
+  function closeChartModal() {
+    document.getElementById("chart-overlay").classList.remove("open");
+    document.body.style.overflow = "";
+    if (_chartInstance) { _chartInstance.remove(); _chartInstance = null; }
+  }
 
   // ── Boot ──────────────────────────────────────────────────────
   refreshAll();
@@ -1634,5 +1834,26 @@
     }
   }, 60 * 1000);
 </script>
+
+<!-- ── Chart Modal ──────────────────────────────────────────────── -->
+<div class="chart-overlay" id="chart-overlay" onclick="if(event.target===this)closeChartModal()">
+  <div class="chart-modal">
+    <div class="chart-hdr">
+      <div>
+        <h3 id="chart-sym">—</h3>
+        <div class="chart-sub" id="chart-sub"></div>
+      </div>
+      <button class="chart-close" onclick="closeChartModal()">&#x2715;</button>
+    </div>
+    <div id="chart-container">
+      <div class="chart-error-state">
+        <div class="spinner"></div>
+        <span>Fetching live candles…</span>
+      </div>
+    </div>
+    <div class="chart-legend" id="chart-legend"></div>
+    <div class="chart-src-note">&#9679; Live data via Upstox · 15-min candles · IST times</div>
+  </div>
+</div>
 </body>
 </html>
