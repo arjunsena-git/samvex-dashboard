@@ -1010,7 +1010,8 @@ def _screen_smc(setup: int, direction: str) -> list:
             continue
 
     results.sort(key=lambda x: x["confidence_score"], reverse=True)
-    return results[:10]
+    # Only GOOD (≥40) or STRONG (≥65) — drop WATCH signals, cap at 5 per panel
+    return [r for r in results if r["confidence_score"] >= 40][:5]
 
 
 # ── Market index data ──────────────────────────────────────────────
