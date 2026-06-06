@@ -657,30 +657,30 @@
     <button class="csv-btn" onclick="downloadAllCSV()">↓ Download Visible Signals</button>
     <a id="today-csv-btn" class="csv-btn"
        style="text-decoration:none;display:inline-flex;align-items:center;"
-       title="Today's 9:30 AM signals locked at first run — same list all day">
-      ↓ Today's Locked Signals (CSV)
+       title="Today's SMC signals from signal store">
+      ↓ Today's Signals (CSV)
     </a>
     <a id="backfill-csv-btn"
        style="text-decoration:none;font-size:11px;color:var(--text-muted);align-self:center;white-space:nowrap;"
-       title="Safety net — structural breakouts without RSI filter. Use only if locked signals are empty (e.g. after a server restart).">
-      ↓ Recovery fallback
+       title="Re-run SMC screener and refresh signal store (use after server restart)">
+      ↓ Refresh signals
     </a>
   </div>
 
-  <!-- ── Setup 1: Directional Trend (Kumar sir) ─────────────────── -->
+  <!-- ── Setup 1: SMC Liquidity Sweep → BOS ──────────────────────── -->
   <div class="section-divider">
     <div class="section-divider-line"></div>
-    <div class="section-divider-title">Setup 1 — Directional Trend · First 15-Min Candle Closes Beyond PDH / PDL</div>
+    <div class="section-divider-title">Setup 1 — SMC Liquidity Sweep → BOS · Stop Hunt at PDH/PDL then Break of Structure</div>
     <div class="section-divider-line"></div>
   </div>
   <div class="scanner-grid">
 
-    <!-- Setup 1 Bullish: Trend Breakout -->
+    <!-- Setup 1 Bullish: Sweep PDL → BOS above PDH -->
     <div class="panel">
       <div class="panel-header">
         <div class="panel-title">
           <span class="dot dot-green"></span>
-          Trend Breakout &nbsp;<span style="font-size:11px;color:var(--text-muted);font-weight:400;">Close &gt; PDH</span>
+          Liq. Sweep → BOS &nbsp;<span style="font-size:11px;color:var(--text-muted);font-weight:400;">Sweep PDL → Break PDH</span>
         </div>
         <div style="display:flex;gap:6px;align-items:center;">
           <a class="diag-link diagnose-link" target="_blank" rel="noopener">Diagnose ↗</a>
@@ -689,33 +689,32 @@
         </div>
       </div>
       <div class="criteria-row">
-        <span class="chip chip-orange">Opens inside range</span>
-        <span class="chip chip-green">Close &gt; PDH</span>
-        <span class="chip chip-blue">Candle Range ≤1.5%</span>
-        <span class="chip chip-green">Vol ≥1.2×</span>
-        <span class="chip chip-green">RSI 60–70</span>
-        <span class="chip chip-blue">Price &gt;₹100</span>
-        <span class="chip chip-blue">Nifty 500</span>
+        <span class="chip chip-orange">Day Low &lt; PDL (sweep)</span>
+        <span class="chip chip-green">Close &gt; PDH (BOS)</span>
+        <span class="chip chip-green">BOS candle vol ≥1.5×avg</span>
+        <span class="chip chip-green">Price within 2% of day high</span>
+        <span class="chip chip-blue">Vol ≥1.2×</span>
+        <span class="chip chip-blue">Nifty aligned</span>
       </div>
       <div class="table-wrap">
       <table>
         <thead><tr>
           <th>Symbol</th><th>Price</th><th>Gap</th>
-          <th>PDH</th><th>Candle</th><th>Volume</th><th>Score</th><th>Trade Plan</th>
+          <th>PDH / Key Level</th><th>Volume</th><th>Score</th><th>Trade Plan</th>
         </tr></thead>
         <tbody id="s1-bull-body">
-          <tr><td colspan="8"><div class="empty-state"><div class="spinner"></div>Loading…</div></td></tr>
+          <tr><td colspan="7"><div class="empty-state"><div class="spinner"></div>Loading…</div></td></tr>
         </tbody>
       </table>
       </div>
     </div>
 
-    <!-- Setup 1 Bearish: Trend Breakdown -->
+    <!-- Setup 1 Bearish: Sweep PDH → BOS below PDL -->
     <div class="panel">
       <div class="panel-header">
         <div class="panel-title">
           <span class="dot dot-red"></span>
-          Trend Breakdown &nbsp;<span style="font-size:11px;color:var(--text-muted);font-weight:400;">Close &lt; PDL</span>
+          Liq. Sweep → BOS &nbsp;<span style="font-size:11px;color:var(--text-muted);font-weight:400;">Sweep PDH → Break PDL</span>
         </div>
         <div style="display:flex;gap:6px;align-items:center;">
           <a class="diag-link diagnose-link" target="_blank" rel="noopener">Diagnose ↗</a>
@@ -724,22 +723,21 @@
         </div>
       </div>
       <div class="criteria-row">
-        <span class="chip chip-orange">Opens inside range</span>
-        <span class="chip chip-red">Close &lt; PDL</span>
-        <span class="chip chip-blue">Candle Range ≤1.5%</span>
-        <span class="chip chip-red">Vol ≥1.2×</span>
-        <span class="chip chip-red">RSI 30–40</span>
-        <span class="chip chip-blue">Price &gt;₹100</span>
-        <span class="chip chip-blue">Nifty 500</span>
+        <span class="chip chip-orange">Day High &gt; PDH (sweep)</span>
+        <span class="chip chip-red">Close &lt; PDL (BOS)</span>
+        <span class="chip chip-red">BOS candle vol ≥1.5×avg</span>
+        <span class="chip chip-red">Price within 2% of day low</span>
+        <span class="chip chip-blue">Vol ≥1.2×</span>
+        <span class="chip chip-blue">Nifty aligned</span>
       </div>
       <div class="table-wrap">
       <table>
         <thead><tr>
           <th>Symbol</th><th>Price</th><th>Gap</th>
-          <th>PDL</th><th>Candle</th><th>Volume</th><th>Score</th><th>Trade Plan</th>
+          <th>PDL / Key Level</th><th>Volume</th><th>Score</th><th>Trade Plan</th>
         </tr></thead>
         <tbody id="s1-bear-body">
-          <tr><td colspan="8"><div class="empty-state"><div class="spinner"></div>Loading…</div></td></tr>
+          <tr><td colspan="7"><div class="empty-state"><div class="spinner"></div>Loading…</div></td></tr>
         </tbody>
       </table>
       </div>
@@ -747,20 +745,20 @@
 
   </div>
 
-  <!-- ── Setup 2: Reversal / Trap (Aravind) ──────────────────────── -->
+  <!-- ── Setup 2: CHoCH (Change of Character) ─────────────────────── -->
   <div class="section-divider" style="margin-top:24px;">
     <div class="section-divider-line"></div>
-    <div class="section-divider-title">Setup 2 — Reversal / Trap · Bear Traps &amp; Bull Traps at Key Levels</div>
+    <div class="section-divider-title">Setup 2 — CHoCH (Change of Character) · Intraday Structure Shift with Volume Confirmation</div>
     <div class="section-divider-line"></div>
   </div>
   <div class="scanner-grid">
 
-    <!-- Setup 2 Bullish: Bear Trap -->
+    <!-- Setup 2 Bullish: CHoCH -->
     <div class="panel">
       <div class="panel-header">
         <div class="panel-title">
           <span class="dot dot-green"></span>
-          Bear Trap &nbsp;<span style="font-size:11px;color:var(--text-muted);font-weight:400;">False breakdown → recovery above PDL</span>
+          CHoCH Bullish &nbsp;<span style="font-size:11px;color:var(--text-muted);font-weight:400;">Lower-low structure → Break swing high</span>
         </div>
         <div style="display:flex;gap:6px;align-items:center;">
           <a class="diag-link diagnose-link" target="_blank" rel="noopener">Diagnose ↗</a>
@@ -769,32 +767,31 @@
         </div>
       </div>
       <div class="criteria-row">
-        <span class="chip chip-orange">Opens near / below PDL</span>
-        <span class="chip chip-orange">Gap Down ≤2%</span>
-        <span class="chip chip-green">Closes above PDL (Green)</span>
-        <span class="chip chip-blue">Candle Range ≤1.5%</span>
-        <span class="chip chip-green">Vol ≥1.2×</span>
-        <span class="chip chip-green">RSI 60–70</span>
+        <span class="chip chip-orange">Prior lower-low structure</span>
+        <span class="chip chip-green">Close &gt; last swing high</span>
+        <span class="chip chip-green">CHoCH candle vol ≥1.5×avg</span>
+        <span class="chip chip-green">Price within 2% of day high</span>
+        <span class="chip chip-blue">Vol ≥1.2×</span>
       </div>
       <div class="table-wrap">
       <table>
         <thead><tr>
           <th>Symbol</th><th>Price</th><th>Gap</th>
-          <th>PDL</th><th>Candle</th><th>Volume</th><th>Score</th><th>Trade Plan</th>
+          <th>PDL / Key Level</th><th>Volume</th><th>Score</th><th>Trade Plan</th>
         </tr></thead>
         <tbody id="s2-bull-body">
-          <tr><td colspan="8"><div class="empty-state"><div class="spinner"></div>Loading…</div></td></tr>
+          <tr><td colspan="7"><div class="empty-state"><div class="spinner"></div>Loading…</div></td></tr>
         </tbody>
       </table>
       </div>
     </div>
 
-    <!-- Setup 2 Bearish: Bull Trap -->
+    <!-- Setup 2 Bearish: CHoCH -->
     <div class="panel">
       <div class="panel-header">
         <div class="panel-title">
           <span class="dot dot-red"></span>
-          Bull Trap &nbsp;<span style="font-size:11px;color:var(--text-muted);font-weight:400;">False breakout → rejection below PDH</span>
+          CHoCH Bearish &nbsp;<span style="font-size:11px;color:var(--text-muted);font-weight:400;">Higher-high structure → Break swing low</span>
         </div>
         <div style="display:flex;gap:6px;align-items:center;">
           <a class="diag-link diagnose-link" target="_blank" rel="noopener">Diagnose ↗</a>
@@ -803,21 +800,20 @@
         </div>
       </div>
       <div class="criteria-row">
-        <span class="chip chip-orange">Opens near / above PDH</span>
-        <span class="chip chip-orange">Gap Up ≤2%</span>
-        <span class="chip chip-red">Closes below PDH (Red)</span>
-        <span class="chip chip-blue">Candle Range ≤1.5%</span>
-        <span class="chip chip-red">Vol ≥1.2×</span>
-        <span class="chip chip-red">RSI 30–40</span>
+        <span class="chip chip-orange">Prior higher-high structure</span>
+        <span class="chip chip-red">Close &lt; last swing low</span>
+        <span class="chip chip-red">CHoCH candle vol ≥1.5×avg</span>
+        <span class="chip chip-red">Price within 2% of day low</span>
+        <span class="chip chip-blue">Vol ≥1.2×</span>
       </div>
       <div class="table-wrap">
       <table>
         <thead><tr>
           <th>Symbol</th><th>Price</th><th>Gap</th>
-          <th>PDH</th><th>Candle</th><th>Volume</th><th>Score</th><th>Trade Plan</th>
+          <th>PDH / Key Level</th><th>Volume</th><th>Score</th><th>Trade Plan</th>
         </tr></thead>
         <tbody id="s2-bear-body">
-          <tr><td colspan="8"><div class="empty-state"><div class="spinner"></div>Loading…</div></td></tr>
+          <tr><td colspan="7"><div class="empty-state"><div class="spinner"></div>Loading…</div></td></tr>
         </tbody>
       </table>
       </div>
@@ -1053,11 +1049,9 @@
     if (s.confidence_score == null) return "<td></td>";
     const score = s.confidence_score;
     const label = s.confidence_label || "WATCH";
-    const rsiStr = s.rsi != null ? `<div style="font-size:9px;color:var(--text-muted);margin-top:3px;">RSI ${s.rsi}</div>` : "";
     return `<td class="score-cell">
       <div class="score-num score-${label}">${score}</div>
       <div class="score-pill spill-${label}">${label}</div>
-      ${rsiStr}
     </td>`;
   }
 
@@ -1106,14 +1100,14 @@
     if (!data || data.length === 0) {
       const istNow = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
       const preMarket = istNow.getHours() < 9 || (istNow.getHours() === 9 && istNow.getMinutes() < 30);
-      el.innerHTML = `<tr><td colspan="8"><div class="empty-state">
+      el.innerHTML = `<tr><td colspan="7"><div class="empty-state">
         ${preMarket
-          ? `<span style="color:var(--yellow);font-size:13px;font-weight:700;">Candle forming…</span>`
-          : `No signals from today's 9:15–9:30 AM candle.`}
+          ? `<span style="color:var(--yellow);font-size:13px;font-weight:700;">Waiting for market…</span>`
+          : `No SMC signals yet — screener needs enough intraday structure (≥ 10:30 AM).`}
         <span style="color:var(--text-muted);font-size:11px;display:block;margin-top:6px;">
           ${preMarket
-            ? "First candle closes at 9:30 AM IST · screener will fire automatically"
-            : "Signals fire at 9:30 AM and stay visible all day · check back after open"}
+            ? "SMC screener activates at 10:30 AM IST when enough bars have formed"
+            : "Screener refreshes every 5 min · signals appear when Liq. Sweep→BOS or CHoCH conditions are met"}
         </span>
         <span style="display:block;margin-top:8px;">
           <a href="${API}/debug/screen" target="_blank" rel="noopener"
@@ -1133,7 +1127,9 @@
       const gapColor = s.gap_pct >= 0 ? "var(--green)" : "var(--red)";
       const setupBadge = `<span style="font-size:9px;color:var(--accent);font-weight:700;
         text-transform:uppercase;letter-spacing:.4px;display:block;margin-top:2px;">${s.setup}</span>`;
-      const candleColor = s.candle_range_pct <= 0.5 ? "var(--green)" : "var(--yellow)";
+      const keyLevelStr = s.key_level != null
+        ? `<span style="font-size:9px;color:var(--text-muted);display:block;margin-top:2px;">${s.key_label || ''} ₹${Number(s.key_level).toLocaleString("en-IN")}</span>`
+        : "";
       return `<tr>
         <td><a class="sym" href="https://www.tradingview.com/chart/?symbol=NSE:${s.symbol}" target="_blank" rel="noopener noreferrer">${s.symbol}</a>${setupBadge}</td>
         <td class="price" style="color:var(--${color})">₹${s.price.toLocaleString("en-IN")}</td>
@@ -1141,8 +1137,8 @@
         <td class="price" style="color:var(--accent)">
           <span style="font-size:9px;color:var(--text-muted);">${refLabel} </span>
           ₹${Number(refLevel).toLocaleString("en-IN")}
+          ${keyLevelStr}
         </td>
-        <td><span style="font-size:11px;color:${candleColor}">${s.candle_range_pct.toFixed(2)}%</span></td>
         <td>${volBar(s.volume_ratio)}</td>
         ${scoreCell(s)}
         ${tradePlanCell(s, direction)}
@@ -1162,11 +1158,11 @@
     _panelData[key] = { label, rows };
   }
 
-  const CSV_HEADERS = ["Symbol","Setup","Price","Gap%","PDH","PDL","Candle%","Vol Ratio","Entry","SL","SL%","T1","T2","R:R"];
+  const CSV_HEADERS = ["Symbol","Setup","Price","Gap%","PDH","PDL","Key Level","Key Label","Vol Ratio","Entry","SL","SL%","T1","T2","R:R"];
 
   function _rowToCSV(r) {
     return [r.symbol, r.setup, r.price, r.gap_pct, r.pdh, r.pdl,
-            r.candle_range_pct, r.volume_ratio, r.entry, r.sl,
+            r.key_level, r.key_label, r.volume_ratio, r.entry, r.sl,
             r.sl_pct, r.t1, r.t2, r.risk_reward].join(",");
   }
 
@@ -1203,7 +1199,7 @@
   // Any future panel added here is automatically included in the download.
   async function _loadSetup(endpoint, tbodyId, direction, refLevelKey, countId, label) {
     const tbody = document.getElementById(tbodyId);
-    tbody.innerHTML = `<tr><td colspan="8"><div class="empty-state"><div class="spinner"></div>Scanning…</div></td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7"><div class="empty-state"><div class="spinner"></div>Scanning…</div></td></tr>`;
     try {
       const data = await fetchWithRetry(`${API}/api/${endpoint}`, tbody, 8);
       _registerPanel(tbodyId.replace("-body", ""), label || endpoint, data);
@@ -1215,7 +1211,7 @@
       loadInsights(sk, tbodyId, data);
       return data;
     } catch (e) {
-      tbody.innerHTML = `<tr><td colspan="8"><div class="empty-state">
+      tbody.innerHTML = `<tr><td colspan="7"><div class="empty-state">
         Server unreachable —
         <a href="javascript:void(0)" onclick="_loadSetup('${endpoint}','${tbodyId}','${direction}','${refLevelKey}','${countId || ''}','${label || ''}')"
            style="color:var(--accent);text-decoration:underline;">Retry</a>
@@ -1226,7 +1222,7 @@
 
   async function loadS1Bullish() {
     const data = await _loadSetup("setup1/bullish", "s1-bull-body", "bullish", "pdh", "s1-count",
-                                  "Setup 1 — Trend Breakout (Bullish · Close > PDH)");
+                                  "Setup 1 — Liq. Sweep → BOS (Bullish · Sweep PDL → Break PDH)");
     if (data.length) {
       document.getElementById("top-gainer-sym").textContent = data[0].symbol;
       document.getElementById("top-gainer-val").textContent = `+${data[0].gap_pct.toFixed(2)}%  ₹${data[0].price}`;
@@ -1234,14 +1230,14 @@
   }
   async function loadS1Bearish() {
     const data = await _loadSetup("setup1/bearish", "s1-bear-body", "bearish", "pdl", null,
-                                  "Setup 1 — Trend Breakdown (Bearish · Close < PDL)");
+                                  "Setup 1 — Liq. Sweep → BOS (Bearish · Sweep PDH → Break PDL)");
     if (data.length) {
       document.getElementById("top-loser-sym").textContent = data[0].symbol;
       document.getElementById("top-loser-val").textContent = `${data[0].gap_pct.toFixed(2)}%  ₹${data[0].price}`;
     }
   }
-  async function loadS2Bullish() { return _loadSetup("setup2/bullish", "s2-bull-body", "bullish", "pdl", "s2-count", "Setup 2 — Bear Trap (Bullish · False breakdown → recovery above PDL)"); }
-  async function loadS2Bearish() { return _loadSetup("setup2/bearish", "s2-bear-body", "bearish", "pdh", null,      "Setup 2 — Bull Trap (Bearish · False breakout → rejection below PDH)"); }
+  async function loadS2Bullish() { return _loadSetup("setup2/bullish", "s2-bull-body", "bullish", "pdl", "s2-count", "Setup 2 — CHoCH Bullish (Lower-low structure → Break swing high)"); }
+  async function loadS2Bearish() { return _loadSetup("setup2/bearish", "s2-bear-body", "bearish", "pdh", null,      "Setup 2 — CHoCH Bearish (Higher-high structure → Break swing low)"); }
 
   // ── AI Market Brief ───────────────────────────────────────────
   async function loadMarketBrief() {
@@ -1289,7 +1285,7 @@
       if (!exp) return;
       const tr = document.createElement("tr");
       tr.className = "ai-explain-row";
-      tr.innerHTML = `<td colspan="8">
+      tr.innerHTML = `<td colspan="7">
         <div class="ai-explain-content" style="opacity:0">
           <span class="ai-spark">✦</span>${exp}
         </div>

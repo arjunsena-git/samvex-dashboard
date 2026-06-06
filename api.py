@@ -185,10 +185,10 @@ _SIGNALS_DIR = "/tmp/samvex_signals"
 os.makedirs(_SIGNALS_DIR, exist_ok=True)
 
 _PANEL_LABELS = {
-    (1, "bullish"): "Setup 1 — Trend Breakout (Bullish · Close > PDH)",
-    (1, "bearish"): "Setup 1 — Trend Breakdown (Bearish · Close < PDL)",
-    (2, "bullish"): "Setup 2 — Bear Trap (Bullish · False breakdown → recovery above PDL)",
-    (2, "bearish"): "Setup 2 — Bull Trap (Bearish · False breakout → rejection below PDH)",
+    (1, "bullish"): "Setup 1 — Liquidity Sweep → BOS (Bullish · Sweep PDL → Break PDH)",
+    (1, "bearish"): "Setup 1 — Liquidity Sweep → BOS (Bearish · Sweep PDH → Break PDL)",
+    (2, "bullish"): "Setup 2 — CHoCH (Bullish · Lower-low structure → Break swing high)",
+    (2, "bearish"): "Setup 2 — CHoCH (Bearish · Higher-high structure → Break swing low)",
 }
 
 def _signals_path(date_str: str) -> str:
@@ -237,7 +237,7 @@ def _get_or_run_screen(setup: int, direction: str) -> list:
 
     # First run: _cached() deduplicates concurrent requests during the scan
     cache_key = f"s{setup}_{'bull' if direction == 'bullish' else 'bear'}"
-    results = _cached(cache_key, _screen_new, setup, direction, ttl=SCREEN_TTL)
+    results = _cached(cache_key, _screen_smc, setup, direction, ttl=SCREEN_TTL)
 
     # Lock for the rest of the day and persist to disk
     _signal_store[key] = results
@@ -672,7 +672,7 @@ def _fetch_chunked(interval: str, period: str) -> dict:
 
 
 def _fetch_daily_only() -> dict:
-    return _fetch_chunked("1d", "30d")   # 30d needed for RSI-14 (needs ≥15 closes)
+    return _fetch_chunked("1d", "10d")   # 10d sufficient for PDH/PDL (RSI removed)
 
 
 def _get_daily_batch():
@@ -731,90 +731,84 @@ def _get_ticker_df(batch, ticker):
         return None
 
 
-# ── Screener: Setup 1 (Directional Trend) + Setup 2 (Reversal/Trap) ─
+# ── SMC/ICT Screener ───────────────────────────────────────────────
 #
-# Both setups are based on the FIRST 15-MINUTE CANDLE (9:15–9:30 AM IST).
-# Signals fire once the candle completes and remain valid all day.
+# Setup 1 — Liquidity Sweep → BOS (Break of Structure)
+#   Bullish: today's low swept below PDL (stop hunt), price then broke above PDH.
+#   Bearish: today's high swept above PDH (stop hunt), price then broke below PDL.
 #
-# Common filters (all setups):
-#   • First 15-min candle full range (High–Low) ≤ 1% of open   [answer 2B]
-#   • Volume paced to full day ≥ 1.5× previous day             [answer 1A]
-#   • Current price > ₹100
-#   • Stock in Nifty 500 universe                               [answer 5C]
+# Setup 2 — CHoCH (Change of Character)
+#   Bullish: prior lower-low structure on 15-min, price broke above most recent swing high.
+#   Bearish: prior higher-high structure on 15-min, price broke below most recent swing low.
 #
-# Setup 1 — Directional Trend (Kumar sir):
-#   Bullish : first 15-min candle closes ABOVE Previous Day High (PDH)
-#   Bearish : first 15-min candle closes BELOW Previous Day Low  (PDL)
-#
-# Setup 2 — Reversal / Trap (Aravind):
-#   Bullish (Bear Trap)  : opens near/below PDL (within 1% above PDL [answer 3B]),
-#                          gap down ≤ 2%, first candle closes ABOVE PDL as green candle
-#   Bearish (Bull Trap)  : opens near/above PDH (within 1% below PDH),
-#                          gap up ≤ 2%, first candle closes BELOW PDH as red candle
+# Common gates (all setups):
+#   • ≥ 5 intraday 15-min bars (ready ~10:30 AM IST)
+#   • Price > ₹100
+#   • Paced day volume ≥ 1.2× prev day
+#   • Volume spike on BOS/CHoCH candle ≥ 1.5× avg intraday candle volume
+#   • Current price within 2% of day extreme — no reversal
+#   • Nifty 50 not opposing direction by > 1%
 
 
-def _rsi14(closes):
-    """Wilder's RSI-14 on a pandas Series of daily closes. Returns None if < 15 values."""
-    s = closes.dropna()
-    if len(s) < 15:
-        return None
-    delta = s.diff().dropna()
-    gain  = delta.clip(lower=0)
-    loss  = (-delta).clip(lower=0)
-    avg_g = gain.iloc[:14].mean()
-    avg_l = loss.iloc[:14].mean()
-    for g, l in zip(gain.iloc[14:].values, loss.iloc[14:].values):
-        avg_g = (avg_g * 13 + g) / 14
-        avg_l = (avg_l * 13 + l) / 14
-    if avg_l == 0:
-        return 100.0
-    return round(100 - 100 / (1 + avg_g / avg_l), 1)
+def _detect_swings(highs: list, lows: list, lookback: int = 2):
+    """Identify confirmed swing highs and lows from a list of OHLC bar values.
+    A swing point requires 'lookback' bars on each side to be confirmed.
+    Returns (swing_highs, swing_lows) as lists of (index, price)."""
+    n = len(highs)
+    sh, sl = [], []
+    for i in range(lookback, n - lookback):
+        if (all(highs[i] > highs[i - j] for j in range(1, lookback + 1)) and
+                all(highs[i] > highs[i + j] for j in range(1, lookback + 1))):
+            sh.append((i, highs[i]))
+        if (all(lows[i] < lows[i - j] for j in range(1, lookback + 1)) and
+                all(lows[i] < lows[i + j] for j in range(1, lookback + 1))):
+            sl.append((i, lows[i]))
+    return sh, sl
 
 
-def _screen_new(setup: int, direction: str, rsi_filter: bool = True) -> list:
-    """
-    Unified screener for Setup 1 (Directional Trend) and Setup 2 (Reversal/Trap).
-    Uses the first 15-min candle (9:15–9:30 AM). Results valid all day once fired.
-    rsi_filter=False: skip RSI 60-70 / 30-40 gate (used for backfill recovery).
-    """
-    universe     = _load_nifty500() or _get_fno_universe()
-    batch_15m    = _get_15m_batch()
-    batch_daily  = _get_daily_batch()
-    bullish      = direction == "bullish"
+def _screen_smc(setup: int, direction: str) -> list:
+    """SMC/ICT screener — see module comment block above for full logic."""
+    universe    = _load_nifty500() or _get_fno_universe()
+    batch_15m   = _get_15m_batch()
+    batch_daily = _get_daily_batch()
+    bullish     = direction == "bullish"
+    ist         = pytz.timezone("Asia/Kolkata")
+    today_date  = datetime.now(ist).date()
 
-    # Live prices from Upstox (for entry price in trade plan)
     live_quotes = None
     if _is_live():
         live_quotes = _cached("live_quotes", _fetch_live_quotes, ttl=LIVE_TTL)
+
+    try:
+        market_data = _cached("market", _fetch_market,
+                              ttl=LIVE_TTL if _is_live() else CACHE_TTL)
+        nifty_chg   = float(market_data.get("NIFTY 50", {}).get("change_pct", 0) or 0)
+    except Exception:
+        nifty_chg = 0.0
 
     results = []
 
     for symbol in universe:
         try:
-            # ── Data fetch ────────────────────────────────────────
-            intra = _get_ticker_df(batch_15m,   symbol)
+            intra = _get_ticker_df(batch_15m, symbol)
             daily = _get_ticker_df(batch_daily, symbol)
 
-            # Need at least 1 intraday 15m bar and 2 daily bars (yesterday + today)
-            if intra is None or len(intra) < 1 or daily is None or len(daily) < 2:
+            if intra is None or daily is None or len(daily) < 2:
                 continue
 
-            # Filter multi-day 15-min batch to today's bars only (batch is now 5d)
-            _ist = pytz.timezone("Asia/Kolkata")
-            today_date = datetime.now(_ist).date()
+            # Filter to today's 15-min bars
             try:
                 if intra.index.tz is not None:
-                    today_mask = intra.index.tz_convert(_ist).date == today_date
+                    today_mask = intra.index.tz_convert(ist).date == today_date
                 else:
                     today_mask = [ts.date() == today_date for ts in intra.index]
-                today_intra = intra[today_mask]
+                today_bars = intra[today_mask]
             except Exception:
-                today_intra = intra.iloc[:0]
+                today_bars = intra.iloc[:0]
 
-            if len(today_intra) == 0:
+            if len(today_bars) < 5:    # Need ≥ 5 bars for swing detection
                 continue
 
-            # ── Previous-day reference levels ─────────────────────
             pdh        = float(daily["High"].iloc[-2])
             pdl        = float(daily["Low"].iloc[-2])
             prev_close = float(daily["Close"].iloc[-2])
@@ -823,103 +817,152 @@ def _screen_new(setup: int, direction: str, rsi_filter: bool = True) -> list:
             if pdh <= 0 or pdl <= 0 or prev_close <= 0 or prev_vol <= 0:
                 continue
 
-            # ── First 15-min candle (9:15–9:30 AM) ───────────────
-            c_open  = float(today_intra["Open"].iloc[0])
-            c_high  = float(today_intra["High"].iloc[0])
-            c_low   = float(today_intra["Low"].iloc[0])
-            c_close = float(today_intra["Close"].iloc[0])
-            c_vol   = float(today_intra["Volume"].iloc[0])
+            highs  = today_bars["High"].tolist()
+            lows   = today_bars["Low"].tolist()
+            closes = today_bars["Close"].tolist()
+            vols   = today_bars["Volume"].tolist()
+            n_bars = len(closes)
 
-            if c_open <= 0 or c_vol <= 0:
-                continue
-
-            # ── Current price (Upstox live if available) ──────────
             if live_quotes:
                 q  = live_quotes.get(symbol)
                 lp = float(q.get("last_price", 0) or 0) if q else 0
-                current_price = lp if lp > 0 else float(intra["Close"].iloc[-1])
+                current_price = lp if lp > 0 else closes[-1]
             else:
-                current_price = float(intra["Close"].iloc[-1])
+                current_price = closes[-1]
 
-            # ── Price gate: > ₹100 ────────────────────────────────
             if current_price < 100:
                 continue
 
-            # ── Candle full range (High–Low) ≤ 1.5% of open ────────
-            candle_range_pct = (c_high - c_low) / c_open * 100
-            if candle_range_pct > 1.5:
-                continue
+            day_high = max(highs)
+            day_low  = min(lows)
+            day_vol  = sum(vols)
+            elapsed_min   = max(15.0, n_bars * 15.0)
+            paced_vol     = (day_vol / elapsed_min) * 375.0
+            vol_ratio     = paced_vol / prev_vol
 
-            # ── Volume: 15-min paced to full day ≥ 1.2× prev day ─
-            paced_vol = (c_vol / 15.0) * 375.0
-            vol_ratio = paced_vol / prev_vol
             if vol_ratio < 1.2:
                 continue
 
-            # ── RSI-14 directional filter (15-min timeframe, matches TradingView) ──
-            # Uses the full multi-day 15-min series so RSI sees the same history
-            # a trader sees on a 15-min chart. Bullish: 60–70, Bearish: 30–40.
-            rsi = _rsi14(intra["Close"])
-            if rsi_filter:
-                if rsi is None:
-                    continue
-                if bullish and not (60 <= rsi <= 70):
-                    continue
-                if not bullish and not (30 <= rsi <= 40):
-                    continue
+            # No-reversal gate: must be within 2% of day extreme
+            if bullish and current_price < day_high * 0.98:
+                continue
+            if not bullish and current_price > day_low * 1.02:
+                continue
 
-            gap_pct = (c_open - prev_close) / prev_close * 100
+            avg_candle_vol = day_vol / n_bars if n_bars > 0 else 1
+            sw_highs, sw_lows = _detect_swings(highs, lows, lookback=2)
 
-            # ── Setup-specific filters ────────────────────────────
+            signal = None
+
             if setup == 1:
-                # Directional Trend: stock opens INSIDE previous day range,
-                # then breaks PDH (bullish) or PDL (bearish) in first 15 min
-                if not (pdl < c_open < pdh):
-                    continue
+                # ── Liquidity Sweep → BOS ─────────────────────────
                 if bullish:
-                    if c_close <= pdh:
+                    sweep_bar = next(
+                        (i for i, lo in enumerate(lows) if lo < pdl), -1
+                    )
+                    if sweep_bar < 0:
                         continue
-                    sl_level  = pdh
-                    sl_label  = "Below PDH"
-                    setup_tag = "Trend Breakout"
+                    bos_bar = next(
+                        (i for i in range(sweep_bar + 1, n_bars) if closes[i] > pdh), -1
+                    )
+                    if bos_bar < 0:
+                        continue
+                    if vols[bos_bar] < avg_candle_vol * 1.5:
+                        continue
+                    signal = {
+                        "setup_tag": "Liq. Sweep → BOS Bullish",
+                        "sl_level":  pdl,
+                        "sl_label":  "Below PDL (swept level)",
+                        "key_level": pdh,
+                        "key_label": "PDH",
+                    }
                 else:
-                    if c_close >= pdl:
+                    sweep_bar = next(
+                        (i for i, hi in enumerate(highs) if hi > pdh), -1
+                    )
+                    if sweep_bar < 0:
                         continue
-                    sl_level  = pdl
-                    sl_label  = "Above PDL"
-                    setup_tag = "Trend Breakdown"
+                    bos_bar = next(
+                        (i for i in range(sweep_bar + 1, n_bars) if closes[i] < pdl), -1
+                    )
+                    if bos_bar < 0:
+                        continue
+                    if vols[bos_bar] < avg_candle_vol * 1.5:
+                        continue
+                    signal = {
+                        "setup_tag": "Liq. Sweep → BOS Bearish",
+                        "sl_level":  pdh,
+                        "sl_label":  "Above PDH (swept level)",
+                        "key_level": pdl,
+                        "key_label": "PDL",
+                    }
 
-            else:  # setup == 2
+            else:  # Setup 2: CHoCH
                 if bullish:
-                    # Bear Trap: opens near/below PDL, gap down ≤ 2%,
-                    # first candle recovers above PDL as a green (bullish) candle
-                    if not (c_open <= pdl * 1.02        # within 2% above PDL
-                            and -2.0 <= gap_pct < 0     # gap down, max 2%
-                            and c_close > pdl            # closes above PDL
-                            and c_close > c_open):       # green candle
+                    if len(sw_lows) < 2:
                         continue
-                    sl_level  = pdl
-                    sl_label  = "Below PDL"
-                    setup_tag = "Bear Trap"
+                    recent_ll = [p for _, p in sw_lows[-3:]]
+                    if not all(recent_ll[j] < recent_ll[j - 1] for j in range(1, len(recent_ll))):
+                        continue
+                    if not sw_highs:
+                        continue
+                    last_sh_idx, last_sh_price = sw_highs[-1]
+                    choch_bar = next(
+                        (i for i in range(last_sh_idx + 1, n_bars) if closes[i] > last_sh_price),
+                        -1,
+                    )
+                    if choch_bar < 0:
+                        continue
+                    if vols[choch_bar] < avg_candle_vol * 1.5:
+                        continue
+                    signal = {
+                        "setup_tag": "CHoCH Bullish",
+                        "sl_level":  sw_lows[-1][1],
+                        "sl_label":  "Below swing low (CHoCH anchor)",
+                        "key_level": last_sh_price,
+                        "key_label": "CHoCH level",
+                    }
                 else:
-                    # Bull Trap: opens near/above PDH, gap up ≤ 2%,
-                    # first candle rejects below PDH as a red (bearish) candle
-                    if not (c_open >= pdh * 0.98        # within 2% below PDH
-                            and 0 < gap_pct <= 2.0      # gap up, max 2%
-                            and c_close < pdh            # closes below PDH
-                            and c_close < c_open):       # red candle
+                    if len(sw_highs) < 2:
                         continue
-                    sl_level  = pdh
-                    sl_label  = "Above PDH"
-                    setup_tag = "Bull Trap"
+                    recent_hh = [p for _, p in sw_highs[-3:]]
+                    if not all(recent_hh[j] > recent_hh[j - 1] for j in range(1, len(recent_hh))):
+                        continue
+                    if not sw_lows:
+                        continue
+                    last_sl_idx, last_sl_price = sw_lows[-1]
+                    choch_bar = next(
+                        (i for i in range(last_sl_idx + 1, n_bars) if closes[i] < last_sl_price),
+                        -1,
+                    )
+                    if choch_bar < 0:
+                        continue
+                    if vols[choch_bar] < avg_candle_vol * 1.5:
+                        continue
+                    signal = {
+                        "setup_tag": "CHoCH Bearish",
+                        "sl_level":  sw_highs[-1][1],
+                        "sl_label":  "Above swing high (CHoCH anchor)",
+                        "key_level": last_sl_price,
+                        "key_label": "CHoCH level",
+                    }
 
-            # ── Trade plan: structural SL + 1.5R / 3R targets ─────
-            # SL is 0.3% beyond the key level (small buffer to avoid noise)
+            if not signal:
+                continue
+
+            # Nifty alignment gate
+            if bullish and nifty_chg < -1.0:
+                continue
+            if not bullish and nifty_chg > 1.0:
+                continue
+
+            # Trade plan: structural SL + 1.5R / 3R targets
+            sl_raw = signal["sl_level"]
             if bullish:
-                sl   = round(sl_level * 0.997, 2)
+                sl   = round(sl_raw * 0.997, 2)
                 risk = current_price - sl
             else:
-                sl   = round(sl_level * 1.003, 2)
+                sl   = round(sl_raw * 1.003, 2)
                 risk = sl - current_price
 
             if risk <= 0:
@@ -930,38 +973,37 @@ def _screen_new(setup: int, direction: str, rsi_filter: bool = True) -> list:
             t1     = round(current_price + sign_ * risk * 1.5, 2)
             t2     = round(current_price + sign_ * risk * 3.0, 2)
 
-            # Confidence score 0–100: volume conviction (40) + breakout depth (35) + candle tightness (25)
-            vol_s = min((vol_ratio - 1.2) / 1.3, 1.0) * 40
-            if setup == 1:
-                dp    = (c_close - pdh) / pdh * 100 if bullish else (pdl - c_close) / pdl * 100
-                dep_s = min(dp / 0.6, 1.0) * 35
-            else:
-                dp    = (c_close - pdl) / pdl * 100 if bullish else (pdh - c_close) / pdh * 100
-                dep_s = min(dp / 0.4, 1.0) * 35
-            rng_s      = max(1.0 - candle_range_pct / 1.5, 0) * 25
-            conf_score = round(vol_s + dep_s + rng_s)
+            # Confidence score 0–100: volume (40) + extreme proximity (35) + structure (25)
+            vol_s   = min((vol_ratio - 1.2) / 1.3, 1.0) * 40
+            prox_r  = (current_price / day_high) if bullish else (day_low / current_price)
+            prox_s  = max(prox_r - 0.98, 0.0) / 0.02 * 35
+            str_s   = 25 if setup == 1 else 20
+            conf_score = round(vol_s + prox_s + str_s)
             conf_label = "STRONG" if conf_score >= 65 else "GOOD" if conf_score >= 40 else "WATCH"
 
+            gap_pct = round((float(today_bars["Open"].iloc[0]) - prev_close) / prev_close * 100, 2)
+
             results.append({
-                "symbol":            symbol.replace(".NS", ""),
-                "price":             round(current_price, 2),
-                "gap_pct":           round(gap_pct, 2),
-                "candle_range_pct":  round(candle_range_pct, 2),
-                "volume_ratio":      round(vol_ratio, 2),
-                "pdh":               round(pdh, 2),
-                "pdl":               round(pdl, 2),
-                "c_close":           round(c_close, 2),
-                "setup":             setup_tag,
-                "entry":             round(current_price, 2),
-                "sl":                sl,
-                "sl_pct":            sl_pct,
-                "sl_label":          sl_label,
-                "t1":                t1,
-                "t2":                t2,
-                "risk_reward":       1.5,
-                "confidence_score":  conf_score,
-                "confidence_label":  conf_label,
-                "rsi":               rsi,
+                "symbol":           symbol.replace(".NS", ""),
+                "price":            round(current_price, 2),
+                "gap_pct":          gap_pct,
+                "day_high":         round(day_high, 2),
+                "day_low":          round(day_low, 2),
+                "pdh":              round(pdh, 2),
+                "pdl":              round(pdl, 2),
+                "key_level":        round(signal["key_level"], 2),
+                "key_label":        signal["key_label"],
+                "volume_ratio":     round(vol_ratio, 2),
+                "setup":            signal["setup_tag"],
+                "entry":            round(current_price, 2),
+                "sl":               sl,
+                "sl_pct":           sl_pct,
+                "sl_label":         signal["sl_label"],
+                "t1":               t1,
+                "t2":               t2,
+                "risk_reward":      1.5,
+                "confidence_score": conf_score,
+                "confidence_label": conf_label,
             })
 
         except Exception:
@@ -969,140 +1011,6 @@ def _screen_new(setup: int, direction: str, rsi_filter: bool = True) -> list:
 
     results.sort(key=lambda x: x["confidence_score"], reverse=True)
     return results[:10]
-
-
-def _screen_result(symbol, current_price, gap_pct, intraday_move, day_move,
-                   paced_vol_ratio, traded_value_cr, adr_pct, setup_type,
-                   today_high, today_low, today_open, direction):
-    bullish    = direction == "bullish"
-    remaining  = max(adr_pct - abs(day_move), 0)
-    vol_boost  = 1.0 + min(max(paced_vol_ratio - 1.5, 0) * 0.12, 0.35)
-    projected  = round(remaining * vol_boost, 2)
-    confidence = "HIGH" if projected >= 2.5 else "MED" if projected >= 1.2 else "LOW"
-
-    # ── Smart liquidity-aware stop loss ────────────────────────────
-    # Reference anchors per setup — avoids the obvious retail stop-hunt zones:
-    #   Gap Drive : anchor = today_open  (below open = gap-fill confirmed, thesis dead)
-    #   Momentum  : anchor = today_high  (30% ADR drop from high = momentum failure)
-    #   Trend     : anchor = today_high  (38.2% Fib retrace from high = structure broken)
-    # Factor is % of ADR as the buffer from the anchor — ADR-proportional so it
-    # scales with the stock's actual volatility, not a fixed rupee or % amount.
-    entry         = current_price
-    adr_daily_pts = entry * (adr_pct / 100)   # ADR in rupee terms
-
-    if setup_type == "Gap Drive":
-        sl_ref    = today_open if today_open > 0 else entry
-        sl_factor = 0.20   # 20% of ADR below the open — sweep of open, then reversal
-        sl_label  = "Below Open"
-    elif setup_type == "Momentum":
-        sl_ref    = today_high if today_high > 0 else entry
-        sl_factor = 0.30   # 30% of ADR from day high — momentum failure zone
-        sl_label  = "30% ADR Below High"
-    else:                  # Trend
-        sl_ref    = today_high if today_high > 0 else entry
-        sl_factor = 0.382  # Fibonacci 38.2% — institutional algo level from the high
-        sl_label  = "38.2% Fib Below High"
-
-    if bullish:
-        raw_sl  = sl_ref - adr_daily_pts * sl_factor
-        # Guard: SL must be ≥0.25% and ≤1.8% below entry
-        sl_dist = max(0.0025, min(0.018, (entry - raw_sl) / entry))
-        sl      = round(entry * (1 - sl_dist), 2)
-        t1      = round(entry * (1 + projected * 0.50 / 100), 2)
-        t2      = round(entry * (1 + projected        / 100), 2)
-    else:
-        raw_sl  = sl_ref + adr_daily_pts * sl_factor
-        sl_dist = max(0.0025, min(0.018, (raw_sl - entry) / entry))
-        sl      = round(entry * (1 + sl_dist), 2)
-        t1      = round(entry * (1 - projected * 0.50 / 100), 2)
-        t2      = round(entry * (1 - projected        / 100), 2)
-
-    sl_pct     = round(sl_dist * 100, 2)
-    risk_pts   = abs(entry - sl)
-    reward_pts = abs(t1    - entry)
-    rr         = round(reward_pts / risk_pts, 1) if risk_pts > 0 else 0
-
-    return {
-        "symbol":              symbol.replace(".NS", ""),
-        "price":               round(current_price, 2),
-        "gap_pct":             round(gap_pct, 2),
-        "intraday_move":       round(intraday_move, 2),
-        "day_move":            round(day_move, 2),
-        "volume_ratio":        round(paced_vol_ratio, 2),
-        "traded_value_crores": round(traded_value_cr, 2),
-        "projected_pct":       projected,
-        "adr_pct":             round(adr_pct, 2),
-        "confidence":          confidence,
-        "aligned":             True,
-        "setup_type":          setup_type,
-        "entry":               round(entry, 2),
-        "sl":                  sl,
-        "sl_pct":              sl_pct,
-        "sl_label":            sl_label,
-        "t1":                  t1,
-        "t2":                  t2,
-        "risk_reward":         rr,
-    }
-
-
-def _analyze_smart(symbol, quote, daily_batch, direction, elapsed_min):
-    """Live Upstox path — 3-phase time-adaptive screener."""
-    daily = _get_ticker_df(daily_batch, symbol)
-    if daily is None or len(daily) < 2:
-        return None
-    try:
-        ohlc          = quote.get("ohlc") or {}
-        today_open    = float(ohlc.get("open",  0) or 0)
-        today_high    = float(ohlc.get("high",  0) or 0)
-        today_low     = float(ohlc.get("low",   0) or 0)
-        current_price = float(quote.get("last_price",       0) or 0)
-        today_volume  = float(quote.get("volume",           0) or 0)
-        prev_close    = float(quote.get("prev_close_price", 0) or 0)
-        prev_day_vol  = float(daily["Volume"].iloc[-2])
-
-        if today_open <= 0 or current_price <= 0 or prev_close <= 0 or prev_day_vol <= 0:
-            return None
-
-        gap_pct         = (today_open    - prev_close)    / prev_close    * 100
-        intraday_move   = (current_price - today_open)    / today_open    * 100
-        day_move        = (current_price - prev_close)    / prev_close    * 100
-        traded_value_cr = (today_volume  * current_price) / 1e7
-        vol_ratio_abs   = today_volume / prev_day_vol
-        paced_vol_ratio = (today_volume / elapsed_min) * 375 / prev_day_vol
-        near_high       = today_high > 0 and (current_price / today_high) >= 0.990
-        near_low        = today_low  > 0 and (current_price / today_low)  <= 1.010
-        adr             = _adr(daily)
-        bullish         = direction == "bullish"
-
-        if elapsed_min <= 90:
-            gap_ok  = (0.15 < gap_pct <  2.5) if bullish else (-2.5 < gap_pct < -0.15)
-            mom_ok  = intraday_move > 0         if bullish else intraday_move < 0
-            if not (gap_ok and mom_ok and paced_vol_ratio >= 1.5
-                    and traded_value_cr >= 25 and max(adr - abs(day_move), 0) >= 1.0):
-                return None
-            setup = "Gap Drive"
-
-        elif elapsed_min <= 225:
-            move_ok = day_move >=  1.0 if bullish else day_move <= -1.0
-            ext_ok  = near_high        if bullish else near_low
-            if not (move_ok and ext_ok and vol_ratio_abs >= 0.25 and traded_value_cr >= 15):
-                return None
-            setup = "Momentum"
-
-        else:
-            move_ok = day_move >= 0.8 if bullish else day_move <= -0.8
-            ext_ok  = (today_high > 0 and current_price / today_high >= 0.985) if bullish \
-                      else (today_low  > 0 and current_price / today_low  <= 1.015)
-            if not (move_ok and ext_ok and vol_ratio_abs >= 0.40 and traded_value_cr >= 10):
-                return None
-            setup = "Trend"
-
-        return _screen_result(symbol, current_price, gap_pct, intraday_move, day_move,
-                               paced_vol_ratio, traded_value_cr, adr, setup,
-                               today_high, today_low, today_open, direction)
-    except Exception as e:
-        print(f"[Smart] Error {symbol}: {e}")
-        return None
 
 
 # ── Market index data ──────────────────────────────────────────────
@@ -1221,84 +1129,6 @@ def _fetch_ticker():
         except Exception:
             pass
     return result
-
-
-# ── Near-miss candidates (relaxed, time-adaptive fallback) ─────────
-def _screen_candidates(direction):
-    """Top 5 stocks closest to qualifying when strict screener returns nothing."""
-    ist = pytz.timezone("Asia/Kolkata")
-    now = datetime.now(ist)
-    open_dt     = now.replace(hour=9, minute=15, second=0, microsecond=0)
-    elapsed_min = max(5.0, (now - open_dt).total_seconds() / 60)
-    bullish     = direction == "bullish"
-
-    candidates  = []
-    live_quotes = _cached("live_quotes", _fetch_live_quotes, ttl=LIVE_TTL) if _is_live() else None
-    daily_batch = _get_daily_batch()
-
-    for symbol in _get_fno_universe():
-        q = live_quotes.get(symbol) if live_quotes else None
-        if not q:
-            continue
-        try:
-            ohlc          = q.get("ohlc") or {}
-            today_open    = float(ohlc.get("open", 0) or 0)
-            today_high    = float(ohlc.get("high", 0) or 0)
-            today_low     = float(ohlc.get("low",  0) or 0)
-            current_price = float(q.get("last_price",       0) or 0)
-            today_volume  = float(q.get("volume",           0) or 0)
-            prev_close    = float(q.get("prev_close_price", 0) or 0)
-
-            if today_open <= 0 or current_price <= 0 or prev_close <= 0:
-                continue
-
-            gap_pct         = (today_open - prev_close) / prev_close * 100
-            day_move        = (current_price - prev_close) / prev_close * 100
-            traded_value_cr = (today_volume * current_price) / 1e7
-            near_high       = today_high > 0 and (current_price / today_high) >= 0.99
-            near_low        = today_low  > 0 and (current_price / today_low)  <= 1.01
-
-            daily    = _get_ticker_df(daily_batch, symbol) if daily_batch is not None else None
-            prev_vol = float(daily["Volume"].iloc[-2]) if daily is not None and len(daily) >= 2 else 0
-            vol_ratio_abs = today_volume / prev_vol if prev_vol > 0 else 0
-            paced_ratio   = (today_volume / elapsed_min) * 375 / prev_vol if prev_vol > 0 else 0
-
-            if elapsed_min <= 90:
-                dir_ok   = (gap_pct > 0.05)   if bullish else (gap_pct < -0.05)
-                vol_ok   = paced_ratio    >= 1.0
-                val_ok   = traded_value_cr >= 15
-                extra_ok = (day_move > 0)      if bullish else (day_move < 0)
-            elif elapsed_min <= 225:
-                dir_ok   = (day_move > 0.2)   if bullish else (day_move < -0.2)
-                vol_ok   = vol_ratio_abs  >= 0.12
-                val_ok   = traded_value_cr >= 10
-                extra_ok = near_high if bullish else near_low
-            else:
-                dir_ok   = (day_move > 0.2)   if bullish else (day_move < -0.2)
-                vol_ok   = vol_ratio_abs  >= 0.25
-                val_ok   = traded_value_cr >= 8
-                extra_ok = near_high if bullish else near_low
-
-            if not dir_ok or traded_value_cr < 5:
-                continue
-
-            score = int(vol_ok) + int(val_ok) + int(extra_ok)
-            candidates.append({
-                "symbol":       symbol.replace(".NS", ""),
-                "price":        round(current_price, 2),
-                "gap_pct":      round(gap_pct, 2),
-                "day_move":     round(day_move, 2),
-                "volume_ratio": round(paced_ratio, 2),
-                "value_cr":     round(traded_value_cr, 1),
-                "criteria_met": score,
-                "vol_ok":       vol_ok,
-                "val_ok":       val_ok,
-            })
-        except Exception:
-            continue
-
-    candidates.sort(key=lambda x: (x["criteria_met"], x["volume_ratio"]), reverse=True)
-    return candidates[:5]
 
 
 # ── Routes ─────────────────────────────────────────────────────────
@@ -1421,98 +1251,91 @@ def auth_status():
     })
 
 
-def _candle_ready() -> bool:
-    """First 15-min candle (9:15–9:30 AM IST) closes at exactly 9:30. Guard against
-    reading an in-progress bar that yfinance starts serving from 9:15 onward."""
-    return datetime.now(pytz.timezone("Asia/Kolkata")).time() >= _dtime(9, 30)
+def _smc_ready() -> bool:
+    """SMC signals need ≥ 5 completed 15-min bars for swing detection (~10:30 AM IST)."""
+    return datetime.now(pytz.timezone("Asia/Kolkata")).time() >= _dtime(10, 30)
 
 @app.route("/api/setup1/bullish")
 def api_s1_bull():
-    if not _candle_ready():
+    if not _smc_ready():
         return jsonify([])
-    return jsonify(_get_or_run_screen(1, "bullish"))
+    return jsonify(_cached("s1_bull", _screen_smc, 1, "bullish", ttl=SCREEN_TTL))
 
 @app.route("/api/setup1/bearish")
 def api_s1_bear():
-    if not _candle_ready():
+    if not _smc_ready():
         return jsonify([])
-    return jsonify(_get_or_run_screen(1, "bearish"))
+    return jsonify(_cached("s1_bear", _screen_smc, 1, "bearish", ttl=SCREEN_TTL))
 
 @app.route("/api/setup2/bullish")
 def api_s2_bull():
-    if not _candle_ready():
+    if not _smc_ready():
         return jsonify([])
-    return jsonify(_get_or_run_screen(2, "bullish"))
+    return jsonify(_cached("s2_bull", _screen_smc, 2, "bullish", ttl=SCREEN_TTL))
 
 @app.route("/api/setup2/bearish")
 def api_s2_bear():
-    if not _candle_ready():
+    if not _smc_ready():
         return jsonify([])
-    return jsonify(_get_or_run_screen(2, "bearish"))
+    return jsonify(_cached("s2_bear", _screen_smc, 2, "bearish", ttl=SCREEN_TTL))
 
 @app.route("/api/signals/backfill")
 def signals_backfill():
-    """Recover today's morning breakout stocks without the RSI filter.
-    Use this when the server was restarted after 9:30 AM and _signal_store
-    is empty. Returns all stocks that met the structural conditions
-    (first candle closed above PDH / below PDL, volume, candle range)
-    with their current RSI shown for reference."""
-    if not _candle_ready():
-        return jsonify({"error": "Market not open yet — first candle not closed."}), 400
+    """Re-run the SMC screener for all 4 panels and refresh the signal store.
+    Use this when the server was restarted after market open and _signal_store is empty."""
+    if not _smc_ready():
+        return jsonify({"error": "Not enough intraday bars yet — SMC requires 10:30 AM IST."}), 400
     ist = pytz.timezone("Asia/Kolkata")
     today_str = datetime.now(ist).strftime("%Y-%m-%d")
     panels = {}
     for setup in [1, 2]:
         for direction in ["bullish", "bearish"]:
-            label = _PANEL_LABELS.get((setup, direction), "")
-            # Run without RSI filter to recover structural signals
-            signals = _screen_new(setup, direction, rsi_filter=False)
+            label   = _PANEL_LABELS.get((setup, direction), "")
+            signals = _screen_smc(setup, direction)
             panels[label] = signals
-            # Populate _signal_store so the regular endpoints also return these
             key = (setup, direction, today_str)
             if key not in _signal_store:
                 _signal_store[key] = signals
     threading.Thread(target=_persist_signals, args=(today_str,), daemon=True).start()
     total = sum(len(v) for v in panels.values())
-    print(f"[Backfill] Recovered {total} structural signals for {today_str} (RSI filter skipped)")
+    print(f"[Backfill] Refreshed {total} SMC signals for {today_str}")
     return jsonify({
         "date":   today_str,
         "panels": panels,
         "total":  total,
-        "note":   "RSI filter skipped — structural breakout/breakdown only. RSI values shown for reference.",
+        "note":   "SMC screener refreshed. Signals: Liquidity Sweep→BOS (S1) and CHoCH (S2).",
     })
 
 
 @app.route("/api/signals/backfill.csv")
 def signals_backfill_csv():
     """CSV version of /api/signals/backfill for direct download."""
-    if not _candle_ready():
-        return Response("# Market not open yet", mimetype="text/csv")
+    if not _smc_ready():
+        return Response("# SMC screener needs 10:30 AM IST", mimetype="text/csv")
     ist = pytz.timezone("Asia/Kolkata")
     today_str = datetime.now(ist).strftime("%Y-%m-%d")
     headers = ["Panel","Symbol","Setup","Price","Gap%","PDH","PDL",
-               "Candle%","Vol Ratio","Score","Label","RSI (current)",
+               "Key Level","Key Label","Vol Ratio","Score","Label",
                "Entry","SL","SL%","T1","T2","R:R"]
     rows = [
-        "# Samvex LLP — Today's Structural Breakout Recovery",
-        "# RSI filter skipped — shows all stocks that met first-candle structure conditions",
+        "# Samvex LLP — SMC Screener Backfill",
         f"# Date: {today_str}  |  Generated: {datetime.now(ist).strftime('%H:%M IST')}",
         "",
         ",".join(headers),
     ]
     for setup in [1, 2]:
         for direction in ["bullish", "bearish"]:
-            label = _PANEL_LABELS.get((setup, direction), "")
-            signals = _screen_new(setup, direction, rsi_filter=False)
+            label   = _PANEL_LABELS.get((setup, direction), "")
+            signals = _screen_smc(setup, direction)
             for s in signals:
                 rows.append(",".join(str(x) for x in [
                     f'"{label}"',
                     s.get("symbol",""), s.get("setup",""),
                     s.get("price",""), s.get("gap_pct",""),
                     s.get("pdh",""), s.get("pdl",""),
-                    s.get("candle_range_pct",""), s.get("volume_ratio",""),
+                    s.get("key_level",""), s.get("key_label",""),
+                    s.get("volume_ratio",""),
                     s.get("confidence_score",""), s.get("confidence_label",""),
-                    s.get("rsi",""),
                     s.get("entry",""), s.get("sl",""), s.get("sl_pct",""),
                     s.get("t1",""), s.get("t2",""), s.get("risk_reward",""),
                 ]))
@@ -1549,9 +1372,9 @@ def signals_today_csv():
     ist = pytz.timezone("Asia/Kolkata")
     today_str = datetime.now(ist).strftime("%Y-%m-%d")
     headers = ["Panel","Symbol","Setup","Price","Gap%","PDH","PDL",
-               "Candle%","Vol Ratio","Score","Label","RSI",
+               "Key Level","Key Label","Vol Ratio","Score","Label",
                "Entry","SL","SL%","T1","T2","R:R"]
-    rows = ["# Samvex LLP — Today's Morning Signals (locked at 9:30 AM IST)",
+    rows = ["# Samvex LLP — Today's SMC Signals",
             f"# Date: {today_str}",
             "",
             ",".join(headers)]
@@ -1565,9 +1388,9 @@ def signals_today_csv():
                 s.get("symbol",""), s.get("setup",""),
                 s.get("price",""), s.get("gap_pct",""),
                 s.get("pdh",""), s.get("pdl",""),
-                s.get("candle_range_pct",""), s.get("volume_ratio",""),
+                s.get("key_level",""), s.get("key_label",""),
+                s.get("volume_ratio",""),
                 s.get("confidence_score",""), s.get("confidence_label",""),
-                s.get("rsi",""),
                 s.get("entry",""), s.get("sl",""), s.get("sl_pct",""),
                 s.get("t1",""), s.get("t2",""), s.get("risk_reward",""),
             ]))
@@ -1685,19 +1508,18 @@ def _build_screen_debug() -> dict:
     batch_daily = _get_daily_batch()
 
     funnel = {
-        "universe":           len(universe),
-        "no_intra_data":      0,
-        "stale_candle":       0,
-        "no_prev_data":       0,
-        "price_below_100":    0,
-        "range_over_1_5pct":  0,
-        "vol_under_1_2x":     0,
-        "rsi_fail":           0,
-        "setup_fail":         0,
-        "s1_bull":            0,
-        "s1_bear":            0,
-        "s2_bull":            0,
-        "s2_bear":            0,
+        "universe":        len(universe),
+        "no_intra_data":   0,
+        "few_bars":        0,
+        "no_prev_data":    0,
+        "price_below_100": 0,
+        "vol_under_1_2x":  0,
+        "no_reversal_fail":0,
+        "setup_fail":      0,
+        "s1_bull":         0,
+        "s1_bear":         0,
+        "s2_bull":         0,
+        "s2_bear":         0,
     }
 
     stale_sample = []
@@ -1716,14 +1538,14 @@ def _build_screen_debug() -> dict:
                 today_mask = intra.index.tz_convert(ist).date == today
             else:
                 today_mask = [ts.date() == today for ts in intra.index]
-            today_intra = intra[today_mask]
+            today_bars = intra[today_mask]
         except Exception:
-            today_intra = intra.iloc[:0]
+            today_bars = intra.iloc[:0]
 
-        if len(today_intra) == 0:
-            funnel["stale_candle"] += 1
+        if len(today_bars) < 5:
+            funnel["few_bars"] += 1
             if len(stale_sample) < 3:
-                stale_sample.append({"symbol": symbol.replace(".NS", ""), "candle_date": "no today bar"})
+                stale_sample.append({"symbol": symbol.replace(".NS", ""), "bars_today": len(today_bars)})
             continue
 
         try:
@@ -1737,114 +1559,120 @@ def _build_screen_debug() -> dict:
             funnel["no_prev_data"] += 1
             continue
 
-        c_open  = float(today_intra["Open"].iloc[0])
-        c_high  = float(today_intra["High"].iloc[0])
-        c_low   = float(today_intra["Low"].iloc[0])
-        c_close = float(today_intra["Close"].iloc[0])
-        c_vol   = float(today_intra["Volume"].iloc[0])
-        current = float(intra["Close"].iloc[-1])
-        gap_pct = round((c_open - prev_close) / prev_close * 100, 2) if prev_close > 0 else 0
+        highs   = today_bars["High"].tolist()
+        lows    = today_bars["Low"].tolist()
+        closes  = today_bars["Close"].tolist()
+        vols    = today_bars["Volume"].tolist()
+        n_bars  = len(closes)
+        current = closes[-1]
+        day_high = max(highs)
+        day_low  = min(lows)
+        gap_pct  = round((float(today_bars["Open"].iloc[0]) - prev_close) / prev_close * 100, 2)
 
         if current < 100:
             funnel["price_below_100"] += 1
             continue
 
-        range_pct = round((c_high - c_low) / c_open * 100, 4) if c_open > 0 else 99
-        if range_pct > 1.5:
-            funnel["range_over_1_5pct"] += 1
-            continue
-
-        paced_vol = (c_vol / 15.0) * 375.0
-        vol_ratio = round(paced_vol / prev_vol, 2) if prev_vol > 0 else 0
+        day_vol     = sum(vols)
+        elapsed_min = max(15.0, n_bars * 15.0)
+        vol_ratio   = round(((day_vol / elapsed_min) * 375) / prev_vol, 2) if prev_vol > 0 else 0
         if vol_ratio < 1.2:
             funnel["vol_under_1_2x"] += 1
             continue
 
-        rsi_val      = _rsi14(intra["Close"])   # 15-min RSI, matches TradingView
-        rsi_bull_ok  = rsi_val is not None and 60 <= rsi_val <= 70
-        rsi_bear_ok  = rsi_val is not None and 30 <= rsi_val <= 40
-        if not rsi_bull_ok and not rsi_bear_ok:
-            funnel["rsi_fail"] += 1
-            continue
+        near_high = current >= day_high * 0.98
+        near_low  = current <= day_low  * 1.02
+
+        sw_highs, sw_lows = _detect_swings(highs, lows, lookback=2)
+        avg_vol  = day_vol / n_bars if n_bars > 0 else 1
 
         row = {
             "symbol":       symbol.replace(".NS", ""),
             "price":        round(current, 2),
-            "c_open":       round(c_open, 2),
-            "c_close":      round(c_close, 2),
+            "day_high":     round(day_high, 2),
+            "day_low":      round(day_low, 2),
             "pdh":          round(pdh, 2),
             "pdl":          round(pdl, 2),
             "gap_pct":      gap_pct,
-            "range_pct":    round(range_pct, 2),
             "vol_ratio":    vol_ratio,
-            "rsi":          rsi_val,
+            "n_bars":       n_bars,
+            "near_high":    near_high,
+            "near_low":     near_low,
+            "sw_highs":     len(sw_highs),
+            "sw_lows":      len(sw_lows),
             "setups_hit":   [],
             "why_no_setup": [],
         }
 
-        # S1: opens inside prev range, first candle breaks PDH/PDL
-        if pdl < c_open < pdh:
-            if c_close > pdh:
-                if rsi_bull_ok:
-                    funnel["s1_bull"] += 1
-                    row["setups_hit"].append("S1_BULL")
-                else:
-                    row["why_no_setup"].append(
-                        f"S1 Breakout: price broke PDH but RSI {rsi_val} outside bullish range 60-70"
-                    )
-            elif c_close < pdl:
-                if rsi_bear_ok:
-                    funnel["s1_bear"] += 1
-                    row["setups_hit"].append("S1_BEAR")
-                else:
-                    row["why_no_setup"].append(
-                        f"S1 Breakdown: price broke PDL but RSI {rsi_val} outside bearish range 30-40"
-                    )
-            else:
-                row["why_no_setup"].append(
-                    f"S1: opened inside range (Rs{round(pdl,0):g}–Rs{round(pdh,0):g}) "
-                    f"but close Rs{round(c_close,1)} didn't break PDH/PDL"
-                )
+        # S1 Bull: sweep PDL → BOS above PDH
+        sweep_bull = next((i for i, lo in enumerate(lows) if lo < pdl), -1)
+        bos_bull   = next((i for i in range(max(sweep_bull, 0) + 1, n_bars)
+                           if closes[i] > pdh), -1) if sweep_bull >= 0 else -1
+        if sweep_bull >= 0 and bos_bull >= 0 and vols[bos_bull] >= avg_vol * 1.5 and near_high:
+            funnel["s1_bull"] += 1
+            row["setups_hit"].append("S1_BULL")
+        elif not near_high:
+            row["why_no_setup"].append("S1 Bull: price not near day high (reversed >2%)")
+        elif sweep_bull < 0:
+            row["why_no_setup"].append(f"S1 Bull: no PDL sweep (day_low Rs{round(day_low,1)} vs PDL Rs{round(pdl,1)})")
+        elif bos_bull < 0:
+            row["why_no_setup"].append("S1 Bull: swept PDL but no BOS above PDH yet")
         else:
-            row["why_no_setup"].append(
-                f"S1: open Rs{round(c_open,1)} not inside prev range (Rs{round(pdl,0):g}–Rs{round(pdh,0):g})"
-            )
+            row["why_no_setup"].append("S1 Bull: BOS candle volume insufficient")
 
-        # S2 Bull (Bear Trap): opens near/below PDL, gaps down, recovers green
-        if c_open <= pdl * 1.02 and -2.0 <= gap_pct < 0 and c_close > pdl and c_close > c_open:
-            if rsi_bull_ok:
+        # S1 Bear: sweep PDH → BOS below PDL
+        sweep_bear = next((i for i, hi in enumerate(highs) if hi > pdh), -1)
+        bos_bear   = next((i for i in range(max(sweep_bear, 0) + 1, n_bars)
+                           if closes[i] < pdl), -1) if sweep_bear >= 0 else -1
+        if sweep_bear >= 0 and bos_bear >= 0 and vols[bos_bear] >= avg_vol * 1.5 and near_low:
+            funnel["s1_bear"] += 1
+            row["setups_hit"].append("S1_BEAR")
+        elif not near_low:
+            row["why_no_setup"].append("S1 Bear: price not near day low (reversed >2%)")
+        elif sweep_bear < 0:
+            row["why_no_setup"].append(f"S1 Bear: no PDH sweep (day_high Rs{round(day_high,1)} vs PDH Rs{round(pdh,1)})")
+        elif bos_bear < 0:
+            row["why_no_setup"].append("S1 Bear: swept PDH but no BOS below PDL yet")
+        else:
+            row["why_no_setup"].append("S1 Bear: BOS candle volume insufficient")
+
+        # S2 Bull CHoCH
+        if len(sw_lows) >= 2 and sw_highs:
+            recent_ll = [p for _, p in sw_lows[-3:]]
+            is_down   = all(recent_ll[j] < recent_ll[j-1] for j in range(1, len(recent_ll)))
+            last_sh_idx, last_sh_price = sw_highs[-1]
+            choch_bull = next((i for i in range(last_sh_idx + 1, n_bars)
+                               if closes[i] > last_sh_price), -1)
+            if is_down and choch_bull >= 0 and vols[choch_bull] >= avg_vol * 1.5 and near_high:
                 funnel["s2_bull"] += 1
                 row["setups_hit"].append("S2_BULL")
             else:
-                row["why_no_setup"].append(
-                    f"S2 Bear Trap: price conditions met but RSI {rsi_val} outside bullish range 60-70"
-                )
+                reason = ("not near day high" if not near_high
+                          else "not downtrend structure" if not is_down
+                          else "no CHoCH break" if choch_bull < 0
+                          else "CHoCH volume insufficient")
+                row["why_no_setup"].append(f"S2 Bull CHoCH: {reason}")
         else:
-            reasons = []
-            if not (c_open <= pdl * 1.02): reasons.append(f"open Rs{round(c_open,1)} > PDL+2% (Rs{round(pdl*1.02,1)})")
-            if not (-2.0 <= gap_pct < 0):  reasons.append(f"gap {gap_pct:+.2f}% not in (-2%, 0%)")
-            if not (c_close > pdl):         reasons.append(f"close Rs{round(c_close,1)} didn't recover above PDL Rs{round(pdl,1)}")
-            if not (c_close > c_open):      reasons.append("candle is red (need green for bear trap)")
-            if reasons:
-                row["why_no_setup"].append("S2 Bear Trap: " + "; ".join(reasons))
+            row["why_no_setup"].append(f"S2 Bull CHoCH: insufficient swings (lows={len(sw_lows)}, highs={len(sw_highs)})")
 
-        # S2 Bear (Bull Trap): opens near/above PDH, gaps up, rejects red
-        if c_open >= pdh * 0.98 and 0 < gap_pct <= 2.0 and c_close < pdh and c_close < c_open:
-            if rsi_bear_ok:
+        # S2 Bear CHoCH
+        if len(sw_highs) >= 2 and sw_lows:
+            recent_hh = [p for _, p in sw_highs[-3:]]
+            is_up     = all(recent_hh[j] > recent_hh[j-1] for j in range(1, len(recent_hh)))
+            last_sl_idx, last_sl_price = sw_lows[-1]
+            choch_bear = next((i for i in range(last_sl_idx + 1, n_bars)
+                               if closes[i] < last_sl_price), -1)
+            if is_up and choch_bear >= 0 and vols[choch_bear] >= avg_vol * 1.5 and near_low:
                 funnel["s2_bear"] += 1
                 row["setups_hit"].append("S2_BEAR")
             else:
-                row["why_no_setup"].append(
-                    f"S2 Bull Trap: price conditions met but RSI {rsi_val} outside bearish range 30-40"
-                )
+                reason = ("not near day low" if not near_low
+                          else "not uptrend structure" if not is_up
+                          else "no CHoCH break" if choch_bear < 0
+                          else "CHoCH volume insufficient")
+                row["why_no_setup"].append(f"S2 Bear CHoCH: {reason}")
         else:
-            reasons = []
-            if not (c_open >= pdh * 0.98): reasons.append(f"open Rs{round(c_open,1)} < PDH-2% (Rs{round(pdh*0.98,1)})")
-            if not (0 < gap_pct <= 2.0):   reasons.append(f"gap {gap_pct:+.2f}% not in (0%, 2%]")
-            if not (c_close < pdh):         reasons.append(f"close Rs{round(c_close,1)} didn't fall below PDH Rs{round(pdh,1)}")
-            if not (c_close < c_open):      reasons.append("candle is green (need red for bull trap)")
-            if reasons:
-                row["why_no_setup"].append("S2 Bull Trap: " + "; ".join(reasons))
+            row["why_no_setup"].append(f"S2 Bear CHoCH: insufficient swings (lows={len(sw_lows)}, highs={len(sw_highs)})")
 
         if not row["setups_hit"]:
             funnel["setup_fail"] += 1
@@ -1855,14 +1683,14 @@ def _build_screen_debug() -> dict:
     passed = [r for r in near_misses if r["setups_hit"]]
 
     return {
-        "time_ist":         now.strftime("%H:%M:%S"),
-        "date":             str(today),
-        "data_source":      "upstox_live" if _is_live() else "yahoo_15m",
-        "15m_batch_size":   len(batch_15m) if batch_15m else 0,
-        "daily_batch_size": len(batch_daily) if batch_daily else 0,
-        "funnel":           funnel,
-        "stale_sample":     stale_sample,
-        "passed_setups":    passed,
+        "time_ist":          now.strftime("%H:%M:%S"),
+        "date":              str(today),
+        "data_source":       "upstox_live" if _is_live() else "yahoo_15m",
+        "15m_batch_size":    len(batch_15m) if batch_15m else 0,
+        "daily_batch_size":  len(batch_daily) if batch_daily else 0,
+        "funnel":            funnel,
+        "stale_sample":      stale_sample,
+        "passed_setups":     passed,
         "near_misses_top20": near_misses[:20],
     }
 
@@ -1872,9 +1700,9 @@ def debug_screen_new():
     """JSON version of the filter funnel — for programmatic use."""
     d = _build_screen_debug()
     d["legend"] = {
-        "funnel":            "Stocks eliminated at each filter stage (read top to bottom)",
-        "near_misses_top20": "Stocks that passed price/range/volume — shows why each failed setup conditions",
-        "passed_setups":     "Stocks that triggered at least one setup — should match screener output",
+        "funnel":            "Stocks eliminated at each SMC filter stage (read top to bottom)",
+        "near_misses_top20": "Stocks that passed price/volume gates — shows exactly which SMC condition each failed",
+        "passed_setups":     "Stocks that triggered at least one SMC setup — should match screener output",
     }
     return jsonify(d)
 
@@ -1896,14 +1724,13 @@ def debug_screen_ui():
     remaining = u
     wf = ""
     for label, key, color in [
-        ("No intraday data",  "no_intra_data",     "#8892a4"),
-        ("Stale candle",      "stale_candle",      "#8892a4"),
-        ("No prev-day data",  "no_prev_data",      "#8892a4"),
-        ("Price < Rs100",     "price_below_100",   "#8892a4"),
-        ("Range > 1.5%",      "range_over_1_5pct", "#f59e0b"),
-        ("Volume < 1.2x",     "vol_under_1_2x",    "#fb923c"),
-        ("RSI out of range",  "rsi_fail",           "#a78bfa"),
-        ("Setup conditions",  "setup_fail",        "#ef4444"),
+        ("No intraday data",      "no_intra_data",    "#8892a4"),
+        ("< 5 bars (pre-10:30)", "few_bars",          "#8892a4"),
+        ("No prev-day data",      "no_prev_data",     "#8892a4"),
+        ("Price < Rs100",         "price_below_100",  "#8892a4"),
+        ("Volume < 1.2x",         "vol_under_1_2x",   "#fb923c"),
+        ("Reversed >2% from ext.","no_reversal_fail", "#f59e0b"),
+        ("SMC setup conditions",  "setup_fail",       "#ef4444"),
     ]:
         dropped    = f[key]
         remaining -= dropped
@@ -1942,13 +1769,13 @@ def debug_screen_ui():
             f"<td>Rs{s['price']}</td>"
             f"<td style='color:{gc_col}'>{gp}</td>"
             f"<td style='color:{setup_col};font-weight:700'>{', '.join(s['setups_hit'])}</td>"
-            f"<td class='nc'>{s['range_pct']}%</td>"
+            f"<td class='nc'>{s.get('n_bars',0)} bars</td>"
             f"<td class='nc'>{s['vol_ratio']}x</td>"
             f"<td></td>"
             f"</tr>\n"
         )
     if not ph:
-        ph = "<tr><td colspan='7' class='em'>No signals fired today</td></tr>"
+        ph = "<tr><td colspan='7' class='em'>No SMC signals fired — check debug for why</td></tr>"
 
     # Near-misses
     nm = ""
@@ -1964,7 +1791,7 @@ def debug_screen_ui():
             f"<td class='sc' style='{hit_sty}'>{s['symbol']}</td>"
             f"<td>Rs{s['price']}</td>"
             f"<td style='color:{gc_col}'>{gp}</td>"
-            f"<td class='nc'>{s['range_pct']}%</td>"
+            f"<td class='nc'>{s.get('n_bars',0)} bars / {s.get('sw_highs',0)}H {s.get('sw_lows',0)}L swings</td>"
             f"<td class='nc'>{s['vol_ratio']}x</td>"
             f"<td style='color:#22c55e;font-weight:700'>{setups}</td>"
             f"<td class='wc'>{why}</td>"
@@ -2044,18 +1871,18 @@ def debug_screen_ui():
         f"/ <strong style='color:#ef4444'>{f['s2_bear']}</strong> bull trap</span>"
         "</div></div>"
         "<div class='section'>"
-        f"<div class='sh'><h2>Signals That Fired</h2>"
+        f"<div class='sh'><h2>SMC Signals That Fired</h2>"
         f"<span class='badge {fired_cls}'>{fired} signal{fired_s}</span></div>"
         "<table><thead><tr>"
         "<th>Symbol</th><th>Price</th><th>Gap</th>"
-        "<th>Setup</th><th>Range</th><th>Vol Ratio</th><th>Notes</th>"
+        "<th>Setup</th><th>Bars</th><th>Vol Ratio</th><th>Notes</th>"
         f"</tr></thead><tbody>{ph}</tbody></table></div>"
         "<div class='section'>"
-        "<div class='sh'><h2>Near-Misses &mdash; passed common filters, failed setup</h2>"
+        "<div class='sh'><h2>Near-Misses &mdash; passed common filters, failed SMC setup</h2>"
         f"<span class='badge'>{len(d['near_misses_top20'])} shown</span></div>"
         "<table><thead><tr>"
         "<th>Symbol</th><th>Price</th><th>Gap</th>"
-        "<th>Range</th><th>Vol Ratio</th><th>Setup Hit</th>"
+        "<th>Bars / Swings</th><th>Vol Ratio</th><th>Setup Hit</th>"
         "<th>Why Setup Didn't Fire</th>"
         f"</tr></thead><tbody>{nm}</tbody></table></div>"
         "</div>"
@@ -2228,21 +2055,18 @@ def _generate_setup_explanations(setup: int, direction: str, results: list) -> l
         return []
     try:
         setup_names = {
-            (1, "bullish"): "Trend Breakout — first 15-min candle closed above Previous Day High",
-            (1, "bearish"): "Trend Breakdown — first 15-min candle closed below Previous Day Low",
-            (2, "bullish"): "Bear Trap — false breakdown recovered above PDL as a green candle",
-            (2, "bearish"): "Bull Trap — false breakout rejected below PDH as a red candle",
+            (1, "bullish"): "SMC Bullish — liquidity sweep below PDL followed by BOS above PDH",
+            (1, "bearish"): "SMC Bearish — liquidity sweep above PDH followed by BOS below PDL",
+            (2, "bullish"): "CHoCH Bullish — lower-low intraday structure, price broke above swing high",
+            (2, "bearish"): "CHoCH Bearish — higher-high intraday structure, price broke below swing low",
         }
         setup_name = setup_names.get((setup, direction), "")
 
         lines = []
         for s in results:
-            key_level = "PDH" if (setup == 1 and direction == "bullish") or \
-                                 (setup == 2 and direction == "bearish") else "PDL"
-            key_price = s.get("pdh") if key_level == "PDH" else s.get("pdl")
             lines.append(
                 f"{s['symbol']}: price ₹{s['price']}, gap {s['gap_pct']:+.1f}%, "
-                f"candle close ₹{s['c_close']}, {key_level} ₹{key_price}, "
+                f"setup {s['setup']}, key level {s.get('key_label','')} ₹{s.get('key_level','')}, "
                 f"volume {s['volume_ratio']:.1f}x prev day"
             )
 
@@ -2293,7 +2117,7 @@ def insights_setup_explain():
         return jsonify({"error": "invalid setup"}), 400
     setup_num, direction = setup_map[setup_key]
     cached  = _cache.get(setup_key)
-    results = cached[0] if cached else _screen_new(setup_num, direction)
+    results = cached[0] if cached else _screen_smc(setup_num, direction)
     if not results:
         return jsonify({"explanations": [], "enabled": True})
     cache_key    = f"ai_explain_{setup_key}"
