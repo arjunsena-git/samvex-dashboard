@@ -1517,7 +1517,7 @@
 
     let resp, data;
     try {
-      resp = await fetch(`/api/chart/${encodeURIComponent(symbol)}`);
+      resp = await fetch(`${API}/api/chart/${encodeURIComponent(symbol)}`);
       data = await resp.json();
     } catch (_) {
       container.innerHTML = '<div class="tv-loading"><span style="color:var(--red)">Network error</span></div>';
