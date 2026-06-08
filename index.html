@@ -647,6 +647,79 @@
       padding: 6px 20px; font-size: 10px; color: var(--green);
       background: rgba(34,197,94,.06); border-top: 1px solid var(--border);
     }
+
+    /* ── Chart Mode toggle ───────────────────────────────────────── */
+    .chart-mode-toggle {
+      display: inline-flex; align-items: center; gap: 6px;
+      background: var(--bg-card-2); border: 1px solid var(--border);
+      color: var(--text-muted); border-radius: 6px;
+      padding: 6px 14px; cursor: pointer; font-size: 12px; font-weight: 600;
+      transition: all .15s; white-space: nowrap;
+    }
+    .chart-mode-toggle:hover { border-color: var(--accent); color: var(--accent); }
+    .chart-mode-toggle.active {
+      background: rgba(79,142,247,.12);
+      border-color: var(--accent); color: var(--accent);
+    }
+
+    /* ── Chart Mode grids ────────────────────────────────────────── */
+    .scanner-chart-mode {
+      display: none;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+      margin-bottom: 20px;
+    }
+    .chart-panel-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+    .chart-panel-hdr {
+      display: flex; align-items: center; gap: 8px;
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg-card-2);
+      font-size: 13px; font-weight: 700;
+    }
+    .stock-mini-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+      gap: 8px; padding: 10px;
+    }
+    .stock-chart-card {
+      background: var(--bg-card-2);
+      border: 1px solid var(--border);
+      border-radius: 6px; overflow: hidden;
+      transition: border-color .15s;
+    }
+    .stock-chart-card:hover { border-color: var(--accent); }
+    .stock-chart-hdr {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 7px 10px 3px;
+    }
+    .stock-chart-sym {
+      font-weight: 700; font-size: 13px;
+      color: var(--accent); text-decoration: none; letter-spacing: .3px;
+    }
+    .stock-chart-sym:hover { text-decoration: underline; }
+    .stock-chart-meta {
+      display: flex; align-items: center; gap: 6px;
+      padding: 0 10px 6px; font-size: 10px; flex-wrap: wrap;
+    }
+    .tv-widget-wrap {
+      width: 100%; height: 150px;
+      border-top: 1px solid var(--border);
+      background: rgba(0,0,0,.15);
+      display: flex; align-items: center; justify-content: center;
+    }
+    .tv-loading {
+      font-size: 10px; color: var(--text-muted); display: flex;
+      flex-direction: column; align-items: center; gap: 6px;
+    }
+    @media (max-width: 900px) {
+      .scanner-chart-mode { grid-template-columns: 1fr; }
+    }
   </style>
 </head>
 <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
@@ -733,6 +806,7 @@
 
   <!-- ── CSV download row ─────────────────────────────────────────── -->
   <div class="csv-toolbar" style="gap:8px;flex-wrap:wrap;">
+    <button id="chart-mode-btn" class="chart-mode-toggle" onclick="toggleChartMode()">&#128200; Chart Mode</button>
     <button class="csv-btn" onclick="downloadAllCSV()">↓ Download Visible Signals</button>
     <a id="today-csv-btn" class="csv-btn"
        style="text-decoration:none;display:inline-flex;align-items:center;"
@@ -752,7 +826,8 @@
     <div class="section-divider-title">Setup 1 — SMC Liquidity Sweep → BOS · Top 5 High-Conviction Signals Only (GOOD+ Score)</div>
     <div class="section-divider-line"></div>
   </div>
-  <div class="scanner-grid">
+  <div class="scanner-chart-mode" id="s1-chart-mode"></div>
+  <div class="scanner-grid" id="s1-table-grid">
 
     <!-- Setup 1 Bullish: Sweep PDL → BOS above PDH -->
     <div class="panel">
@@ -832,7 +907,8 @@
     <div class="section-divider-title">Setup 2 — CHoCH (Change of Character) · Top 5 High-Conviction Signals Only (GOOD+ Score)</div>
     <div class="section-divider-line"></div>
   </div>
-  <div class="scanner-grid">
+  <div class="scanner-chart-mode" id="s2-chart-mode"></div>
+  <div class="scanner-grid" id="s2-table-grid">
 
     <!-- Setup 2 Bullish: CHoCH -->
     <div class="panel">
@@ -1186,7 +1262,7 @@
 
   // ── Setup row renderer ────────────────────────────────────────
   // refLevelKey: "pdh" or "pdl" — which level to show in the 4th column
-  function renderSetupRows(data, tbodyId, direction, refLevelKey) {
+  function renderSetupRows(data, tbodyId, direction, refLevelKey, _panelKey) {
     const el      = document.getElementById(tbodyId);
     const bullish = direction === "bullish";
     const color   = bullish ? "green" : "red";
@@ -1271,6 +1347,9 @@
         ${tradePlanCell(s, direction)}
       </tr>`;
     }).join("");
+
+    // Keep chart grid in sync if chart mode is active
+    if (_panelKey) _refreshChartPanel(_panelKey);
   }
 
   // ── CSV download (all panels, registry-based) ─────────────────
@@ -1322,16 +1401,158 @@
     URL.revokeObjectURL(a.href);
   }
 
+  // ── Chart Mode ────────────────────────────────────────────────
+  let _chartModeActive = false;
+
+  const _PANEL_CONFIGS = [
+    { key: 's1-bull', title: 'Liq. Sweep → BOS &nbsp;<span style="font-size:10px;font-weight:400;color:var(--text-muted);">Bullish</span>', dot: 'dot-green', gridId: 's1-chart-mode' },
+    { key: 's1-bear', title: 'Liq. Sweep → BOS &nbsp;<span style="font-size:10px;font-weight:400;color:var(--text-muted);">Bearish</span>', dot: 'dot-red',   gridId: 's1-chart-mode' },
+    { key: 's2-bull', title: 'CHoCH &nbsp;<span style="font-size:10px;font-weight:400;color:var(--text-muted);">Bullish</span>',            dot: 'dot-green', gridId: 's2-chart-mode' },
+    { key: 's2-bear', title: 'CHoCH &nbsp;<span style="font-size:10px;font-weight:400;color:var(--text-muted);">Bearish</span>',            dot: 'dot-red',   gridId: 's2-chart-mode' },
+  ];
+
+  function toggleChartMode() {
+    _chartModeActive = !_chartModeActive;
+    const btn = document.getElementById('chart-mode-btn');
+    btn.classList.toggle('active', _chartModeActive);
+    btn.innerHTML = _chartModeActive ? '&#9776; Table Mode' : '&#128200; Chart Mode';
+
+    document.getElementById('s1-table-grid').style.display = _chartModeActive ? 'none' : '';
+    document.getElementById('s2-table-grid').style.display = _chartModeActive ? 'none' : '';
+    document.getElementById('s1-chart-mode').style.display = _chartModeActive ? 'grid' : 'none';
+    document.getElementById('s2-chart-mode').style.display = _chartModeActive ? 'grid' : 'none';
+
+    if (_chartModeActive) _renderAllChartGrids();
+  }
+
+  function _renderAllChartGrids() {
+    document.getElementById('s1-chart-mode').innerHTML = '';
+    document.getElementById('s2-chart-mode').innerHTML = '';
+    _PANEL_CONFIGS.forEach(_buildChartPanel);
+  }
+
+  function _buildChartPanel(cfg) {
+    const grid = document.getElementById(cfg.gridId);
+    const stocks = (_panelData[cfg.key]?.rows || []).filter(s => s.is_active !== false);
+
+    const panel = document.createElement('div');
+    panel.className = 'chart-panel-card';
+    panel.id = 'cm-' + cfg.key;
+    panel.innerHTML = `
+      <div class="chart-panel-hdr">
+        <span class="dot ${cfg.dot}"></span>
+        <span>${cfg.title}</span>
+        <span style="margin-left:auto;font-size:10px;font-weight:600;color:var(--text-muted);">
+          ${stocks.length} active signal${stocks.length !== 1 ? 's' : ''}
+        </span>
+      </div>
+      <div class="stock-mini-grid" id="cm-grid-${cfg.key}"></div>`;
+    grid.appendChild(panel);
+
+    const miniGrid = panel.querySelector('#cm-grid-' + cfg.key);
+
+    if (stocks.length === 0) {
+      miniGrid.innerHTML = `<div style="padding:28px;text-align:center;color:var(--text-muted);font-size:12px;grid-column:1/-1;">
+        No active signals in this panel
+      </div>`;
+      return;
+    }
+
+    const isBull = cfg.key.includes('bull');
+    stocks.forEach(s => {
+      const card = document.createElement('div');
+      card.className = 'stock-chart-card';
+      const priceColor = isBull ? 'var(--green)' : 'var(--red)';
+      const score      = s.confidence_score || '';
+      const scoreLabel = s.confidence_label || 'WATCH';
+      const detectedHtml = s.detected_at
+        ? `<span style="font-size:9px;color:var(--text-muted);">&#9201; ${s.detected_at}</span>` : '';
+      card.innerHTML = `
+        <div class="stock-chart-hdr">
+          <a class="stock-chart-sym"
+             href="https://www.tradingview.com/chart/?symbol=NSE:${s.symbol}"
+             target="_blank" rel="noopener noreferrer">${s.symbol}</a>
+          <span style="font-size:11px;font-weight:700;color:${priceColor}">₹${s.price.toLocaleString('en-IN')}</span>
+        </div>
+        <div class="stock-chart-meta">
+          <span class="score-pill spill-${scoreLabel}">${score} ${scoreLabel}</span>
+          ${detectedHtml}
+        </div>
+        <div class="tv-widget-wrap" data-symbol="${s.symbol}">
+          <div class="tv-loading"><div class="spinner" style="width:18px;height:18px;border-width:2px;"></div></div>
+        </div>`;
+      miniGrid.appendChild(card);
+    });
+
+    _lazyLoadTVWidgets(miniGrid);
+  }
+
+  function _refreshChartPanel(panelKey) {
+    if (!_chartModeActive) return;
+    const cfg = _PANEL_CONFIGS.find(c => c.key === panelKey);
+    if (!cfg) return;
+    const existing = document.getElementById('cm-' + panelKey);
+    if (existing) existing.remove();
+    _buildChartPanel(cfg);
+  }
+
+  const _tvObservers = [];
+  function _lazyLoadTVWidgets(container) {
+    const observer = new IntersectionObserver((entries, obs) => {
+      entries.forEach(entry => {
+        if (!entry.isIntersecting) return;
+        const el = entry.target;
+        if (el.dataset.loaded) return;
+        el.dataset.loaded = '1';
+        _createTVWidget(el, el.dataset.symbol);
+        obs.unobserve(el);
+      });
+    }, { rootMargin: '80px' });
+    _tvObservers.push(observer);
+    container.querySelectorAll('.tv-widget-wrap').forEach(el => observer.observe(el));
+  }
+
+  function _createTVWidget(container, symbol) {
+    container.innerHTML = '';
+    const theme = document.documentElement.dataset.theme === 'light' ? 'light' : 'dark';
+    // TradingView mini-symbol-overview reads script textContent as its JSON config
+    const wrap = document.createElement('div');
+    wrap.style.cssText = 'width:100%;height:150px;overflow:hidden;';
+    const inner = document.createElement('div');
+    wrap.appendChild(inner);
+    const s = document.createElement('script');
+    s.type  = 'text/javascript';
+    s.async = true;
+    s.src   = 'https://s3.tradingview.com/external-embedding/embed-widget-mini-symbol-overview.js';
+    s.textContent = JSON.stringify({
+      symbol:                `NSE:${symbol}`,
+      width:                 '100%',
+      height:                150,
+      locale:                'en',
+      dateRange:             '1D',
+      colorTheme:            theme,
+      trendLineColor:        'rgba(79, 142, 247, 1)',
+      underLineColor:        'rgba(79, 142, 247, 0.12)',
+      underLineBottomColor:  'rgba(79, 142, 247, 0)',
+      isTransparent:         true,
+      autosize:              false,
+      largeChartUrl:         `https://www.tradingview.com/chart/?symbol=NSE:${symbol}`,
+    });
+    wrap.appendChild(s);
+    container.appendChild(wrap);
+  }
+
   // ── Four setup loaders ────────────────────────────────────────
   // label is stored in the registry so downloadAllCSV() can use it as a heading.
   // Any future panel added here is automatically included in the download.
   async function _loadSetup(endpoint, tbodyId, direction, refLevelKey, countId, label) {
-    const tbody = document.getElementById(tbodyId);
+    const tbody    = document.getElementById(tbodyId);
+    const panelKey = tbodyId.replace("-body", "");
     tbody.innerHTML = `<tr><td colspan="7"><div class="empty-state"><div class="spinner"></div>Scanning…</div></td></tr>`;
     try {
       const data = await fetchWithRetry(`${API}/api/${endpoint}`, tbody, 8);
-      _registerPanel(tbodyId.replace("-body", ""), label || endpoint, data);
-      renderSetupRows(data, tbodyId, direction, refLevelKey);
+      _registerPanel(panelKey, label || endpoint, data);
+      renderSetupRows(data, tbodyId, direction, refLevelKey, panelKey);
       if (countId) document.getElementById(countId).textContent = data.length;
       // Non-blocking: load AI insights after table is visible
       const sk = endpoint.includes("setup1") ? (direction === "bullish" ? "s1_bull" : "s1_bear")
