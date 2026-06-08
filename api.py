@@ -1550,11 +1550,14 @@ def chart_candles(symbol):
 
     imap = _load_instrument_map()
     base = symbol.upper().replace(".NS", "")
-    ikey = imap.get(base)
+    # Try exact match first, then common NSE suffix variants
+    ikey = imap.get(base) or imap.get(base + "-EQ") or imap.get(base + "EQ")
     if not ikey:
         return jsonify({
             "error":   "symbol_not_found",
-            "message": f"{base} not found in Upstox instrument map.",
+            "message": f"{base} is not available in Upstox live instrument map. "
+                       f"The screener may have picked this up from historical data. "
+                       f"Use TradingView to view its chart.",
         }), 404
 
     try:

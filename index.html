@@ -1763,19 +1763,35 @@
       const data = await res.json();
 
       if (!res.ok) {
-        container.innerHTML = `
-          <div class="chart-error-state">
-            <div style="color:var(--yellow);font-size:28px;">&#9888;</div>
-            <div style="font-weight:700;font-size:14px;color:var(--text);">Live data unavailable</div>
-            <div style="font-size:12px;line-height:1.65;max-width:380px;">
-              ${data.message || "Upstox not authenticated."}
-            </div>
-            <a href="${API}/auth/login" target="_blank" rel="noopener"
+        const isAuth     = res.status === 401;
+        const isNotFound = res.status === 404;
+        const iconColor  = isAuth ? "var(--yellow)" : "var(--red)";
+        const icon       = isAuth ? "&#9888;" : (isNotFound ? "&#128683;" : "&#10005;");
+        const title      = isAuth ? "Upstox session expired"
+                         : isNotFound ? "Live chart unavailable for this stock"
+                         : "Upstox API error";
+        const msg        = data.message || (isAuth ? "Please re-authenticate to view live charts." : "Unable to load chart data.");
+        const action     = isAuth
+          ? `<a href="${API}/auth/login" target="_blank" rel="noopener"
                style="margin-top:10px;padding:9px 22px;background:rgba(79,142,247,.12);
                       color:var(--accent);border:1px solid var(--accent);border-radius:6px;
                       font-size:12px;font-weight:700;text-decoration:none;">
-              Re-authenticate Upstox &#8594;
-            </a>
+               Re-authenticate Upstox &#8594;
+             </a>`
+          : isNotFound
+          ? `<a href="https://www.tradingview.com/chart/?symbol=NSE:${symbol}" target="_blank" rel="noopener"
+               style="margin-top:10px;padding:9px 22px;background:rgba(79,142,247,.12);
+                      color:var(--accent);border:1px solid var(--accent);border-radius:6px;
+                      font-size:12px;font-weight:700;text-decoration:none;">
+               View on TradingView &#8594;
+             </a>`
+          : "";
+        container.innerHTML = `
+          <div class="chart-error-state">
+            <div style="color:${iconColor};font-size:28px;">${icon}</div>
+            <div style="font-weight:700;font-size:14px;color:var(--text);">${title}</div>
+            <div style="font-size:12px;line-height:1.65;max-width:380px;">${msg}</div>
+            ${action}
           </div>`;
         return;
       }
