@@ -1557,7 +1557,8 @@ def status():
 
 @app.route("/api/chart/<symbol>")
 def chart_candles(symbol):
-    """Live intraday 15-min candles from Upstox for the chart modal.
+    """Live intraday 30-min candles from Upstox for the chart modal.
+    Upstox v2 intraday endpoint only supports 1minute and 30minute intervals.
     Returns 401 if Upstox is not authenticated — no Yahoo Finance fallback."""
     if not _is_live():
         return jsonify({
@@ -1595,7 +1596,7 @@ def chart_candles(symbol):
         headers     = _upstox_headers()
 
         r = _http.get(
-            f"{UPSTOX_BASE}/historical-candle/intraday/{encoded_key}/15minute",
+            f"{UPSTOX_BASE}/historical-candle/intraday/{encoded_key}/30minute",
             headers=headers, timeout=15,
         )
 
@@ -1630,7 +1631,7 @@ def chart_candles(symbol):
         candles.sort(key=lambda x: x["time"])
         # Cache so after-hours requests are served without hitting Upstox
         _candle_cache[ikey] = {"date": today_str, "candles": candles}
-        return jsonify({"symbol": base, "interval": "15m", "candles": candles})
+        return jsonify({"symbol": base, "interval": "30m", "candles": candles})
 
     except Exception as e:
         return jsonify({"error": "fetch_error", "message": str(e)}), 500
