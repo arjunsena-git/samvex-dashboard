@@ -182,10 +182,16 @@ def _cached(key, fn, *args, ttl=CACHE_TTL):
 # refreshes and process restarts without a new container build.
 _signal_store: dict = {}          # key: (setup, direction, "YYYY-MM-DD") → list
 _smc_history:  dict = {}          # key: (setup, direction, "YYYY-MM-DD") → {symbol: enriched_signal}
-# DATA_DIR env var → set to a Render Persistent Disk mount (e.g. /data) for restart-proof storage.
-# Falls back to /tmp (survives process crashes, not container restarts).
-_SIGNALS_DIR = os.environ.get("DATA_DIR", "/tmp/samvex_signals")
-os.makedirs(_SIGNALS_DIR, exist_ok=True)
+_TMP_SIGNALS = "/tmp/samvex_signals"
+_data_dir_env = os.environ.get("DATA_DIR", _TMP_SIGNALS)
+try:
+    os.makedirs(_data_dir_env, exist_ok=True)
+    _SIGNALS_DIR = _data_dir_env
+    print(f"[Storage] Using data dir: {_SIGNALS_DIR}")
+except OSError as _e:
+    print(f"[Storage] Cannot use DATA_DIR={_data_dir_env!r}: {_e} — falling back to {_TMP_SIGNALS}")
+    _SIGNALS_DIR = _TMP_SIGNALS
+    os.makedirs(_SIGNALS_DIR, exist_ok=True)
 
 _PANEL_LABELS = {
     (1, "bullish"): "Setup 1 — Liquidity Sweep → BOS (Bullish · Sweep PDL → Break PDH)",
