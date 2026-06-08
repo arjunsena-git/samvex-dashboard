@@ -1565,10 +1565,14 @@ def chart_candles(symbol):
             "auth_url": "/auth/login",
         }), 401
 
-    imap = _load_instrument_map()
     base = symbol.upper().replace(".NS", "")
-    # Try exact match first, then common NSE suffix variants
-    ikey = imap.get(base) or imap.get(base + "-EQ") or imap.get(base + "EQ")
+    # Read cached map — never trigger a synchronous CSV download inside a request handler
+    if not _instrument_map_loaded:
+        return jsonify({
+            "error":   "map_loading",
+            "message": "Instrument map is still loading on server start — please try again in 30 seconds.",
+        }), 503
+    ikey = _instrument_map.get(base) or _instrument_map.get(base + "-EQ") or _instrument_map.get(base + "EQ")
     if not ikey:
         return jsonify({
             "error":   "symbol_not_found",
@@ -1628,15 +1632,16 @@ def oi_buildup():
 @app.route("/api/debug/imap")
 def debug_imap():
     """Quick check: how many symbols are in the instrument map, and is a given symbol findable."""
-    imap   = _load_instrument_map()
+    # Read the cached map directly — never trigger a synchronous CSV download in a request handler
+    imap   = _instrument_map
     sample = dict(list(imap.items())[:5]) if imap else {}
-    syms   = request.args.get("sym", "").upper().split(",")
-    lookup = {s: imap.get(s) for s in syms if s}
+    syms   = [s for s in request.args.get("sym", "").upper().split(",") if s]
+    lookup = {s: imap.get(s) for s in syms} if syms else {}
     return jsonify({
         "loaded":         _instrument_map_loaded,
         "symbol_count":   len(imap),
         "sample_entries": sample,
-        "lookup":         lookup or "pass ?sym=RELIANCE,ALKYLAMINE to check specific symbols",
+        "lookup":         lookup if syms else "pass ?sym=RELIANCE,ALKYLAMINE to check specific symbols",
     })
 
 

@@ -1765,9 +1765,11 @@
       if (!res.ok) {
         const isAuth     = res.status === 401;
         const isNotFound = res.status === 404;
-        const iconColor  = isAuth ? "var(--yellow)" : "var(--red)";
-        const icon       = isAuth ? "&#9888;" : (isNotFound ? "&#128683;" : "&#10005;");
-        const title      = isAuth ? "Upstox session expired"
+        const isLoading  = res.status === 503;
+        const iconColor  = isAuth ? "var(--yellow)" : isLoading ? "var(--accent)" : "var(--red)";
+        const icon       = isAuth ? "&#9888;" : isLoading ? "&#8987;" : (isNotFound ? "&#128683;" : "&#10005;");
+        const title      = isAuth    ? "Upstox session expired"
+                         : isLoading ? "Server still starting up"
                          : isNotFound ? "Live chart unavailable for this stock"
                          : "Upstox API error";
         const msg        = data.message || (isAuth ? "Please re-authenticate to view live charts." : "Unable to load chart data.");
