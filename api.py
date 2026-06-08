@@ -1583,11 +1583,22 @@ def chart_candles(symbol):
 
     try:
         encoded_key = ikey.replace("|", "%7C")
+        headers = _upstox_headers()
+
+        # Try live intraday endpoint first (works only during market hours)
         r = _http.get(
             f"{UPSTOX_BASE}/historical-candle/intraday/{encoded_key}/15minute",
-            headers=_upstox_headers(),
-            timeout=15,
+            headers=headers, timeout=15,
         )
+
+        # Upstox returns 400 outside market hours — fall back to historical endpoint
+        if r.status_code == 400:
+            today = datetime.now(pytz.timezone("Asia/Kolkata")).strftime("%Y-%m-%d")
+            r = _http.get(
+                f"{UPSTOX_BASE}/historical-candle/{encoded_key}/15minute/{today}/{today}",
+                headers=headers, timeout=15,
+            )
+
         if r.status_code != 200:
             return jsonify({
                 "error":   "upstox_api_error",
