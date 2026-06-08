@@ -580,6 +580,29 @@
     }
     .chart-btn:hover { background: rgba(79,142,247,.22); }
 
+    /* ── Historical / inactive signals ──────────────────────────── */
+    .signal-inactive { opacity: 0.55; }
+    .signal-inactive .sym { color: var(--text-muted) !important; }
+    .signal-inactive .price { color: var(--text-muted) !important; }
+    .detected-at-badge {
+      display: inline-block; margin-top: 4px;
+      padding: 1px 7px; font-size: 9px; font-weight: 700;
+      background: rgba(88,100,133,.15); border: 1px solid rgba(88,100,133,.35);
+      border-radius: 3px; color: var(--text-muted); letter-spacing: .3px; white-space: nowrap;
+    }
+    .gone-tag {
+      display: inline-block; margin-top: 3px;
+      font-size: 9px; color: var(--yellow); font-weight: 600;
+      letter-spacing: .2px;
+    }
+    .history-divider td {
+      padding: 5px 18px !important; font-size: 10px !important;
+      color: var(--text-muted) !important; font-style: italic !important;
+      letter-spacing: .3px !important; text-align: center !important;
+      border-bottom: 1px dashed var(--border) !important;
+      background: rgba(0,0,0,.18) !important;
+    }
+
     /* ── Chart modal overlay ─────────────────────────────────────── */
     .chart-overlay {
       display: none; position: fixed; inset: 0;
@@ -1191,6 +1214,7 @@
       </div></td></tr>`;
       return;
     }
+    let histDividerShown = false;
     el.innerHTML = data.map(s => {
       // Store signal levels so the chart modal can read them
       _chartData[`${s.symbol}_${tbodyId}`] = {
@@ -1201,19 +1225,36 @@
         keyLevel: s.key_level, keyLabel: s.key_label || "",
       };
 
+      const isInactive = s.is_active === false;
+
+      // Divider row before the first inactive / historical signal
+      let divider = "";
+      if (isInactive && !histDividerShown) {
+        histDividerShown = true;
+        divider = `<tr class="history-divider"><td colspan="7">Previously detected today — no longer meeting criteria at current price</td></tr>`;
+      }
+
       const refLevel = refLevelKey === "pdh" ? s.pdh : s.pdl;
       const refLabel = refLevelKey === "pdh" ? "PDH" : "PDL";
-      const gapColor = s.gap_pct >= 0 ? "var(--green)" : "var(--red)";
       const setupBadge = `<span style="font-size:9px;color:var(--accent);font-weight:700;
         text-transform:uppercase;letter-spacing:.4px;display:block;margin-top:2px;">${s.setup}</span>`;
       const keyLevelStr = s.key_level != null
         ? `<span style="font-size:9px;color:var(--text-muted);display:block;margin-top:2px;">${s.key_label || ''} ₹${Number(s.key_level).toLocaleString("en-IN")}</span>`
         : "";
       const chartBtn = `<button class="chart-btn" onclick="openChartModal('${s.symbol}','${tbodyId}')">&#128200; Live Chart</button>`;
-      return `<tr>
+      const detectedBadge = isInactive && s.detected_at
+        ? `<span class="detected-at-badge">Detected ${s.detected_at} IST</span>`
+        : "";
+      const goneBadge = isInactive
+        ? `<span class="gone-tag" style="display:block;">&#8629; Signal gone</span>`
+        : "";
+
+      return divider + `<tr class="${isInactive ? "signal-inactive" : ""}">
         <td>
           <a class="sym" href="https://www.tradingview.com/chart/?symbol=NSE:${s.symbol}" target="_blank" rel="noopener noreferrer">${s.symbol}</a>
           ${setupBadge}
+          ${detectedBadge}
+          ${goneBadge}
           ${chartBtn}
         </td>
         <td class="price" style="color:var(--${color})">₹${s.price.toLocaleString("en-IN")}</td>

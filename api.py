@@ -181,6 +181,7 @@ def _cached(key, fn, *args, ttl=CACHE_TTL):
 # for the rest of the day. Persisted to /tmp so they survive page
 # refreshes and process restarts without a new container build.
 _signal_store: dict = {}          # key: (setup, direction, "YYYY-MM-DD") → list
+_smc_history:  dict = {}          # key: (setup, direction, "YYYY-MM-DD") → {symbol: enriched_signal}
 _SIGNALS_DIR = "/tmp/samvex_signals"
 os.makedirs(_SIGNALS_DIR, exist_ok=True)
 
@@ -245,6 +246,50 @@ def _get_or_run_screen(setup: int, direction: str) -> list:
     locked = "bullish ✓" if direction == "bullish" else "bearish ✓"
     print(f"[Signals] Locked setup{setup} {locked}: {len(results)} signals @ {today_str}")
     return results
+
+
+def _merge_with_history(active: list, setup: int, direction: str) -> list:
+    """Merge live screener results with today's signal history.
+
+    Returns: active signals first (sorted by confidence desc),
+             then signals that fired earlier but no longer meet criteria
+             (sorted by detected_at desc — most recently dropped first).
+
+    Each enriched signal gains two fields:
+      is_active   bool   — True if currently meeting all screener criteria
+      detected_at str    — HH:MM IST when the signal first appeared today
+    """
+    ist       = pytz.timezone("Asia/Kolkata")
+    today_str = datetime.now(ist).strftime("%Y-%m-%d")
+    now_hm    = datetime.now(ist).strftime("%H:%M")
+
+    key = (setup, direction, today_str)
+    if key not in _smc_history:
+        _smc_history[key] = {}
+
+    history     = _smc_history[key]
+    active_syms = {r["symbol"] for r in active}
+
+    # Register / refresh currently active signals
+    for r in active:
+        sym         = r["symbol"]
+        detected_at = history[sym]["detected_at"] if sym in history else now_hm
+        history[sym] = {**r, "detected_at": detected_at, "is_active": True}
+
+    # Mark signals that are no longer in the active set as inactive
+    for sym in list(history.keys()):
+        if sym not in active_syms:
+            history[sym]["is_active"] = False
+
+    active_out   = sorted(
+        [s for s in history.values() if s["is_active"]],
+        key=lambda x: x["confidence_score"], reverse=True,
+    )
+    inactive_out = sorted(
+        [s for s in history.values() if not s["is_active"]],
+        key=lambda x: x["detected_at"], reverse=True,
+    )
+    return active_out + inactive_out
 
 
 # ── Upstox OAuth + live data ───────────────────────────────────────
@@ -1268,25 +1313,29 @@ def _smc_ready() -> bool:
 def api_s1_bull():
     if not _smc_ready():
         return jsonify([])
-    return jsonify(_cached("s1_bull", _screen_smc, 1, "bullish", ttl=SCREEN_TTL))
+    active = _cached("s1_bull", _screen_smc, 1, "bullish", ttl=SCREEN_TTL)
+    return jsonify(_merge_with_history(active, 1, "bullish"))
 
 @app.route("/api/setup1/bearish")
 def api_s1_bear():
     if not _smc_ready():
         return jsonify([])
-    return jsonify(_cached("s1_bear", _screen_smc, 1, "bearish", ttl=SCREEN_TTL))
+    active = _cached("s1_bear", _screen_smc, 1, "bearish", ttl=SCREEN_TTL)
+    return jsonify(_merge_with_history(active, 1, "bearish"))
 
 @app.route("/api/setup2/bullish")
 def api_s2_bull():
     if not _smc_ready():
         return jsonify([])
-    return jsonify(_cached("s2_bull", _screen_smc, 2, "bullish", ttl=SCREEN_TTL))
+    active = _cached("s2_bull", _screen_smc, 2, "bullish", ttl=SCREEN_TTL)
+    return jsonify(_merge_with_history(active, 2, "bullish"))
 
 @app.route("/api/setup2/bearish")
 def api_s2_bear():
     if not _smc_ready():
         return jsonify([])
-    return jsonify(_cached("s2_bear", _screen_smc, 2, "bearish", ttl=SCREEN_TTL))
+    active = _cached("s2_bear", _screen_smc, 2, "bearish", ttl=SCREEN_TTL)
+    return jsonify(_merge_with_history(active, 2, "bearish"))
 
 @app.route("/api/signals/backfill")
 def signals_backfill():
