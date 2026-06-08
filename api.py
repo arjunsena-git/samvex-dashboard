@@ -182,6 +182,7 @@ def _cached(key, fn, *args, ttl=CACHE_TTL):
 # refreshes and process restarts without a new container build.
 _signal_store: dict = {}          # key: (setup, direction, "YYYY-MM-DD") → list
 _smc_history:  dict = {}          # key: (setup, direction, "YYYY-MM-DD") → {symbol: enriched_signal}
+_candle_cache: dict = {}          # key: instrument_key → {"date": "YYYY-MM-DD", "candles": [...]}
 _TMP_SIGNALS = "/tmp/samvex_signals"
 _data_dir_env = os.environ.get("DATA_DIR", _TMP_SIGNALS)
 try:
@@ -1581,25 +1582,28 @@ def chart_candles(symbol):
                        f"Use TradingView to view its chart.",
         }), 404
 
+    ist        = pytz.timezone("Asia/Kolkata")
+    today_str  = datetime.now(ist).strftime("%Y-%m-%d")
+    cached     = _candle_cache.get(ikey, {})
+
+    # Serve from in-memory cache if we already fetched today's candles
+    if cached.get("date") == today_str and cached.get("candles"):
+        return jsonify({"symbol": base, "interval": "15m", "candles": cached["candles"]})
+
     try:
         encoded_key = ikey.replace("|", "%7C")
-        headers = _upstox_headers()
+        headers     = _upstox_headers()
 
-        # Try live intraday endpoint first (works only during market hours)
         r = _http.get(
             f"{UPSTOX_BASE}/historical-candle/intraday/{encoded_key}/15minute",
             headers=headers, timeout=15,
         )
 
-        # Upstox returns 400 outside market hours — fall back to historical endpoint.
-        # Historical endpoint only supports: 1minute, 30minute, 1day, 1week, 1month.
-        # Use 30minute (closest to 15min) for after-hours chart display.
         if r.status_code == 400:
-            today = datetime.now(pytz.timezone("Asia/Kolkata")).strftime("%Y-%m-%d")
-            r = _http.get(
-                f"{UPSTOX_BASE}/historical-candle/{encoded_key}/30minute/{today}/{today}",
-                headers=headers, timeout=15,
-            )
+            # Market closed — return stale cache (any date) if available, else empty
+            if cached.get("candles"):
+                return jsonify({"symbol": base, "interval": "15m", "candles": cached["candles"]})
+            return jsonify({"symbol": base, "interval": "15m", "candles": []})
 
         if r.status_code != 200:
             return jsonify({
@@ -1607,7 +1611,7 @@ def chart_candles(symbol):
                 "message": f"Upstox returned HTTP {r.status_code}.",
             }), 502
 
-        raw = r.json().get("data", {}).get("candles", [])
+        raw     = r.json().get("data", {}).get("candles", [])
         candles = []
         for c in raw:
             try:
@@ -1624,6 +1628,8 @@ def chart_candles(symbol):
                 continue
 
         candles.sort(key=lambda x: x["time"])
+        # Cache so after-hours requests are served without hitting Upstox
+        _candle_cache[ikey] = {"date": today_str, "candles": candles}
         return jsonify({"symbol": base, "interval": "15m", "candles": candles})
 
     except Exception as e:
