@@ -321,7 +321,7 @@ def _merge_with_history(active: list, setup: int, direction: str) -> list:
         sym         = r["symbol"]
         if sym not in history:
             changed = True  # new signal firing for the first time today
-        detected_at = history[sym]["detected_at"] if sym in history else now_hm
+        detected_at = history[sym]["detected_at"] if sym in history else (r.get("bos_time") or now_hm)
         history[sym] = {**r, "detected_at": detected_at, "is_active": True}
 
     # Mark signals that are no longer in the active set as inactive
@@ -971,6 +971,18 @@ def _screen_smc(setup: int, direction: str) -> list:
 
             signal = None
 
+            # BOS/CHoCH must have formed within the last 3 bars (45 min).
+            # Without this, a 9:45 AM move fires again at 14:52 PM.
+            _FRESH = 3
+
+            def _bar_time(bar_idx):
+                try:
+                    ts = today_bars.index[bar_idx]
+                    ts = ts.astimezone(ist) if ts.tzinfo else pytz.utc.localize(ts).astimezone(ist)
+                    return ts.strftime("%H:%M")
+                except Exception:
+                    return datetime.now(ist).strftime("%H:%M")
+
             if setup == 1:
                 # ── Liquidity Sweep → BOS ─────────────────────────
                 if bullish:
@@ -984,6 +996,8 @@ def _screen_smc(setup: int, direction: str) -> list:
                     )
                     if bos_bar < 0:
                         continue
+                    if n_bars - 1 - bos_bar > _FRESH:
+                        continue
                     if vols[bos_bar] < avg_candle_vol * 1.5:
                         continue
                     signal = {
@@ -992,6 +1006,7 @@ def _screen_smc(setup: int, direction: str) -> list:
                         "sl_label":  "Below PDL (swept level)",
                         "key_level": pdh,
                         "key_label": "PDH",
+                        "bos_time":  _bar_time(bos_bar),
                     }
                 else:
                     sweep_bar = next(
@@ -1004,6 +1019,8 @@ def _screen_smc(setup: int, direction: str) -> list:
                     )
                     if bos_bar < 0:
                         continue
+                    if n_bars - 1 - bos_bar > _FRESH:
+                        continue
                     if vols[bos_bar] < avg_candle_vol * 1.5:
                         continue
                     signal = {
@@ -1012,6 +1029,7 @@ def _screen_smc(setup: int, direction: str) -> list:
                         "sl_label":  "Above PDH (swept level)",
                         "key_level": pdl,
                         "key_label": "PDL",
+                        "bos_time":  _bar_time(bos_bar),
                     }
 
             else:  # Setup 2: CHoCH
@@ -1030,6 +1048,8 @@ def _screen_smc(setup: int, direction: str) -> list:
                     )
                     if choch_bar < 0:
                         continue
+                    if n_bars - 1 - choch_bar > _FRESH:
+                        continue
                     if vols[choch_bar] < avg_candle_vol * 1.5:
                         continue
                     signal = {
@@ -1038,6 +1058,7 @@ def _screen_smc(setup: int, direction: str) -> list:
                         "sl_label":  "Below swing low (CHoCH anchor)",
                         "key_level": last_sh_price,
                         "key_label": "CHoCH level",
+                        "bos_time":  _bar_time(choch_bar),
                     }
                 else:
                     if len(sw_highs) < 2:
@@ -1054,6 +1075,8 @@ def _screen_smc(setup: int, direction: str) -> list:
                     )
                     if choch_bar < 0:
                         continue
+                    if n_bars - 1 - choch_bar > _FRESH:
+                        continue
                     if vols[choch_bar] < avg_candle_vol * 1.5:
                         continue
                     signal = {
@@ -1062,6 +1085,7 @@ def _screen_smc(setup: int, direction: str) -> list:
                         "sl_label":  "Above swing high (CHoCH anchor)",
                         "key_level": last_sl_price,
                         "key_label": "CHoCH level",
+                        "bos_time":  _bar_time(choch_bar),
                     }
 
             if not signal:
@@ -1123,6 +1147,7 @@ def _screen_smc(setup: int, direction: str) -> list:
                 "confidence_label": conf_label,
                 "demand_zone":      demand_zone,
                 "supply_zone":      supply_zone,
+                "bos_time":         signal.get("bos_time", datetime.now(ist).strftime("%H:%M")),
             })
 
         except Exception:
