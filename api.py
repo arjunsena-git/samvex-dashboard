@@ -182,7 +182,9 @@ def _cached(key, fn, *args, ttl=CACHE_TTL):
 # refreshes and process restarts without a new container build.
 _signal_store: dict = {}          # key: (setup, direction, "YYYY-MM-DD") → list
 _smc_history:  dict = {}          # key: (setup, direction, "YYYY-MM-DD") → {symbol: enriched_signal}
-_SIGNALS_DIR = "/tmp/samvex_signals"
+# DATA_DIR env var → set to a Render Persistent Disk mount (e.g. /data) for restart-proof storage.
+# Falls back to /tmp (survives process crashes, not container restarts).
+_SIGNALS_DIR = os.environ.get("DATA_DIR", "/tmp/samvex_signals")
 os.makedirs(_SIGNALS_DIR, exist_ok=True)
 
 _PANEL_LABELS = {
@@ -225,6 +227,42 @@ def _load_persisted_signals() -> None:
         print(f"[Signals] Restored {total} signals from {path}")
     except Exception as exc:
         print(f"[Signals] load error: {exc}")
+
+
+# ── Signal history persistence (detected_at + inactive signals) ───
+def _history_path(date_str: str) -> str:
+    return os.path.join(_SIGNALS_DIR, f"history_{date_str}.json")
+
+def _persist_history(date_str: str) -> None:
+    """Write today's _smc_history to disk. Called in a background thread on every state change."""
+    try:
+        payload = {}
+        for k, v in list(_smc_history.items()):
+            if k[2] == date_str:
+                payload[f"{k[0]}|{k[1]}"] = v
+        with open(_history_path(date_str), "w") as fh:
+            json.dump({"date": date_str, "panels": payload}, fh)
+    except Exception as exc:
+        print(f"[History] persist error: {exc}")
+
+def _load_persisted_history() -> None:
+    """On server start, reload today's signal history from disk into _smc_history."""
+    ist = pytz.timezone("Asia/Kolkata")
+    today_str = datetime.now(ist).strftime("%Y-%m-%d")
+    path = _history_path(today_str)
+    if not os.path.exists(path):
+        return
+    try:
+        with open(path) as fh:
+            data = json.load(fh)
+        for k_str, signals in data.get("panels", {}).items():
+            setup_str, direction = k_str.split("|")
+            _smc_history[(int(setup_str), direction, today_str)] = signals
+        total = sum(len(v) for v in _smc_history.values())
+        print(f"[History] Restored {total} historical signals from {path}")
+    except Exception as exc:
+        print(f"[History] load error: {exc}")
+
 
 def _get_or_run_screen(setup: int, direction: str) -> list:
     """Return today's locked signals for this panel, running the screener only
@@ -269,17 +307,26 @@ def _merge_with_history(active: list, setup: int, direction: str) -> list:
 
     history     = _smc_history[key]
     active_syms = {r["symbol"] for r in active}
+    changed     = False
 
     # Register / refresh currently active signals
     for r in active:
         sym         = r["symbol"]
+        if sym not in history:
+            changed = True  # new signal firing for the first time today
         detected_at = history[sym]["detected_at"] if sym in history else now_hm
         history[sym] = {**r, "detected_at": detected_at, "is_active": True}
 
     # Mark signals that are no longer in the active set as inactive
     for sym in list(history.keys()):
         if sym not in active_syms:
+            if history[sym].get("is_active", True):
+                changed = True  # signal just dropped off the active list
             history[sym]["is_active"] = False
+
+    # Persist to disk whenever state changes so restarts don't lose history
+    if changed:
+        threading.Thread(target=_persist_history, args=(today_str,), daemon=True).start()
 
     active_out   = sorted(
         [s for s in history.values() if s["is_active"]],
@@ -394,6 +441,7 @@ threading.Thread(target=lambda: _load_futures_map(),    daemon=True).start()
 threading.Thread(target=lambda: _load_nifty500(),       daemon=True).start()
 threading.Thread(target=lambda: _get_daily_batch(),     daemon=True).start()
 threading.Thread(target=_load_persisted_signals,        daemon=True).start()
+threading.Thread(target=_load_persisted_history,        daemon=True).start()
 
 # ── Startup token load ─────────────────────────────────────────────
 _startup_token, _startup_expires, _startup_source = _load_token_on_startup()
