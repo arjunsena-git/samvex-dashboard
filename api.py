@@ -347,7 +347,8 @@ UPSTOX_BASE       = "https://api.upstox.com/v2"
 FRONTEND_URL      = os.environ.get("FRONTEND_URL", "")
 
 _upstox_token   = {"access_token": None, "expires_at": 0.0}
-_instrument_map = {}   # "RELIANCE" → "NSE_EQ|INE002A01018"
+_instrument_map        = {}     # "RELIANCE" → "NSE_EQ|INE002A01018"
+_instrument_map_loaded = False  # True once a download was attempted (prevents re-fetch on empty result)
 SET_TOKEN_SECRET = os.environ.get("SET_TOKEN_SECRET", "")
 
 TOKEN_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "token.json")
@@ -479,9 +480,10 @@ def _upstox_headers():
 
 def _load_instrument_map():
     """Download Upstox NSE instruments CSV and build symbol → key mapping."""
-    global _instrument_map
-    if _instrument_map:
+    global _instrument_map, _instrument_map_loaded
+    if _instrument_map_loaded:
         return _instrument_map
+    _instrument_map_loaded = True
     try:
         r = _http.get(
             "https://assets.upstox.com/market-quote/instruments/exchange/NSE.csv.gz",
@@ -499,7 +501,16 @@ def _load_instrument_map():
             print(f"[Upstox] Unexpected CSV columns: {cols[:15]}")
             return _instrument_map
 
-        eq = df[df[ser_col] == "EQ"] if ser_col else df
+        if ser_col:
+            # Upstox CSV uses "EQ" (older) or "EQUITY" (newer instrument_type column)
+            eq = df[df[ser_col].isin(["EQ", "EQUITY"])]
+            if eq.empty:
+                print(f"[Upstox] EQ/EQUITY filter returned 0 rows. "
+                      f"ser_col={ser_col!r}, unique values: {df[ser_col].unique()[:10].tolist()}")
+                eq = df  # fallback: include all instruments
+        else:
+            eq = df
+
         _instrument_map = dict(zip(eq[sym_col].astype(str), eq[key_col].astype(str)))
         print(f"[Upstox] Loaded {len(_instrument_map)} NSE EQ instrument keys")
     except Exception as e:
@@ -1606,6 +1617,21 @@ def oi_buildup():
         })
     data = _cached("oi_buildup", _compute_oi_signals, ttl=OI_TTL)
     return jsonify({**data, "is_live": True})
+
+
+@app.route("/api/debug/imap")
+def debug_imap():
+    """Quick check: how many symbols are in the instrument map, and is a given symbol findable."""
+    imap   = _load_instrument_map()
+    sample = dict(list(imap.items())[:5]) if imap else {}
+    syms   = request.args.get("sym", "").upper().split(",")
+    lookup = {s: imap.get(s) for s in syms if s}
+    return jsonify({
+        "loaded":         _instrument_map_loaded,
+        "symbol_count":   len(imap),
+        "sample_entries": sample,
+        "lookup":         lookup or "pass ?sym=RELIANCE,ALKYLAMINE to check specific symbols",
+    })
 
 
 @app.route("/api/debug/screener")
