@@ -708,7 +708,7 @@
       padding: 0 10px 6px; font-size: 10px; flex-wrap: wrap;
     }
     .tv-widget-wrap {
-      width: 100%; height: 150px;
+      width: 100%; height: 180px;
       border-top: 1px solid var(--border);
       background: rgba(0,0,0,.15);
       display: flex; align-items: center; justify-content: center;
@@ -1515,31 +1515,36 @@
   function _createTVWidget(container, symbol) {
     container.innerHTML = '';
     const theme = document.documentElement.dataset.theme === 'light' ? 'light' : 'dark';
-    // TradingView mini-symbol-overview reads script textContent as its JSON config
-    const wrap = document.createElement('div');
-    wrap.style.cssText = 'width:100%;height:150px;overflow:hidden;';
+    // embed-widget-advanced-chart supports NSE/BSE India stocks (mini-symbol-overview is restricted)
+    const widgetCtr = document.createElement('div');
+    widgetCtr.className = 'tradingview-widget-container';
+    widgetCtr.style.cssText = 'height:180px;width:100%;';
     const inner = document.createElement('div');
-    wrap.appendChild(inner);
+    inner.className = 'tradingview-widget-container__widget';
+    inner.style.cssText = 'height:calc(100% - 32px);width:100%;';
     const s = document.createElement('script');
     s.type  = 'text/javascript';
     s.async = true;
-    s.src   = 'https://s3.tradingview.com/external-embedding/embed-widget-mini-symbol-overview.js';
+    s.src   = 'https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js';
     s.textContent = JSON.stringify({
-      symbol:                `NSE:${symbol}`,
-      width:                 '100%',
-      height:                150,
-      locale:                'en',
-      dateRange:             '1D',
-      colorTheme:            theme,
-      trendLineColor:        'rgba(79, 142, 247, 1)',
-      underLineColor:        'rgba(79, 142, 247, 0.12)',
-      underLineBottomColor:  'rgba(79, 142, 247, 0)',
-      isTransparent:         true,
-      autosize:              false,
-      largeChartUrl:         `https://www.tradingview.com/chart/?symbol=NSE:${symbol}`,
+      autosize:           true,
+      symbol:             `NSE:${symbol}`,
+      interval:           '5',
+      timezone:           'Asia/Kolkata',
+      theme:              theme,
+      style:              '1',
+      locale:             'en',
+      allow_symbol_change: false,
+      calendar:           false,
+      support_host:       'https://www.tradingview.com',
+      hide_top_toolbar:   true,
+      hide_legend:        true,
+      hide_side_toolbar:  true,
+      withdateranges:     false,
     });
-    wrap.appendChild(s);
-    container.appendChild(wrap);
+    widgetCtr.appendChild(inner);
+    widgetCtr.appendChild(s);
+    container.appendChild(widgetCtr);
   }
 
   // ── Four setup loaders ────────────────────────────────────────
