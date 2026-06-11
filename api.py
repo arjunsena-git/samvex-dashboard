@@ -305,7 +305,7 @@ def _merge_with_history(active: list, setup: int, direction: str) -> list:
       detected_at    str  — HH:MM IST of the BOS/CHoCH candle (when the move happened)
       first_shown_at str  — HH:MM IST when the dashboard first displayed this signal
                              (can be later than detected_at — the screener needs
-                             >=5 completed 15-min bars, i.e. ~10:30 AM IST, before
+                             >=2 completed 15-min bars, i.e. ~9:45 AM IST, before
                              it can compute anything)
     """
     ist       = pytz.timezone("Asia/Kolkata")
@@ -862,7 +862,7 @@ def _get_ticker_df(batch, ticker):
 #   Bearish: prior higher-high structure on 15-min, price broke below most recent swing low.
 #
 # Common gates (all setups):
-#   • ≥ 5 intraday 15-min bars (ready ~10:30 AM IST)
+#   • >= 2 intraday 15-min bars (ready ~9:45 AM IST — sweep + BOS candle)
 #   • Price > ₹100
 #   • Paced day volume ≥ 1.2× prev day
 #   • Volume spike on BOS/CHoCH candle ≥ 1.5× avg intraday candle volume
@@ -926,7 +926,7 @@ def _screen_smc(setup: int, direction: str) -> list:
             except Exception:
                 today_bars = intra.iloc[:0]
 
-            if len(today_bars) < 5:    # Need ≥ 5 bars for swing detection
+            if len(today_bars) < 2:    # Need >= 2 bars: a sweep candle + a BOS candle
                 continue
 
             pdh        = float(daily["High"].iloc[-2])
@@ -1406,8 +1406,9 @@ def auth_status():
 
 
 def _smc_ready() -> bool:
-    """SMC signals need ≥ 5 completed 15-min bars for swing detection (~10:30 AM IST)."""
-    return datetime.now(pytz.timezone("Asia/Kolkata")).time() >= _dtime(10, 30)
+    """SMC signals need >= 2 completed 15-min bars (sweep + BOS candle), i.e. ~9:45 AM IST.
+    Earlier than this there's no second bar for a BOS to even be possible."""
+    return datetime.now(pytz.timezone("Asia/Kolkata")).time() >= _dtime(9, 45)
 
 @app.route("/api/setup1/bullish")
 def api_s1_bull():
@@ -1442,7 +1443,7 @@ def signals_backfill():
     """Re-run the SMC screener for all 4 panels and refresh the signal store.
     Use this when the server was restarted after market open and _signal_store is empty."""
     if not _smc_ready():
-        return jsonify({"error": "Not enough intraday bars yet — SMC requires 10:30 AM IST."}), 400
+        return jsonify({"error": "Not enough intraday bars yet — SMC requires 9:45 AM IST."}), 400
     ist = pytz.timezone("Asia/Kolkata")
     today_str = datetime.now(ist).strftime("%Y-%m-%d")
     panels = {}
@@ -1469,7 +1470,7 @@ def signals_backfill():
 def signals_backfill_csv():
     """CSV version of /api/signals/backfill for direct download."""
     if not _smc_ready():
-        return Response("# SMC screener needs 10:30 AM IST", mimetype="text/csv")
+        return Response("# SMC screener needs 9:45 AM IST", mimetype="text/csv")
     ist = pytz.timezone("Asia/Kolkata")
     today_str = datetime.now(ist).strftime("%Y-%m-%d")
     headers = ["Panel","Symbol","Setup","Price","Gap%","PDH","PDL",
@@ -1800,7 +1801,7 @@ def _build_screen_debug() -> dict:
         except Exception:
             today_bars = intra.iloc[:0]
 
-        if len(today_bars) < 5:
+        if len(today_bars) < 2:
             funnel["few_bars"] += 1
             if len(stale_sample) < 3:
                 stale_sample.append({"symbol": symbol.replace(".NS", ""), "bars_today": len(today_bars)})
@@ -1983,7 +1984,7 @@ def debug_screen_ui():
     wf = ""
     for label, key, color in [
         ("No intraday data",      "no_intra_data",    "#8892a4"),
-        ("< 5 bars (pre-10:30)", "few_bars",          "#8892a4"),
+        ("< 2 bars (pre-9:45)",  "few_bars",          "#8892a4"),
         ("No prev-day data",      "no_prev_data",     "#8892a4"),
         ("Price < Rs100",         "price_below_100",  "#8892a4"),
         ("Volume < 1.2x",         "vol_under_1_2x",   "#fb923c"),
