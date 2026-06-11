@@ -197,8 +197,6 @@ except OSError as _e:
 _PANEL_LABELS = {
     (1, "bullish"): "Setup 1 — Liquidity Sweep → BOS (Bullish · Sweep PDL → Break PDH)",
     (1, "bearish"): "Setup 1 — Liquidity Sweep → BOS (Bearish · Sweep PDH → Break PDL)",
-    (2, "bullish"): "Setup 2 — CHoCH (Bullish · Lower-low structure → Break swing high)",
-    (2, "bearish"): "Setup 2 — CHoCH (Bearish · Higher-high structure → Break swing low)",
 }
 
 def _signals_path(date_str: str) -> str:
@@ -271,28 +269,6 @@ def _load_persisted_history() -> None:
         print(f"[History] load error: {exc}")
 
 
-def _get_or_run_screen(setup: int, direction: str) -> list:
-    """Return today's locked signals for this panel, running the screener only
-    once on first call after 9:30 AM IST and freezing results for the day."""
-    ist = pytz.timezone("Asia/Kolkata")
-    today_str = datetime.now(ist).strftime("%Y-%m-%d")
-    key = (setup, direction, today_str)
-
-    if key in _signal_store:
-        return _signal_store[key]
-
-    # First run: _cached() deduplicates concurrent requests during the scan
-    cache_key = f"s{setup}_{'bull' if direction == 'bullish' else 'bear'}"
-    results = _cached(cache_key, _screen_smc, setup, direction, ttl=SCREEN_TTL)
-
-    # Lock for the rest of the day and persist to disk
-    _signal_store[key] = results
-    threading.Thread(target=_persist_signals, args=(today_str,), daemon=True).start()
-    locked = "bullish ✓" if direction == "bullish" else "bearish ✓"
-    print(f"[Signals] Locked setup{setup} {locked}: {len(results)} signals @ {today_str}")
-    return results
-
-
 def _merge_with_history(active: list, setup: int, direction: str) -> list:
     """Merge live screener results with today's signal history.
 
@@ -302,7 +278,7 @@ def _merge_with_history(active: list, setup: int, direction: str) -> list:
 
     Each enriched signal gains three fields:
       is_active      bool — True if currently meeting all screener criteria
-      detected_at    str  — HH:MM IST of the BOS/CHoCH candle (when the move happened)
+      detected_at    str  — HH:MM IST of the BOS candle (when the move happened)
       first_shown_at str  — HH:MM IST when the dashboard first displayed this signal
                              (can be later than detected_at — the screener needs
                              >=2 completed 15-min bars, i.e. ~9:45 AM IST, before
@@ -857,15 +833,11 @@ def _get_ticker_df(batch, ticker):
 #   Bullish: today's low swept below PDL (stop hunt), price then broke above PDH.
 #   Bearish: today's high swept above PDH (stop hunt), price then broke below PDL.
 #
-# Setup 2 — CHoCH (Change of Character)
-#   Bullish: prior lower-low structure on 15-min, price broke above most recent swing high.
-#   Bearish: prior higher-high structure on 15-min, price broke below most recent swing low.
-#
-# Common gates (all setups):
+# Gates:
 #   • >= 2 intraday 15-min bars (ready ~9:45 AM IST — sweep + BOS candle)
 #   • Price > ₹100
 #   • Paced day volume ≥ 1.2× prev day
-#   • Volume spike on BOS/CHoCH candle ≥ 1.5× avg intraday candle volume
+#   • Volume spike on BOS candle ≥ 1.5× avg intraday candle volume
 #   • Current price within 2% of day extreme — no reversal
 #   • Nifty 50 not opposing direction by > 1%
 
@@ -886,7 +858,7 @@ def _detect_swings(highs: list, lows: list, lookback: int = 2):
     return sh, sl
 
 
-def _screen_smc(setup: int, direction: str) -> list:
+def _screen_smc(direction: str) -> list:
     """SMC/ICT screener — see module comment block above for full logic."""
     universe    = _load_nifty500() or _get_fno_universe()
     batch_15m   = _get_15m_batch()
@@ -980,7 +952,7 @@ def _screen_smc(setup: int, direction: str) -> list:
 
             signal = None
 
-            # BOS/CHoCH must have formed within the last 3 bars (45 min).
+            # BOS must have formed within the last 3 bars (45 min).
             # Without this, a 9:45 AM move fires again at 14:52 PM.
             _FRESH = 3
 
@@ -992,110 +964,53 @@ def _screen_smc(setup: int, direction: str) -> list:
                 except Exception:
                     return datetime.now(ist).strftime("%H:%M")
 
-            if setup == 1:
-                # ── Liquidity Sweep → BOS ─────────────────────────
-                if bullish:
-                    sweep_bar = next(
-                        (i for i, lo in enumerate(lows) if lo < pdl), -1
-                    )
-                    if sweep_bar < 0:
-                        continue
-                    bos_bar = next(
-                        (i for i in range(sweep_bar + 1, n_bars) if closes[i] > pdh), -1
-                    )
-                    if bos_bar < 0:
-                        continue
-                    if n_bars - 1 - bos_bar > _FRESH:
-                        continue
-                    if vols[bos_bar] < avg_candle_vol * 1.5:
-                        continue
-                    signal = {
-                        "setup_tag": "Liq. Sweep → BOS Bullish",
-                        "sl_level":  pdl,
-                        "sl_label":  "Below PDL (swept level)",
-                        "key_level": pdh,
-                        "key_label": "PDH",
-                        "bos_time":  _bar_time(bos_bar),
-                    }
-                else:
-                    sweep_bar = next(
-                        (i for i, hi in enumerate(highs) if hi > pdh), -1
-                    )
-                    if sweep_bar < 0:
-                        continue
-                    bos_bar = next(
-                        (i for i in range(sweep_bar + 1, n_bars) if closes[i] < pdl), -1
-                    )
-                    if bos_bar < 0:
-                        continue
-                    if n_bars - 1 - bos_bar > _FRESH:
-                        continue
-                    if vols[bos_bar] < avg_candle_vol * 1.5:
-                        continue
-                    signal = {
-                        "setup_tag": "Liq. Sweep → BOS Bearish",
-                        "sl_level":  pdh,
-                        "sl_label":  "Above PDH (swept level)",
-                        "key_level": pdl,
-                        "key_label": "PDL",
-                        "bos_time":  _bar_time(bos_bar),
-                    }
-
-            else:  # Setup 2: CHoCH
-                if bullish:
-                    if len(sw_lows) < 2:
-                        continue
-                    recent_ll = [p for _, p in sw_lows[-3:]]
-                    if not all(recent_ll[j] < recent_ll[j - 1] for j in range(1, len(recent_ll))):
-                        continue
-                    if not sw_highs:
-                        continue
-                    last_sh_idx, last_sh_price = sw_highs[-1]
-                    choch_bar = next(
-                        (i for i in range(last_sh_idx + 1, n_bars) if closes[i] > last_sh_price),
-                        -1,
-                    )
-                    if choch_bar < 0:
-                        continue
-                    if n_bars - 1 - choch_bar > _FRESH:
-                        continue
-                    if vols[choch_bar] < avg_candle_vol * 1.5:
-                        continue
-                    signal = {
-                        "setup_tag": "CHoCH Bullish",
-                        "sl_level":  sw_lows[-1][1],
-                        "sl_label":  "Below swing low (CHoCH anchor)",
-                        "key_level": last_sh_price,
-                        "key_label": "CHoCH level",
-                        "bos_time":  _bar_time(choch_bar),
-                    }
-                else:
-                    if len(sw_highs) < 2:
-                        continue
-                    recent_hh = [p for _, p in sw_highs[-3:]]
-                    if not all(recent_hh[j] > recent_hh[j - 1] for j in range(1, len(recent_hh))):
-                        continue
-                    if not sw_lows:
-                        continue
-                    last_sl_idx, last_sl_price = sw_lows[-1]
-                    choch_bar = next(
-                        (i for i in range(last_sl_idx + 1, n_bars) if closes[i] < last_sl_price),
-                        -1,
-                    )
-                    if choch_bar < 0:
-                        continue
-                    if n_bars - 1 - choch_bar > _FRESH:
-                        continue
-                    if vols[choch_bar] < avg_candle_vol * 1.5:
-                        continue
-                    signal = {
-                        "setup_tag": "CHoCH Bearish",
-                        "sl_level":  sw_highs[-1][1],
-                        "sl_label":  "Above swing high (CHoCH anchor)",
-                        "key_level": last_sl_price,
-                        "key_label": "CHoCH level",
-                        "bos_time":  _bar_time(choch_bar),
-                    }
+            # ── Liquidity Sweep → BOS ─────────────────────────────
+            if bullish:
+                sweep_bar = next(
+                    (i for i, lo in enumerate(lows) if lo < pdl), -1
+                )
+                if sweep_bar < 0:
+                    continue
+                bos_bar = next(
+                    (i for i in range(sweep_bar + 1, n_bars) if closes[i] > pdh), -1
+                )
+                if bos_bar < 0:
+                    continue
+                if n_bars - 1 - bos_bar > _FRESH:
+                    continue
+                if vols[bos_bar] < avg_candle_vol * 1.5:
+                    continue
+                signal = {
+                    "setup_tag": "Liq. Sweep → BOS Bullish",
+                    "sl_level":  pdl,
+                    "sl_label":  "Below PDL (swept level)",
+                    "key_level": pdh,
+                    "key_label": "PDH",
+                    "bos_time":  _bar_time(bos_bar),
+                }
+            else:
+                sweep_bar = next(
+                    (i for i, hi in enumerate(highs) if hi > pdh), -1
+                )
+                if sweep_bar < 0:
+                    continue
+                bos_bar = next(
+                    (i for i in range(sweep_bar + 1, n_bars) if closes[i] < pdl), -1
+                )
+                if bos_bar < 0:
+                    continue
+                if n_bars - 1 - bos_bar > _FRESH:
+                    continue
+                if vols[bos_bar] < avg_candle_vol * 1.5:
+                    continue
+                signal = {
+                    "setup_tag": "Liq. Sweep → BOS Bearish",
+                    "sl_level":  pdh,
+                    "sl_label":  "Above PDH (swept level)",
+                    "key_level": pdl,
+                    "key_label": "PDL",
+                    "bos_time":  _bar_time(bos_bar),
+                }
 
             if not signal:
                 continue
@@ -1127,7 +1042,7 @@ def _screen_smc(setup: int, direction: str) -> list:
             vol_s   = min((vol_ratio - 1.2) / 1.3, 1.0) * 40
             prox_r  = (current_price / day_high) if bullish else (day_low / current_price)
             prox_s  = max(prox_r - 0.98, 0.0) / 0.02 * 35
-            str_s   = 25 if setup == 1 else 20
+            str_s   = 25
             conf_score = round(vol_s + prox_s + str_s)
             conf_label = "STRONG" if conf_score >= 65 else "GOOD" if conf_score >= 40 else "WATCH"
 
@@ -1334,7 +1249,7 @@ def oauth_callback():
     threading.Thread(target=_load_futures_map, daemon=True).start()
 
     # Clear screener cache so next load uses live data immediately
-    for k in ("s1_bull", "s1_bear", "s2_bull", "s2_bear",
+    for k in ("s1_bull", "s1_bear",
               "live_quotes", "15m_batch", "ticker", "oi_buildup", "market"):
         _cache.pop(k, None)
 
@@ -1377,7 +1292,7 @@ def set_token():
     _upstox_token["expires_at"]   = time.time() + 23 * 3600
     _save_token(_upstox_token["access_token"], _upstox_token["expires_at"])
     # Invalidate screener cache so next request uses live data immediately
-    for k in ("s1_bull", "s1_bear", "s2_bull", "s2_bear",
+    for k in ("s1_bull", "s1_bear",
               "live_quotes", "15m_batch", "ticker", "oi_buildup", "market"):
         _cache.pop(k, None)
     threading.Thread(target=_load_instrument_map, daemon=True).start()
@@ -1414,47 +1329,32 @@ def _smc_ready() -> bool:
 def api_s1_bull():
     if not _smc_ready():
         return jsonify([])
-    active = _cached("s1_bull", _screen_smc, 1, "bullish", ttl=SCREEN_TTL)
+    active = _cached("s1_bull", _screen_smc, "bullish", ttl=SCREEN_TTL)
     return jsonify(_merge_with_history(active, 1, "bullish"))
 
 @app.route("/api/setup1/bearish")
 def api_s1_bear():
     if not _smc_ready():
         return jsonify([])
-    active = _cached("s1_bear", _screen_smc, 1, "bearish", ttl=SCREEN_TTL)
+    active = _cached("s1_bear", _screen_smc, "bearish", ttl=SCREEN_TTL)
     return jsonify(_merge_with_history(active, 1, "bearish"))
-
-@app.route("/api/setup2/bullish")
-def api_s2_bull():
-    if not _smc_ready():
-        return jsonify([])
-    active = _cached("s2_bull", _screen_smc, 2, "bullish", ttl=SCREEN_TTL)
-    return jsonify(_merge_with_history(active, 2, "bullish"))
-
-@app.route("/api/setup2/bearish")
-def api_s2_bear():
-    if not _smc_ready():
-        return jsonify([])
-    active = _cached("s2_bear", _screen_smc, 2, "bearish", ttl=SCREEN_TTL)
-    return jsonify(_merge_with_history(active, 2, "bearish"))
 
 @app.route("/api/signals/backfill")
 def signals_backfill():
-    """Re-run the SMC screener for all 4 panels and refresh the signal store.
+    """Re-run the SMC screener for both directions and refresh the signal store.
     Use this when the server was restarted after market open and _signal_store is empty."""
     if not _smc_ready():
         return jsonify({"error": "Not enough intraday bars yet — SMC requires 9:45 AM IST."}), 400
     ist = pytz.timezone("Asia/Kolkata")
     today_str = datetime.now(ist).strftime("%Y-%m-%d")
     panels = {}
-    for setup in [1, 2]:
-        for direction in ["bullish", "bearish"]:
-            label   = _PANEL_LABELS.get((setup, direction), "")
-            signals = _screen_smc(setup, direction)
-            panels[label] = signals
-            key = (setup, direction, today_str)
-            if key not in _signal_store:
-                _signal_store[key] = signals
+    for direction in ["bullish", "bearish"]:
+        label   = _PANEL_LABELS.get((1, direction), "")
+        signals = _screen_smc(direction)
+        panels[label] = signals
+        key = (1, direction, today_str)
+        if key not in _signal_store:
+            _signal_store[key] = signals
     threading.Thread(target=_persist_signals, args=(today_str,), daemon=True).start()
     total = sum(len(v) for v in panels.values())
     print(f"[Backfill] Refreshed {total} SMC signals for {today_str}")
@@ -1462,7 +1362,7 @@ def signals_backfill():
         "date":   today_str,
         "panels": panels,
         "total":  total,
-        "note":   "SMC screener refreshed. Signals: Liquidity Sweep→BOS (S1) and CHoCH (S2).",
+        "note":   "SMC screener refreshed. Signal: Liquidity Sweep→BOS (S1).",
     })
 
 
@@ -1482,23 +1382,22 @@ def signals_backfill_csv():
         "",
         ",".join(headers),
     ]
-    for setup in [1, 2]:
-        for direction in ["bullish", "bearish"]:
-            label   = _PANEL_LABELS.get((setup, direction), "")
-            signals = _screen_smc(setup, direction)
-            for s in signals:
-                rows.append(",".join(str(x) for x in [
-                    f'"{label}"',
-                    s.get("symbol",""), s.get("setup",""),
-                    s.get("price",""), s.get("gap_pct",""),
-                    s.get("pdh",""), s.get("pdl",""),
-                    s.get("key_level",""), s.get("key_label",""),
-                    s.get("volume_ratio",""),
-                    s.get("confidence_score",""), s.get("confidence_label",""),
-                    s.get("demand_zone",""), s.get("supply_zone",""),
-                    s.get("entry",""), s.get("sl",""), s.get("sl_pct",""),
-                    s.get("t1",""), s.get("t2",""), s.get("risk_reward",""),
-                ]))
+    for direction in ["bullish", "bearish"]:
+        label   = _PANEL_LABELS.get((1, direction), "")
+        signals = _screen_smc(direction)
+        for s in signals:
+            rows.append(",".join(str(x) for x in [
+                f'"{label}"',
+                s.get("symbol",""), s.get("setup",""),
+                s.get("price",""), s.get("gap_pct",""),
+                s.get("pdh",""), s.get("pdl",""),
+                s.get("key_level",""), s.get("key_label",""),
+                s.get("volume_ratio",""),
+                s.get("confidence_score",""), s.get("confidence_label",""),
+                s.get("demand_zone",""), s.get("supply_zone",""),
+                s.get("entry",""), s.get("sl",""), s.get("sl_pct",""),
+                s.get("t1",""), s.get("t2",""), s.get("risk_reward",""),
+            ]))
     return Response(
         "\n".join(rows),
         mimetype="text/csv",
@@ -1777,8 +1676,6 @@ def _build_screen_debug() -> dict:
         "setup_fail":      0,
         "s1_bull":         0,
         "s1_bear":         0,
-        "s2_bull":         0,
-        "s2_bear":         0,
     }
 
     stale_sample = []
@@ -1895,44 +1792,6 @@ def _build_screen_debug() -> dict:
         else:
             row["why_no_setup"].append("S1 Bear: BOS candle volume insufficient")
 
-        # S2 Bull CHoCH
-        if len(sw_lows) >= 2 and sw_highs:
-            recent_ll = [p for _, p in sw_lows[-3:]]
-            is_down   = all(recent_ll[j] < recent_ll[j-1] for j in range(1, len(recent_ll)))
-            last_sh_idx, last_sh_price = sw_highs[-1]
-            choch_bull = next((i for i in range(last_sh_idx + 1, n_bars)
-                               if closes[i] > last_sh_price), -1)
-            if is_down and choch_bull >= 0 and vols[choch_bull] >= avg_vol * 1.5 and near_high:
-                funnel["s2_bull"] += 1
-                row["setups_hit"].append("S2_BULL")
-            else:
-                reason = ("not near day high" if not near_high
-                          else "not downtrend structure" if not is_down
-                          else "no CHoCH break" if choch_bull < 0
-                          else "CHoCH volume insufficient")
-                row["why_no_setup"].append(f"S2 Bull CHoCH: {reason}")
-        else:
-            row["why_no_setup"].append(f"S2 Bull CHoCH: insufficient swings (lows={len(sw_lows)}, highs={len(sw_highs)})")
-
-        # S2 Bear CHoCH
-        if len(sw_highs) >= 2 and sw_lows:
-            recent_hh = [p for _, p in sw_highs[-3:]]
-            is_up     = all(recent_hh[j] > recent_hh[j-1] for j in range(1, len(recent_hh)))
-            last_sl_idx, last_sl_price = sw_lows[-1]
-            choch_bear = next((i for i in range(last_sl_idx + 1, n_bars)
-                               if closes[i] < last_sl_price), -1)
-            if is_up and choch_bear >= 0 and vols[choch_bear] >= avg_vol * 1.5 and near_low:
-                funnel["s2_bear"] += 1
-                row["setups_hit"].append("S2_BEAR")
-            else:
-                reason = ("not near day low" if not near_low
-                          else "not uptrend structure" if not is_up
-                          else "no CHoCH break" if choch_bear < 0
-                          else "CHoCH volume insufficient")
-                row["why_no_setup"].append(f"S2 Bear CHoCH: {reason}")
-        else:
-            row["why_no_setup"].append(f"S2 Bear CHoCH: insufficient swings (lows={len(sw_lows)}, highs={len(sw_highs)})")
-
         if not row["setups_hit"]:
             funnel["setup_fail"] += 1
 
@@ -1975,7 +1834,7 @@ def debug_screen_ui():
 
     src_label = "UPSTOX LIVE" if d["data_source"] == "upstox_live" else "YAHOO 15-MIN DELAY"
     src_color = "#22c55e"     if d["data_source"] == "upstox_live" else "#f59e0b"
-    fired     = f["s1_bull"] + f["s1_bear"] + f["s2_bull"] + f["s2_bear"]
+    fired     = f["s1_bull"] + f["s1_bear"]
     fired_cls = "bg" if fired > 0 else ""
     fired_s   = "s" if fired != 1 else ""
 
@@ -2126,8 +1985,6 @@ def debug_screen_ui():
         "<div class='fbreaks'>"
         f"<span>S1 Breakout: <strong style='color:#22c55e'>{f['s1_bull']}</strong> bull "
         f"/ <strong style='color:#ef4444'>{f['s1_bear']}</strong> bear</span>"
-        f"<span>S2 Trap: <strong style='color:#22c55e'>{f['s2_bull']}</strong> bear trap "
-        f"/ <strong style='color:#ef4444'>{f['s2_bear']}</strong> bull trap</span>"
         "</div></div>"
         "<div class='section'>"
         f"<div class='sh'><h2>SMC Signals That Fired</h2>"
@@ -2316,8 +2173,6 @@ def _generate_setup_explanations(setup: int, direction: str, results: list) -> l
         setup_names = {
             (1, "bullish"): "SMC Bullish — liquidity sweep below PDL followed by BOS above PDH",
             (1, "bearish"): "SMC Bearish — liquidity sweep above PDH followed by BOS below PDL",
-            (2, "bullish"): "CHoCH Bullish — lower-low intraday structure, price broke above swing high",
-            (2, "bearish"): "CHoCH Bearish — higher-high intraday structure, price broke below swing low",
         }
         setup_name = setup_names.get((setup, direction), "")
 
@@ -2370,13 +2225,12 @@ def insights_setup_explain():
     setup_key = flask_req.args.get("setup", "s1_bull")
     setup_map = {
         "s1_bull": (1, "bullish"), "s1_bear": (1, "bearish"),
-        "s2_bull": (2, "bullish"), "s2_bear": (2, "bearish"),
     }
     if setup_key not in setup_map:
         return jsonify({"error": "invalid setup"}), 400
     setup_num, direction = setup_map[setup_key]
     cached  = _cache.get(setup_key)
-    results = cached[0] if cached else _screen_smc(setup_num, direction)
+    results = cached[0] if cached else _screen_smc(direction)
     if not results:
         return jsonify({"explanations": [], "enabled": True})
     cache_key    = f"ai_explain_{setup_key}"

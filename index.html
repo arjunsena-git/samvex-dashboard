@@ -144,7 +144,7 @@
     /* ── Top summary cards ───────────────────────────────────────── */
     .summary-row {
       display: grid;
-      grid-template-columns: repeat(4, 1fr);
+      grid-template-columns: repeat(3, 1fr);
       gap: 14px;
       margin-bottom: 20px;
     }
@@ -828,11 +828,6 @@
       <div class="value" id="s1-count" style="color:var(--green)">—</div>
       <div class="sub">Setup 1 · PDH breakouts &amp; PDL breakdowns</div>
     </div>
-    <div class="summary-card">
-      <div class="label">Trap Signals</div>
-      <div class="value" id="s2-count" style="color:var(--accent)">—</div>
-      <div class="sub">Setup 2 · Bear traps &amp; bull traps</div>
-    </div>
   </div>
 
   <!-- ── CSV download row ─────────────────────────────────────────── -->
@@ -935,84 +930,6 @@
           <th>PDL / Key Level</th><th>Volume</th><th>Score</th><th>Trade Plan</th>
         </tr></thead>
         <tbody id="s1-bear-body">
-          <tr><td colspan="7"><div class="empty-state"><div class="spinner"></div>Loading…</div></td></tr>
-        </tbody>
-      </table>
-      </div>
-    </div>
-
-  </div>
-
-  <!-- ── Setup 2: CHoCH (Change of Character) ─────────────────────── -->
-  <div class="section-divider" id="s2-divider" style="margin-top:24px;">
-    <div class="section-divider-line"></div>
-    <div class="section-divider-title">Setup 2 — CHoCH (Change of Character) · Top 5 High-Conviction Signals Only (GOOD+ Score)</div>
-    <div class="section-divider-line"></div>
-  </div>
-  <div class="scanner-grid" id="s2-table-grid">
-
-    <!-- Setup 2 Bullish: CHoCH -->
-    <div class="panel">
-      <div class="panel-header">
-        <div class="panel-title">
-          <span class="dot dot-green"></span>
-          CHoCH Bullish &nbsp;<span style="font-size:11px;color:var(--text-muted);font-weight:400;">Lower-low structure → Break swing high</span>
-        </div>
-        <div style="display:flex;gap:6px;align-items:center;">
-          <a class="diag-link diagnose-link" target="_blank" rel="noopener">Diagnose ↗</a>
-          <button class="refresh-btn" onclick="loadS2Bullish()">↺ Refresh</button>
-          <button class="expand-btn" onclick="expandPanel(this)" title="Full screen (Esc to close)">⤢ Expand</button>
-        </div>
-      </div>
-      <div class="criteria-row">
-        <span class="chip chip-orange">Prior lower-low structure</span>
-        <span class="chip chip-green">Close &gt; last swing high</span>
-        <span class="chip chip-green">CHoCH candle vol ≥1.5×avg</span>
-        <span class="chip chip-green">Price within 2% of day high</span>
-        <span class="chip chip-blue">Vol ≥1.2×</span>
-        <span class="chip chip-orange">Max 5 · GOOD+ only</span>
-      </div>
-      <div class="table-wrap">
-      <table>
-        <thead><tr>
-          <th>Symbol</th><th>Price</th><th>Gap</th>
-          <th>PDL / Key Level</th><th>Volume</th><th>Score</th><th>Trade Plan</th>
-        </tr></thead>
-        <tbody id="s2-bull-body">
-          <tr><td colspan="7"><div class="empty-state"><div class="spinner"></div>Loading…</div></td></tr>
-        </tbody>
-      </table>
-      </div>
-    </div>
-
-    <!-- Setup 2 Bearish: CHoCH -->
-    <div class="panel">
-      <div class="panel-header">
-        <div class="panel-title">
-          <span class="dot dot-red"></span>
-          CHoCH Bearish &nbsp;<span style="font-size:11px;color:var(--text-muted);font-weight:400;">Higher-high structure → Break swing low</span>
-        </div>
-        <div style="display:flex;gap:6px;align-items:center;">
-          <a class="diag-link diagnose-link" target="_blank" rel="noopener">Diagnose ↗</a>
-          <button class="refresh-btn" onclick="loadS2Bearish()">↺ Refresh</button>
-          <button class="expand-btn" onclick="expandPanel(this)" title="Full screen (Esc to close)">⤢ Expand</button>
-        </div>
-      </div>
-      <div class="criteria-row">
-        <span class="chip chip-orange">Prior higher-high structure</span>
-        <span class="chip chip-red">Close &lt; last swing low</span>
-        <span class="chip chip-red">CHoCH candle vol ≥1.5×avg</span>
-        <span class="chip chip-red">Price within 2% of day low</span>
-        <span class="chip chip-blue">Vol ≥1.2×</span>
-        <span class="chip chip-orange">Max 5 · GOOD+ only</span>
-      </div>
-      <div class="table-wrap">
-      <table>
-        <thead><tr>
-          <th>Symbol</th><th>Price</th><th>Gap</th>
-          <th>PDH / Key Level</th><th>Volume</th><th>Score</th><th>Trade Plan</th>
-        </tr></thead>
-        <tbody id="s2-bear-body">
           <tr><td colspan="7"><div class="empty-state"><div class="spinner"></div>Loading…</div></td></tr>
         </tbody>
       </table>
@@ -1317,7 +1234,7 @@
         <span style="color:var(--text-muted);font-size:11px;display:block;margin-top:6px;">
           ${preMarket
             ? "SMC screener activates at 9:45 AM IST when the first 2 bars have formed"
-            : "Screener refreshes every 5 min · signals appear when Liq. Sweep→BOS or CHoCH conditions are met"}
+            : "Screener refreshes every 5 min · signals appear when Liq. Sweep→BOS conditions are met"}
         </span>
         <span style="display:block;margin-top:8px;">
           <a href="${API}/debug/screen" target="_blank" rel="noopener"
@@ -1451,11 +1368,9 @@
   const _PANEL_CONFIGS = [
     { key: 's1-bull', label: 'Liq. Sweep → BOS', sub: 'Bullish', dot: 'dot-green', color: 'var(--green)' },
     { key: 's1-bear', label: 'Liq. Sweep → BOS', sub: 'Bearish', dot: 'dot-red',   color: 'var(--red)'   },
-    { key: 's2-bull', label: 'CHoCH',             sub: 'Bullish', dot: 'dot-green', color: 'var(--green)' },
-    { key: 's2-bear', label: 'CHoCH',             sub: 'Bearish', dot: 'dot-red',   color: 'var(--red)'   },
   ];
 
-  const _SCANNER_ELS = ['s1-divider','s1-table-grid','s2-divider','s2-table-grid'];
+  const _SCANNER_ELS = ['s1-divider','s1-table-grid'];
 
   function toggleChartMode() {
     _chartModeActive = !_chartModeActive;
@@ -1664,8 +1579,7 @@
       renderSetupRows(data, tbodyId, direction, refLevelKey, panelKey);
       if (countId) document.getElementById(countId).textContent = data.length;
       // Non-blocking: load AI insights after table is visible
-      const sk = endpoint.includes("setup1") ? (direction === "bullish" ? "s1_bull" : "s1_bear")
-                                              : (direction === "bullish" ? "s2_bull" : "s2_bear");
+      const sk = direction === "bullish" ? "s1_bull" : "s1_bear";
       loadInsights(sk, tbodyId, data);
       return data;
     } catch (e) {
@@ -1694,9 +1608,6 @@
       document.getElementById("top-loser-val").textContent = `${data[0].gap_pct.toFixed(2)}%  ₹${data[0].price}`;
     }
   }
-  async function loadS2Bullish() { return _loadSetup("setup2/bullish", "s2-bull-body", "bullish", "pdl", "s2-count", "Setup 2 — CHoCH Bullish (Lower-low structure → Break swing high)"); }
-  async function loadS2Bearish() { return _loadSetup("setup2/bearish", "s2-bear-body", "bearish", "pdh", null,      "Setup 2 — CHoCH Bearish (Higher-high structure → Break swing low)"); }
-
   // ── AI Market Brief ───────────────────────────────────────────
   async function loadMarketBrief() {
     const card   = document.getElementById("ai-brief-card");
@@ -2032,7 +1943,7 @@
   // ── Auto-refresh every 5 min ──────────────────────────────────
   async function refreshAll() {
     await Promise.all([loadMarket(), loadStatus()]);
-    await Promise.all([loadS1Bullish(), loadS1Bearish(), loadS2Bullish(), loadS2Bearish()]);
+    await Promise.all([loadS1Bullish(), loadS1Bearish()]);
     await Promise.all([loadTicker(), loadOI(), loadMarketBrief()]);
     stampUpdated();
   }
