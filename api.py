@@ -1091,12 +1091,12 @@ def _screen_smc(direction: str) -> list:
 #
 # Gates:
 #   • Active only 9:15 AM – 2:00 PM IST (avoid fresh shorts into the close)
-#   • Day change vs prev close ≥ +3% (the "huge rally")
+#   • Day change vs prev close ≥ +7% (the "huge rally")
 #   • Current price ≥ 0.3% off the day high (pullback already underway)
 #   • Paced day volume ≥ 1.3× prev day volume (real participation)
 #   • Latest completed candle closed red (close < open)
 #   • Nifty 50 not up more than 1% (don't fight a strongly bullish market)
-EXH_RALLY_PCT    = 3.0   # min day gain vs prev close to qualify as a "huge rally"
+EXH_RALLY_PCT    = 7.0   # min day gain vs prev close to qualify as a "huge rally"
 EXH_PULLBACK_PCT = 0.3   # min pullback off day high
 EXH_VOL_RATIO    = 1.3   # min paced-volume ratio vs prev day
 
@@ -1202,7 +1202,7 @@ def _screen_exhaustion_short() -> list:
             t2     = round(current_price - risk * 3.0, 2)
 
             # Confidence 0–100: rally size (40) + pullback depth (35) + volume (25)
-            rally_s      = min(day_chg_pct / 6.0, 1.0) * 40
+            rally_s      = min(day_chg_pct / 14.0, 1.0) * 40
             pullback_pct = (day_high - current_price) / day_high * 100
             pull_s       = min(pullback_pct / 1.5, 1.0) * 35
             vol_s        = min((vol_ratio - EXH_VOL_RATIO) / 1.0, 1.0) * 25
