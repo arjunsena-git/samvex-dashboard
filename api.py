@@ -197,6 +197,7 @@ except OSError as _e:
 _PANEL_LABELS = {
     (1, "bullish"): "Setup 1 — Liquidity Sweep → BOS (Bullish · Sweep PDL → Break PDH)",
     (1, "bearish"): "Setup 1 — Liquidity Sweep → BOS (Bearish · Sweep PDH → Break PDL)",
+    (2, "bearish"): "Exhaustion Short — Profit Booking After Rally (9:15 AM–2:00 PM)",
 }
 
 def _signals_path(date_str: str) -> str:
@@ -1082,6 +1083,175 @@ def _screen_smc(direction: str) -> list:
     return [r for r in results if r["confidence_score"] >= 40][:5]
 
 
+# Exhaustion Short — Profit Booking After Rally
+#   A stock that has rallied hard intraday on strong volume but has started
+#   pulling back from the day's high, with the latest completed 15-min candle
+#   turning red — classic "profit booking" exhaustion, good for an intraday
+#   short in the cash segment.
+#
+# Gates:
+#   • Active only 9:15 AM – 2:00 PM IST (avoid fresh shorts into the close)
+#   • Day change vs prev close ≥ +3% (the "huge rally")
+#   • Current price ≥ 0.3% off the day high (pullback already underway)
+#   • Paced day volume ≥ 1.3× prev day volume (real participation)
+#   • Latest completed candle closed red (close < open)
+#   • Nifty 50 not up more than 1% (don't fight a strongly bullish market)
+EXH_RALLY_PCT    = 3.0   # min day gain vs prev close to qualify as a "huge rally"
+EXH_PULLBACK_PCT = 0.3   # min pullback off day high
+EXH_VOL_RATIO    = 1.3   # min paced-volume ratio vs prev day
+
+
+def _screen_exhaustion_short() -> list:
+    """Exhaustion Short / profit-booking screener — see module comment above."""
+    universe    = _load_nifty500() or _get_fno_universe()
+    batch_15m   = _get_15m_batch()
+    batch_daily = _get_daily_batch()
+    ist         = pytz.timezone("Asia/Kolkata")
+    now         = datetime.now(ist)
+    today_date  = now.date()
+
+    # Only generate fresh shorts between 9:15 AM and 2:00 PM IST
+    if not (_dtime(9, 15) <= now.time() <= _dtime(14, 0)):
+        return []
+
+    live_quotes = None
+    if _is_live():
+        live_quotes = _cached("live_quotes", _fetch_live_quotes, ttl=LIVE_TTL)
+
+    try:
+        market_data = _cached("market", _fetch_market,
+                              ttl=LIVE_TTL if _is_live() else CACHE_TTL)
+        nifty_chg   = float(market_data.get("NIFTY 50", {}).get("change_pct", 0) or 0)
+    except Exception:
+        nifty_chg = 0.0
+
+    results = []
+
+    for symbol in universe:
+        try:
+            intra = _get_ticker_df(batch_15m, symbol)
+            daily = _get_ticker_df(batch_daily, symbol)
+
+            if intra is None or daily is None or len(daily) < 2:
+                continue
+
+            try:
+                if intra.index.tz is not None:
+                    today_mask = intra.index.tz_convert(ist).date == today_date
+                else:
+                    today_mask = [ts.date() == today_date for ts in intra.index]
+                today_bars = intra[today_mask]
+            except Exception:
+                today_bars = intra.iloc[:0]
+
+            if len(today_bars) < 2:
+                continue
+
+            pdl        = float(daily["Low"].iloc[-2])
+            prev_close = float(daily["Close"].iloc[-2])
+            prev_vol   = float(daily["Volume"].iloc[-2])
+
+            if pdl <= 0 or prev_close <= 0 or prev_vol <= 0:
+                continue
+
+            opens  = today_bars["Open"].tolist()
+            highs  = today_bars["High"].tolist()
+            lows   = today_bars["Low"].tolist()
+            closes = today_bars["Close"].tolist()
+            vols   = today_bars["Volume"].tolist()
+            n_bars = len(closes)
+
+            if live_quotes:
+                q  = live_quotes.get(symbol)
+                lp = float(q.get("last_price", 0) or 0) if q else 0
+                current_price = lp if lp > 0 else closes[-1]
+            else:
+                current_price = closes[-1]
+
+            if current_price < 100:
+                continue
+
+            day_high = max(highs)
+            day_vol  = sum(vols)
+            elapsed_min = max(15.0, n_bars * 15.0)
+            paced_vol   = (day_vol / elapsed_min) * 375.0
+            vol_ratio   = paced_vol / prev_vol
+
+            day_chg_pct = (current_price - prev_close) / prev_close * 100
+
+            # ── Gates ──────────────────────────────────────────────
+            if day_chg_pct < EXH_RALLY_PCT:
+                continue
+            if current_price > day_high * (1 - EXH_PULLBACK_PCT / 100):
+                continue
+            if vol_ratio < EXH_VOL_RATIO:
+                continue
+            if closes[-1] >= opens[-1]:        # latest candle must have turned red
+                continue
+            if nifty_chg > 1.0:                # don't fight a strongly bullish Nifty
+                continue
+
+            # Trade plan: short with structural SL above day high
+            sl   = round(day_high * 1.003, 2)
+            risk = sl - current_price
+            if risk <= 0:
+                continue
+
+            sl_pct = round(risk / current_price * 100, 2)
+            t1     = round(current_price - risk * 1.5, 2)
+            t2     = round(current_price - risk * 3.0, 2)
+
+            # Confidence 0–100: rally size (40) + pullback depth (35) + volume (25)
+            rally_s      = min(day_chg_pct / 6.0, 1.0) * 40
+            pullback_pct = (day_high - current_price) / day_high * 100
+            pull_s       = min(pullback_pct / 1.5, 1.0) * 35
+            vol_s        = min((vol_ratio - EXH_VOL_RATIO) / 1.0, 1.0) * 25
+            conf_score   = round(rally_s + pull_s + vol_s)
+            conf_label   = "STRONG" if conf_score >= 65 else "GOOD" if conf_score >= 40 else "WATCH"
+
+            gap_pct = round((float(today_bars["Open"].iloc[0]) - prev_close) / prev_close * 100, 2)
+
+            try:
+                ts = today_bars.index[-1]
+                ts = ts.astimezone(ist) if ts.tzinfo else pytz.utc.localize(ts).astimezone(ist)
+                bos_time = ts.strftime("%H:%M")
+            except Exception:
+                bos_time = now.strftime("%H:%M")
+
+            results.append({
+                "symbol":           symbol.replace(".NS", ""),
+                "price":            round(current_price, 2),
+                "gap_pct":          gap_pct,
+                "day_chg_pct":      round(day_chg_pct, 2),
+                "day_high":         round(day_high, 2),
+                "day_low":          round(min(lows), 2),
+                "pdh":              round(float(daily["High"].iloc[-2]), 2),
+                "pdl":              round(pdl, 2),
+                "key_level":        round(day_high, 2),
+                "key_label":        "Day High",
+                "volume_ratio":     round(vol_ratio, 2),
+                "setup":            "Exhaustion Short — Profit Booking",
+                "entry":            round(current_price, 2),
+                "sl":               sl,
+                "sl_pct":           sl_pct,
+                "sl_label":         "Above Day High",
+                "t1":               t1,
+                "t2":               t2,
+                "risk_reward":      1.5,
+                "confidence_score": conf_score,
+                "confidence_label": conf_label,
+                "demand_zone":      round(pdl, 2),
+                "supply_zone":      round(day_high, 2),
+                "bos_time":         bos_time,
+            })
+
+        except Exception:
+            continue
+
+    results.sort(key=lambda x: x["confidence_score"], reverse=True)
+    return [r for r in results if r["confidence_score"] >= 40][:5]
+
+
 # ── Market index data ──────────────────────────────────────────────
 _INDEX_YF = {"NIFTY 50": "^NSEI", "SENSEX": "^BSESN", "BANK NIFTY": "^NSEBANK"}
 _INDEX_KEY = {
@@ -1249,7 +1419,7 @@ def oauth_callback():
     threading.Thread(target=_load_futures_map, daemon=True).start()
 
     # Clear screener cache so next load uses live data immediately
-    for k in ("s1_bull", "s1_bear",
+    for k in ("s1_bull", "s1_bear", "exh_short",
               "live_quotes", "15m_batch", "ticker", "oi_buildup", "market"):
         _cache.pop(k, None)
 
@@ -1292,7 +1462,7 @@ def set_token():
     _upstox_token["expires_at"]   = time.time() + 23 * 3600
     _save_token(_upstox_token["access_token"], _upstox_token["expires_at"])
     # Invalidate screener cache so next request uses live data immediately
-    for k in ("s1_bull", "s1_bear",
+    for k in ("s1_bull", "s1_bear", "exh_short",
               "live_quotes", "15m_batch", "ticker", "oi_buildup", "market"):
         _cache.pop(k, None)
     threading.Thread(target=_load_instrument_map, daemon=True).start()
@@ -1338,6 +1508,13 @@ def api_s1_bear():
         return jsonify([])
     active = _cached("s1_bear", _screen_smc, "bearish", ttl=SCREEN_TTL)
     return jsonify(_merge_with_history(active, 1, "bearish"))
+
+@app.route("/api/exhaustion/short")
+def api_exhaustion_short():
+    if not _smc_ready():
+        return jsonify([])
+    active = _cached("exh_short", _screen_exhaustion_short, ttl=SCREEN_TTL)
+    return jsonify(_merge_with_history(active, 2, "bearish"))
 
 @app.route("/api/signals/backfill")
 def signals_backfill():
@@ -2173,6 +2350,7 @@ def _generate_setup_explanations(setup: int, direction: str, results: list) -> l
         setup_names = {
             (1, "bullish"): "SMC Bullish — liquidity sweep below PDL followed by BOS above PDH",
             (1, "bearish"): "SMC Bearish — liquidity sweep above PDH followed by BOS below PDL",
+            (2, "bearish"): "Exhaustion Short — huge intraday rally pulling back from day high on a red candle",
         }
         setup_name = setup_names.get((setup, direction), "")
 
@@ -2225,12 +2403,18 @@ def insights_setup_explain():
     setup_key = flask_req.args.get("setup", "s1_bull")
     setup_map = {
         "s1_bull": (1, "bullish"), "s1_bear": (1, "bearish"),
+        "exh_short": (2, "bearish"),
     }
     if setup_key not in setup_map:
         return jsonify({"error": "invalid setup"}), 400
     setup_num, direction = setup_map[setup_key]
     cached  = _cache.get(setup_key)
-    results = cached[0] if cached else _screen_smc(direction)
+    if cached:
+        results = cached[0]
+    elif setup_key == "exh_short":
+        results = _screen_exhaustion_short()
+    else:
+        results = _screen_smc(direction)
     if not results:
         return jsonify({"explanations": [], "enabled": True})
     cache_key    = f"ai_explain_{setup_key}"

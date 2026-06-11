@@ -144,7 +144,7 @@
     /* ── Top summary cards ───────────────────────────────────────── */
     .summary-row {
       display: grid;
-      grid-template-columns: repeat(3, 1fr);
+      grid-template-columns: repeat(4, 1fr);
       gap: 14px;
       margin-bottom: 20px;
     }
@@ -828,6 +828,11 @@
       <div class="value" id="s1-count" style="color:var(--green)">—</div>
       <div class="sub">Setup 1 · PDH breakouts &amp; PDL breakdowns</div>
     </div>
+    <div class="summary-card">
+      <div class="label">Exhaustion Shorts</div>
+      <div class="value" id="exh-count" style="color:var(--red)">—</div>
+      <div class="sub">Profit booking after a huge rally · 9:15–2:00 PM</div>
+    </div>
   </div>
 
   <!-- ── CSV download row ─────────────────────────────────────────── -->
@@ -930,6 +935,50 @@
           <th>PDL / Key Level</th><th>Volume</th><th>Score</th><th>Trade Plan</th>
         </tr></thead>
         <tbody id="s1-bear-body">
+          <tr><td colspan="7"><div class="empty-state"><div class="spinner"></div>Loading…</div></td></tr>
+        </tbody>
+      </table>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ── Exhaustion Short: Profit Booking After Rally ─────────────── -->
+  <div class="section-divider" id="exh-divider" style="margin-top:24px;">
+    <div class="section-divider-line"></div>
+    <div class="section-divider-title">Exhaustion Short — Profit Booking After Rally · Top 5 High-Conviction Signals Only (GOOD+ Score)</div>
+    <div class="section-divider-line"></div>
+  </div>
+  <div class="scanner-grid" id="exh-table-grid" style="grid-template-columns: 1fr;">
+
+    <!-- Exhaustion Short -->
+    <div class="panel">
+      <div class="panel-header">
+        <div class="panel-title">
+          <span class="dot dot-red"></span>
+          Exhaustion Short &nbsp;<span style="font-size:11px;color:var(--text-muted);font-weight:400;">Huge rally + pullback from day high → red candle</span>
+        </div>
+        <div style="display:flex;gap:6px;align-items:center;">
+          <a class="diag-link diagnose-link" target="_blank" rel="noopener">Diagnose ↗</a>
+          <button class="refresh-btn" onclick="loadExhaustionShort()">↺ Refresh</button>
+          <button class="expand-btn" onclick="expandPanel(this)" title="Full screen (Esc to close)">⤢ Expand</button>
+        </div>
+      </div>
+      <div class="criteria-row">
+        <span class="chip chip-orange">Day chg ≥ +3% (huge rally)</span>
+        <span class="chip chip-red">Price ≥0.3% off day high</span>
+        <span class="chip chip-blue">Vol ≥1.3×</span>
+        <span class="chip chip-red">Latest candle red</span>
+        <span class="chip chip-blue">Active 9:15–14:00 IST</span>
+        <span class="chip chip-orange">Max 5 · GOOD+ only</span>
+      </div>
+      <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>Symbol</th><th>Price</th><th>Gap</th>
+          <th>PDH / Key Level</th><th>Volume</th><th>Score</th><th>Trade Plan</th>
+        </tr></thead>
+        <tbody id="exh-short-body">
           <tr><td colspan="7"><div class="empty-state"><div class="spinner"></div>Loading…</div></td></tr>
         </tbody>
       </table>
@@ -1368,9 +1417,10 @@
   const _PANEL_CONFIGS = [
     { key: 's1-bull', label: 'Liq. Sweep → BOS', sub: 'Bullish', dot: 'dot-green', color: 'var(--green)' },
     { key: 's1-bear', label: 'Liq. Sweep → BOS', sub: 'Bearish', dot: 'dot-red',   color: 'var(--red)'   },
+    { key: 'exh-short', label: 'Exhaustion Short', sub: 'Profit Booking', dot: 'dot-red', color: 'var(--red)' },
   ];
 
-  const _SCANNER_ELS = ['s1-divider','s1-table-grid'];
+  const _SCANNER_ELS = ['s1-divider','s1-table-grid','exh-divider','exh-table-grid'];
 
   function toggleChartMode() {
     _chartModeActive = !_chartModeActive;
@@ -1579,7 +1629,8 @@
       renderSetupRows(data, tbodyId, direction, refLevelKey, panelKey);
       if (countId) document.getElementById(countId).textContent = data.length;
       // Non-blocking: load AI insights after table is visible
-      const sk = direction === "bullish" ? "s1_bull" : "s1_bear";
+      const sk = endpoint.startsWith("setup1") ? (direction === "bullish" ? "s1_bull" : "s1_bear")
+                                                : "exh_short";
       loadInsights(sk, tbodyId, data);
       return data;
     } catch (e) {
@@ -1607,6 +1658,10 @@
       document.getElementById("top-loser-sym").textContent = data[0].symbol;
       document.getElementById("top-loser-val").textContent = `${data[0].gap_pct.toFixed(2)}%  ₹${data[0].price}`;
     }
+  }
+  async function loadExhaustionShort() {
+    return _loadSetup("exhaustion/short", "exh-short-body", "bearish", "pdh", "exh-count",
+                      "Exhaustion Short — Profit Booking After Rally");
   }
   // ── AI Market Brief ───────────────────────────────────────────
   async function loadMarketBrief() {
@@ -1943,7 +1998,7 @@
   // ── Auto-refresh every 5 min ──────────────────────────────────
   async function refreshAll() {
     await Promise.all([loadMarket(), loadStatus()]);
-    await Promise.all([loadS1Bullish(), loadS1Bearish()]);
+    await Promise.all([loadS1Bullish(), loadS1Bearish(), loadExhaustionShort()]);
     await Promise.all([loadTicker(), loadOI(), loadMarketBrief()]);
     stampUpdated();
   }
