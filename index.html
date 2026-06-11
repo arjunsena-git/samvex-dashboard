@@ -1359,10 +1359,12 @@
         ? `<span style="font-size:9px;color:var(--text-muted);display:block;margin-top:2px;">${s.key_label || ''} ₹${Number(s.key_level).toLocaleString("en-IN")}</span>`
         : "";
       const chartBtn = `<button class="chart-btn" onclick="openChartModal('${s.symbol}','${tbodyId}')">&#128200; Live Chart</button>`;
+      const shownSuffix = (s.first_shown_at && s.first_shown_at !== s.detected_at)
+        ? ` (shown ${s.first_shown_at})` : "";
       const detectedBadge = s.detected_at
         ? isInactive
-          ? `<span class="detected-at-badge">Detected ${s.detected_at} IST</span>`
-          : `<span style="font-size:9px;color:var(--text-muted);display:block;margin-top:2px;">&#9201; Since ${s.detected_at} IST</span>`
+          ? `<span class="detected-at-badge">Detected ${s.detected_at} IST${shownSuffix}</span>`
+          : `<span style="font-size:9px;color:var(--text-muted);display:block;margin-top:2px;">&#9201; Since ${s.detected_at} IST${shownSuffix}</span>`
         : "";
       const goneBadge = isInactive
         ? `<span class="gone-tag" style="display:block;">&#8629; Signal gone</span>`

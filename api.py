@@ -300,9 +300,13 @@ def _merge_with_history(active: list, setup: int, direction: str) -> list:
              then signals that fired earlier but no longer meet criteria
              (sorted by detected_at desc — most recently dropped first).
 
-    Each enriched signal gains two fields:
-      is_active   bool   — True if currently meeting all screener criteria
-      detected_at str    — HH:MM IST when the signal first appeared today
+    Each enriched signal gains three fields:
+      is_active      bool — True if currently meeting all screener criteria
+      detected_at    str  — HH:MM IST of the BOS/CHoCH candle (when the move happened)
+      first_shown_at str  — HH:MM IST when the dashboard first displayed this signal
+                             (can be later than detected_at — the screener needs
+                             >=5 completed 15-min bars, i.e. ~10:30 AM IST, before
+                             it can compute anything)
     """
     ist       = pytz.timezone("Asia/Kolkata")
     today_str = datetime.now(ist).strftime("%Y-%m-%d")
@@ -321,8 +325,13 @@ def _merge_with_history(active: list, setup: int, direction: str) -> list:
         sym         = r["symbol"]
         if sym not in history:
             changed = True  # new signal firing for the first time today
-        detected_at = history[sym]["detected_at"] if sym in history else (r.get("bos_time") or now_hm)
-        history[sym] = {**r, "detected_at": detected_at, "is_active": True}
+        if sym in history:
+            detected_at    = history[sym]["detected_at"]
+            first_shown_at = history[sym].get("first_shown_at", detected_at)
+        else:
+            detected_at    = r.get("bos_time") or now_hm
+            first_shown_at = now_hm
+        history[sym] = {**r, "detected_at": detected_at, "first_shown_at": first_shown_at, "is_active": True}
 
     # Mark signals that are no longer in the active set as inactive
     for sym in list(history.keys()):
