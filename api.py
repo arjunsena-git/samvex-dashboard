@@ -953,9 +953,11 @@ def _screen_smc(direction: str) -> list:
 
             signal = None
 
-            # BOS must have formed within the last 3 bars (45 min).
-            # Without this, a 9:45 AM move fires again at 14:52 PM.
-            _FRESH = 3
+            # BOS must have formed within the last 6 bars (90 min).
+            # Extended from 3 (45 min) → 6 (90 min) so early-morning setups
+            # aren't invisible by the time traders check the dashboard.
+            # Freshness tier (FRESH/VALID/AGING) flags staleness instead.
+            _FRESH = 6
 
             def _bar_time(bar_idx):
                 try:
@@ -1073,6 +1075,24 @@ def _screen_smc(direction: str) -> list:
                 "demand_zone":      demand_zone,
                 "supply_zone":      supply_zone,
                 "bos_time":         signal.get("bos_time", datetime.now(ist).strftime("%H:%M")),
+                # --- Improvement fields ---
+                # retrace_entry: the BOS level is the ideal entry on a pullback,
+                # not the current price (which has already moved through the level).
+                "retrace_entry":    round(signal["key_level"], 2),
+                "retrace_label":    f"Wait for retrace to {signal['key_label']} @ {round(signal['key_level'], 2)}",
+                # signal_age_min: minutes since BOS candle closed
+                "signal_age_min":   max(0, (
+                    datetime.now(ist).hour * 60 + datetime.now(ist).minute
+                ) - (
+                    int(signal.get("bos_time","09:15").split(":")[0]) * 60 +
+                    int(signal.get("bos_time","09:15").split(":")[1])
+                )),
+                "is_fresh":         (n_bars - 1 - bos_bar) <= 2,
+                "freshness":        (
+                    "FRESH" if (n_bars - 1 - bos_bar) <= 2 else
+                    "VALID" if (n_bars - 1 - bos_bar) <= 4 else
+                    "AGING"
+                ),
             })
 
         except Exception:
@@ -1081,6 +1101,131 @@ def _screen_smc(direction: str) -> list:
     results.sort(key=lambda x: x["confidence_score"], reverse=True)
     # Only GOOD (≥40) or STRONG (≥65) — drop WATCH signals, cap at 5 per panel
     return [r for r in results if r["confidence_score"] >= 40][:5]
+
+
+# ── Pre-BOS Sweep Watch — Early Warning Screen ────────────────────────────────
+#
+# Fires the moment a PDL (bullish) or PDH (bearish) sweep is detected intraday,
+# BEFORE BOS is confirmed. Allows traders to prepare for the move rather than
+# chasing it after it happens.
+#
+# This is intentionally a lighter screen (no BOS gate, no proximity gate).
+# Signals here are labelled "WATCH — No BOS Yet" and must NOT be traded
+# without BOS confirmation. They exist purely as an early radar ping.
+
+def _screen_sweep_watch(direction: str) -> list:
+    """Pre-BOS sweep alert — fires on PDL/PDH sweep before BOS candle closes."""
+    universe    = _load_nifty500() or _get_fno_universe()
+    batch_15m   = _get_15m_batch()
+    batch_daily = _get_daily_batch()
+    bullish     = direction == "bullish"
+    ist         = pytz.timezone("Asia/Kolkata")
+    today_date  = datetime.now(ist).date()
+
+    live_quotes = None
+    if _is_live():
+        live_quotes = _cached("live_quotes", _fetch_live_quotes, ttl=LIVE_TTL)
+
+    results = []
+
+    for symbol in universe:
+        try:
+            intra = _get_ticker_df(batch_15m, symbol)
+            daily = _get_ticker_df(batch_daily, symbol)
+            if intra is None or daily is None or len(daily) < 2:
+                continue
+
+            try:
+                if intra.index.tz is not None:
+                    today_mask = intra.index.tz_convert(ist).date == today_date
+                else:
+                    today_mask = [ts.date() == today_date for ts in intra.index]
+                today_bars = intra[today_mask]
+            except Exception:
+                today_bars = intra.iloc[:0]
+
+            if len(today_bars) < 1:
+                continue
+
+            pdh        = float(daily["High"].iloc[-2])
+            pdl        = float(daily["Low"].iloc[-2])
+            prev_close = float(daily["Close"].iloc[-2])
+            prev_vol   = float(daily["Volume"].iloc[-2])
+
+            if pdh <= 0 or pdl <= 0 or prev_close <= 0 or prev_vol <= 0:
+                continue
+
+            highs  = today_bars["High"].tolist()
+            lows   = today_bars["Low"].tolist()
+            closes = today_bars["Close"].tolist()
+            vols   = today_bars["Volume"].tolist()
+            n_bars = len(closes)
+
+            if live_quotes:
+                q  = live_quotes.get(symbol)
+                lp = float(q.get("last_price", 0) or 0) if q else 0
+                current_price = lp if lp > 0 else closes[-1]
+            else:
+                current_price = closes[-1]
+
+            if current_price < 100:
+                continue
+
+            day_vol     = sum(vols)
+            elapsed_min = max(15.0, n_bars * 15.0)
+            paced_vol   = (day_vol / elapsed_min) * 375.0
+            vol_ratio   = paced_vol / prev_vol
+            if vol_ratio < 1.0:
+                continue
+
+            if bullish:
+                swept = any(lo < pdl for lo in lows)
+                # Skip if BOS already confirmed — Setup 1 handles that
+                bos_confirmed = any(closes[i] > pdh for i in range(n_bars))
+                if not swept or bos_confirmed:
+                    continue
+                sweep_bar = next(i for i, lo in enumerate(lows) if lo < pdl)
+                key_level = pdh
+                key_label = "PDH (BOS target)"
+                watch_note = f"PDL swept. Watching for close > PDH {round(pdh,2)} to confirm BOS."
+            else:
+                swept = any(hi > pdh for hi in highs)
+                bos_confirmed = any(closes[i] < pdl for i in range(n_bars))
+                if not swept or bos_confirmed:
+                    continue
+                sweep_bar = next(i for i, hi in enumerate(highs) if hi > pdh)
+                key_level = pdl
+                key_label = "PDL (BOS target)"
+                watch_note = f"PDH swept. Watching for close < PDL {round(pdl,2)} to confirm BOS."
+
+            try:
+                ts = today_bars.index[sweep_bar]
+                ts = ts.astimezone(ist) if ts.tzinfo else pytz.utc.localize(ts).astimezone(ist)
+                sweep_time = ts.strftime("%H:%M")
+            except Exception:
+                sweep_time = datetime.now(ist).strftime("%H:%M")
+
+            gap_pct = round((float(today_bars["Open"].iloc[0]) - prev_close) / prev_close * 100, 2)
+
+            results.append({
+                "symbol":       symbol.replace(".NS", ""),
+                "price":        round(current_price, 2),
+                "gap_pct":      gap_pct,
+                "pdh":          round(pdh, 2),
+                "pdl":          round(pdl, 2),
+                "key_level":    round(key_level, 2),
+                "key_label":    key_label,
+                "volume_ratio": round(vol_ratio, 2),
+                "sweep_time":   sweep_time,
+                "note":         watch_note,
+                "setup":        f"Sweep Watch {'Bullish' if bullish else 'Bearish'}",
+                "status":       "WATCH — No BOS Yet",
+            })
+        except Exception:
+            continue
+
+    results.sort(key=lambda x: x["volume_ratio"], reverse=True)
+    return results[:10]
 
 
 # Exhaustion Short — Profit Booking After Rally
@@ -1515,6 +1660,22 @@ def api_exhaustion_short():
         return jsonify([])
     active = _cached("exh_short", _screen_exhaustion_short, ttl=SCREEN_TTL)
     return jsonify(_merge_with_history(active, 2, "bearish"))
+
+@app.route("/api/setup1/sweep-watch/bullish")
+def api_sweep_watch_bull():
+    """Pre-BOS early warning: PDL swept, BOS not yet confirmed (bullish)."""
+    if not _smc_ready():
+        return jsonify([])
+    return jsonify(_cached("sw_bull", _screen_sweep_watch, "bullish", ttl=SCREEN_TTL))
+
+
+@app.route("/api/setup1/sweep-watch/bearish")
+def api_sweep_watch_bear():
+    """Pre-BOS early warning: PDH swept, BOS not yet confirmed (bearish)."""
+    if not _smc_ready():
+        return jsonify([])
+    return jsonify(_cached("sw_bear", _screen_sweep_watch, "bearish", ttl=SCREEN_TTL))
+
 
 @app.route("/api/signals/backfill")
 def signals_backfill():
