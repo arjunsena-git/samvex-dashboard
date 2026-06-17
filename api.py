@@ -1745,12 +1745,19 @@ def signals_backfill_csv():
 
 @app.route("/api/signals/today")
 def signals_today_json():
-    """Today's morning signals locked at first 9:30 AM run.
-    Safe to call at any time — returns the same data all day even after
-    the live screener would otherwise show 0 results by afternoon."""
+    """Today's signals. Reads from _signal_store if populated; falls back to live
+    screener if the store is empty (e.g. after a cold-start restart on Render)."""
     ist = pytz.timezone("Asia/Kolkata")
     today_str = datetime.now(ist).strftime("%Y-%m-%d")
     panels = {}
+    store_has_today = any(d == today_str for (_, _, d) in _signal_store)
+    if not store_has_today and _smc_ready():
+        # Store is empty (cold-start or first call of day) — run screener live
+        for direction in ["bullish", "bearish"]:
+            signals = _screen_smc(direction)
+            key = (1, direction, today_str)
+            _signal_store[key] = signals
+        threading.Thread(target=_persist_signals, args=(today_str,), daemon=True).start()
     for (setup, direction, date_str), signals in _signal_store.items():
         if date_str == today_str:
             label = _PANEL_LABELS.get((setup, direction), f"Setup {setup} {direction}")
@@ -1759,15 +1766,23 @@ def signals_today_json():
         "date":   today_str,
         "panels": panels,
         "total":  sum(len(v) for v in panels.values()),
-        "note":   "Locked at first 9:30 AM IST run. Unchanged for the rest of the trading day.",
+        "note":   "Signals from signal store (or live screener fallback if store was empty).",
     })
 
 
 @app.route("/api/signals/today.csv")
 def signals_today_csv():
-    """Download today's morning signals as a CSV file."""
+    """Download today's signals as a CSV file. Falls back to live screener if
+    _signal_store is empty (Render cold-start clears /tmp, so store may be empty)."""
     ist = pytz.timezone("Asia/Kolkata")
     today_str = datetime.now(ist).strftime("%Y-%m-%d")
+    store_has_today = any(d == today_str for (_, _, d) in _signal_store)
+    if not store_has_today and _smc_ready():
+        for direction in ["bullish", "bearish"]:
+            signals = _screen_smc(direction)
+            key = (1, direction, today_str)
+            _signal_store[key] = signals
+        threading.Thread(target=_persist_signals, args=(today_str,), daemon=True).start()
     headers = ["Panel","Symbol","Setup","Price","Gap%","PDH","PDL",
                "Key Level","Key Label","Vol Ratio","Score","Label",
                "Demand Zone","Supply Zone","Entry","SL","SL%","T1","T2","R:R"]
