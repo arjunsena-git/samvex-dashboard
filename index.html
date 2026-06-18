@@ -707,49 +707,67 @@
       border-bottom: 1px solid var(--border);
     }
     .chart-main-title { font-size: 15px; font-weight: 700; }
-    .chart-main-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-      gap: 12px;
-    }
 
-    .stock-chart-card {
+    /* ── Live Panels — stock name list + detail pane ─────────────── */
+    .live-panel-body {
+      display: flex; gap: 14px;
+      min-height: 420px; height: calc(100vh - 260px);
+    }
+    .stock-name-list {
+      width: 100%; flex-shrink: 0; overflow-y: auto;
       background: var(--bg-card); border: 1px solid var(--border);
-      border-radius: 8px; overflow: hidden; transition: border-color .15s;
+      border-radius: var(--radius); transition: width .18s;
     }
-    .stock-chart-card:hover { border-color: var(--accent); }
-    .stock-chart-hdr {
+    .stock-name-list.has-selection { width: 230px; }
+    .stock-name-item {
       display: flex; align-items: center; justify-content: space-between;
-      padding: 8px 12px 3px;
+      gap: 8px; padding: 13px 16px; cursor: pointer;
+      border-bottom: 1px solid var(--border);
+      border-left: 3px solid transparent;
+      font-size: 13px; font-weight: 700; transition: background .12s;
     }
-    .stock-chart-sym {
-      font-weight: 700; font-size: 13px;
-      color: var(--accent); text-decoration: none; letter-spacing: .3px;
+    .stock-name-item:last-child { border-bottom: none; }
+    .stock-name-item:hover { background: var(--bg-card-2); }
+    .stock-name-item.active {
+      background: rgba(79,142,247,.08);
+      border-left-color: var(--accent); color: var(--accent);
     }
-    .stock-chart-sym:hover { text-decoration: underline; }
-    .stock-chart-meta {
-      display: flex; align-items: center; gap: 6px;
-      padding: 2px 12px 8px; font-size: 10px; flex-wrap: wrap;
+    .stock-name-item .dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+    .stock-name-empty { padding: 40px 16px; text-align: center; color: var(--text-muted); font-size: 12px; }
+
+    .stock-detail-pane {
+      flex: 1; min-width: 0; display: none; flex-direction: column;
+      background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 18px; overflow-y: auto;
     }
-    .tv-widget-wrap {
-      width: 100%; height: 180px; border-top: 1px solid var(--border);
-      background: rgba(0,0,0,.15);
-      display: flex; align-items: center; justify-content: center;
+    .stock-detail-pane.visible { display: flex; }
+    .stock-detail-placeholder {
+      margin: auto; color: var(--text-muted); font-size: 13px; text-align: center; max-width: 260px;
     }
-    .tv-loading {
-      font-size: 10px; color: var(--text-muted); display: flex;
-      flex-direction: column; align-items: center; gap: 6px;
+    .detail-stat-grid {
+      display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px;
+      margin-bottom: 14px;
     }
+    .detail-stat {
+      background: var(--bg-card-2); border: 1px solid var(--border);
+      border-radius: 8px; padding: 8px 10px;
+      display: flex; flex-direction: column; gap: 3px;
+    }
+    .detail-stat .lbl {
+      font-size: 10px; color: var(--text-muted); font-weight: 600;
+      text-transform: uppercase; letter-spacing: .3px;
+    }
+    .detail-stat .val { font-size: 13px; font-weight: 700; }
     @media (max-width: 760px) {
       .chart-fullpage { flex-direction: column; }
       .chart-sidebar { width: 100%; position: static; display: flex; flex-wrap: wrap; }
       .chart-sidebar-hdr { width: 100%; }
       .chart-sidebar-btn { flex: 1; min-width: 140px; }
       .chart-main-area { padding-left: 0; padding-top: 14px; }
-      .chart-main-grid { grid-template-columns: 1fr 1fr; }
-    }
-    @media (max-width: 480px) {
-      .chart-main-grid { grid-template-columns: 1fr; }
+      .live-panel-body { flex-direction: column; height: auto; }
+      .stock-name-list { width: 100%; max-height: 220px; }
+      .stock-name-list.has-selection { width: 100%; max-height: 160px; }
+      .detail-stat-grid { grid-template-columns: repeat(2, 1fr); }
     }
   </style>
 </head>
@@ -837,7 +855,7 @@
 
   <!-- ── CSV download row ─────────────────────────────────────────── -->
   <div class="csv-toolbar" style="gap:8px;flex-wrap:wrap;">
-    <button id="chart-mode-btn" class="chart-mode-toggle" onclick="toggleChartMode()">&#128200; Chart Mode</button>
+    <button id="chart-mode-btn" class="chart-mode-toggle active" onclick="toggleChartMode()">&#9776; Full Table View</button>
     <button class="csv-btn" onclick="downloadAllCSV()">↓ Download Visible Signals</button>
     <a id="today-csv-btn" class="csv-btn"
        style="text-decoration:none;display:inline-flex;align-items:center;"
@@ -851,25 +869,34 @@
     </a>
   </div>
 
-  <!-- ── Full-page Chart Mode view ────────────────────────────────── -->
-  <div class="chart-fullpage" id="chart-fullpage">
+  <!-- ── Live Panels view (default landing view) ───────────────────── -->
+  <div class="chart-fullpage visible" id="chart-fullpage">
     <div class="chart-sidebar">
       <div class="chart-sidebar-hdr">Signal Panels</div>
       <div id="chart-sidebar-list"></div>
     </div>
     <div class="chart-main-area">
       <div class="chart-main-hdr" id="chart-main-hdr"></div>
-      <div class="chart-main-grid" id="chart-main-grid"></div>
+      <div class="live-panel-body">
+        <div class="stock-name-list" id="stock-name-list"></div>
+        <div class="stock-detail-pane" id="stock-detail-pane">
+          <div class="stock-detail-placeholder" id="stock-detail-placeholder">
+            Select a stock from the list on the left to view entry, stop-loss, targets and a live chart.
+          </div>
+          <div id="stock-detail-content" style="display:none;flex:1;flex-direction:column;"></div>
+        </div>
+      </div>
     </div>
   </div>
 
   <!-- ── Setup 1: SMC Liquidity Sweep → BOS ──────────────────────── -->
-  <div class="section-divider" id="s1-divider">
+  <!-- Hidden by default — Live Panels is the default view; toggle to Full Table View to see these. -->
+  <div class="section-divider" id="s1-divider" style="display:none;">
     <div class="section-divider-line"></div>
     <div class="section-divider-title">Setup 1 — SMC Liquidity Sweep → BOS · Top 5 High-Conviction Signals Only (GOOD+ Score)</div>
     <div class="section-divider-line"></div>
   </div>
-  <div class="scanner-grid" id="s1-table-grid">
+  <div class="scanner-grid" id="s1-table-grid" style="display:none;">
 
     <!-- Setup 1 Bullish: Sweep PDL → BOS above PDH -->
     <div class="panel">
@@ -944,12 +971,12 @@
   </div>
 
   <!-- ── Exhaustion Short: Profit Booking After Rally ─────────────── -->
-  <div class="section-divider" id="exh-divider" style="margin-top:24px;">
+  <div class="section-divider" id="exh-divider" style="margin-top:24px;display:none;">
     <div class="section-divider-line"></div>
     <div class="section-divider-title">Exhaustion Short — Profit Booking After Rally · Top 5 High-Conviction Signals Only (GOOD+ Score)</div>
     <div class="section-divider-line"></div>
   </div>
-  <div class="scanner-grid" id="exh-table-grid" style="grid-template-columns: 1fr;">
+  <div class="scanner-grid" id="exh-table-grid" style="grid-template-columns: 1fr;display:none;">
 
     <!-- Exhaustion Short -->
     <div class="panel">
@@ -1412,9 +1439,12 @@
     URL.revokeObjectURL(a.href);
   }
 
-  // ── Chart Mode — sidebar layout ───────────────────────────────
-  let _chartModeActive  = false;
-  let _activeChartPanel = 's1-bull';
+  // ── Live Panels — permanent sidebar + name list + detail pane ──
+  // Default landing view. The toggle button switches to the old full
+  // table view (all columns) for power users who want the raw data.
+  let _chartModeActive   = true;
+  let _activeChartPanel  = 's1-bull';
+  let _activeStockSymbol = null;
 
   const _PANEL_CONFIGS = [
     { key: 's1-bull', label: 'Liq. Sweep → BOS', sub: 'Bullish', dot: 'dot-green', color: 'var(--green)' },
@@ -1426,9 +1456,13 @@
 
   function toggleChartMode() {
     _chartModeActive = !_chartModeActive;
+    _applyChartModeDisplay();
+  }
+
+  function _applyChartModeDisplay() {
     const btn = document.getElementById('chart-mode-btn');
     btn.classList.toggle('active', _chartModeActive);
-    btn.innerHTML = _chartModeActive ? '&#9776; Table Mode' : '&#128200; Chart Mode';
+    btn.innerHTML = _chartModeActive ? '&#9776; Full Table View' : '&#129517; Live Panels';
 
     _SCANNER_ELS.forEach(id => {
       const el = document.getElementById(id);
@@ -1462,8 +1496,13 @@
     });
   }
 
-  function _selectChartPanel(panelKey) {
+  // panelKey: which scanner panel to show. preserveSelection: true when called
+  // from a background data refresh — keeps the currently open stock detail
+  // open (if it's still in the active list) instead of resetting to the bare list.
+  function _selectChartPanel(panelKey, preserveSelection) {
+    const prevSymbol = (preserveSelection && panelKey === _activeChartPanel) ? _activeStockSymbol : null;
     _activeChartPanel = panelKey;
+
     document.querySelectorAll('.chart-sidebar-btn').forEach(b =>
       b.classList.toggle('active', b.dataset.key === panelKey));
 
@@ -1471,7 +1510,6 @@
     const stocks = (_panelData[panelKey]?.rows || []).filter(s => s.is_active !== false);
     const isBull = panelKey.includes('bull');
 
-    // Header
     const hdr = document.getElementById('chart-main-hdr');
     hdr.innerHTML = `
       <span class="dot ${cfg.dot}"></span>
@@ -1480,142 +1518,92 @@
         ${stocks.length} active signal${stocks.length !== 1 ? 's' : ''}
       </span>`;
 
-    // Grid
-    const grid = document.getElementById('chart-main-grid');
-    grid.innerHTML = '';
-
+    // Name-only list — deliberately no price/gap/key-level here, just the
+    // symbol, so the team isn't distracted before they pick one to inspect.
+    const list = document.getElementById('stock-name-list');
     if (stocks.length === 0) {
-      grid.innerHTML = `<div style="grid-column:1/-1;padding:48px;text-align:center;
-        color:var(--text-muted);font-size:13px">No active signals in this panel</div>`;
-      return;
+      list.innerHTML = `<div class="stock-name-empty">No active signals in this panel</div>`;
+    } else {
+      const color = isBull ? 'var(--green)' : 'var(--red)';
+      list.innerHTML = stocks.map(s => `
+        <div class="stock-name-item" data-symbol="${s.symbol}" onclick="_selectStock('${panelKey}','${s.symbol}')">
+          <span style="display:flex;align-items:center;gap:8px;">
+            <span class="dot" style="background:${color}"></span>
+            <span>${s.symbol}</span>
+          </span>
+        </div>`).join('');
     }
 
-    stocks.forEach(s => {
-      const card       = document.createElement('div');
-      card.className   = 'stock-chart-card';
-      const priceColor = isBull ? 'var(--green)' : 'var(--red)';
-      const scoreLabel = s.confidence_label || 'WATCH';
-      const detectedHtml = s.detected_at
-        ? `<span style="font-size:9px;color:var(--text-muted)">&#9201; ${s.detected_at}</span>` : '';
-      card.innerHTML = `
-        <div class="stock-chart-hdr">
-          <a class="stock-chart-sym"
-             href="https://www.tradingview.com/chart/?symbol=NSE:${s.symbol}"
-             target="_blank" rel="noopener noreferrer">${s.symbol}</a>
-          <span style="font-size:11px;font-weight:700;color:${priceColor}">₹${s.price.toLocaleString('en-IN')}</span>
-        </div>
-        <div class="stock-chart-meta">
-          <span class="score-pill spill-${scoreLabel}">${s.confidence_score || ''} ${scoreLabel}</span>
-          ${detectedHtml}
-        </div>
-        <div class="tv-widget-wrap" data-symbol="${s.symbol}">
-          <div class="tv-loading"><div class="spinner" style="width:18px;height:18px;border-width:2px;"></div></div>
-        </div>`;
-      grid.appendChild(card);
-    });
+    if (prevSymbol && stocks.some(s => s.symbol === prevSymbol)) {
+      _selectStock(panelKey, prevSymbol);
+    } else {
+      _activeStockSymbol = null;
+      list.classList.remove('has-selection');
+      document.getElementById('stock-detail-pane').classList.remove('visible');
+      document.getElementById('stock-detail-placeholder').style.display = '';
+      document.getElementById('stock-detail-content').style.display = 'none';
+    }
+  }
 
-    _lazyLoadTVWidgets(grid);
+  function _selectStock(panelKey, symbol) {
+    const stocks = _panelData[panelKey]?.rows || [];
+    const s = stocks.find(r => r.symbol === symbol);
+    if (!s) return;
+
+    _activeStockSymbol = symbol;
+    document.getElementById('stock-name-list').classList.add('has-selection');
+    document.querySelectorAll('#stock-name-list .stock-name-item').forEach(el =>
+      el.classList.toggle('active', el.dataset.symbol === symbol));
+
+    const isBull  = panelKey.includes('bull');
+    const color   = isBull ? 'var(--green)' : 'var(--red)';
+    const detected = s.detected_at
+      ? `<span style="font-size:10px;color:var(--text-muted);">&#9201; Since ${s.detected_at} IST</span>` : '';
+
+    document.getElementById('stock-detail-placeholder').style.display = 'none';
+    document.getElementById('stock-detail-pane').classList.add('visible');
+    const content = document.getElementById('stock-detail-content');
+    content.style.display = 'flex';
+    content.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px;">
+        <div>
+          <a href="https://www.tradingview.com/chart/?symbol=NSE:${s.symbol}" target="_blank" rel="noopener"
+             style="font-size:19px;font-weight:800;color:var(--text);text-decoration:none;">${s.symbol}</a>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:3px;">${s.setup || ''} ${detected}</div>
+        </div>
+        <div style="text-align:right;">
+          <div style="font-size:19px;font-weight:800;color:${color}">${fmt(s.price)}</div>
+          <div style="font-size:11px;color:${s.gap_pct >= 0 ? 'var(--green)' : 'var(--red)'}">${sign(s.gap_pct)}${s.gap_pct}% gap</div>
+        </div>
+      </div>
+      <div class="detail-stat-grid">
+        <div class="detail-stat"><span class="lbl">${s.key_label || 'Key Level'}</span><span class="val">${fmt(s.key_level)}</span></div>
+        <div class="detail-stat"><span class="lbl">Volume</span><span class="val">${s.volume_ratio}&times;</span></div>
+        <div class="detail-stat"><span class="lbl">Score</span><span class="val">${s.confidence_score ?? ''} ${s.confidence_label || ''}</span></div>
+        <div class="detail-stat"><span class="lbl">R:R</span><span class="val">${s.risk_reward ?? ''}</span></div>
+        <div class="detail-stat"><span class="lbl">Entry</span><span class="val">${fmt(s.entry)}</span></div>
+        <div class="detail-stat"><span class="lbl">Stop Loss</span><span class="val" style="color:var(--red)">${fmt(s.sl)}</span></div>
+        <div class="detail-stat"><span class="lbl">Target 1</span><span class="val" style="color:var(--green)">${fmt(s.t1)}</span></div>
+        <div class="detail-stat"><span class="lbl">Target 2</span><span class="val" style="color:#22d3ee">${fmt(s.t2)}</span></div>
+      </div>
+      <div id="detail-chart-container" style="flex:1;min-height:320px;"></div>
+      <div class="chart-legend" id="detail-chart-legend" style="border-top:none;padding:10px 0 0;"></div>`;
+
+    const sig = {
+      direction: isBull ? 'bullish' : 'bearish', setup: s.setup || '',
+      entry: s.entry, sl: s.sl, t1: s.t1, t2: s.t2,
+      pdh: s.pdh, pdl: s.pdl, dz: s.demand_zone, sz: s.supply_zone,
+    };
+    _fetchAndRenderChartInto(symbol, sig,
+      document.getElementById('detail-chart-container'),
+      document.getElementById('detail-chart-legend'),
+      _detailChartHolder, 320);
   }
 
   function _refreshChartPanel(panelKey) {
     if (!_chartModeActive) return;
     _buildChartSidebar();
-    if (panelKey === _activeChartPanel) _selectChartPanel(panelKey);
-  }
-
-  const _tvObservers = [];
-  function _lazyLoadTVWidgets(container) {
-    const observer = new IntersectionObserver((entries, obs) => {
-      entries.forEach(entry => {
-        if (!entry.isIntersecting) return;
-        const el = entry.target;
-        if (el.dataset.loaded) return;
-        el.dataset.loaded = '1';
-        _createTVWidget(el, el.dataset.symbol);
-        obs.unobserve(el);
-      });
-    }, { rootMargin: '80px' });
-    _tvObservers.push(observer);
-    container.querySelectorAll('.tv-widget-wrap').forEach(el => observer.observe(el));
-  }
-
-  async function _createTVWidget(container, symbol) {
-    container.innerHTML = '<div class="tv-loading"><div class="spinner" style="width:18px;height:18px;border-width:2px;"></div><span>Loading…</span></div>';
-
-    let resp, data;
-    try {
-      resp = await fetch(`${API}/api/chart/${encodeURIComponent(symbol)}`);
-      data = await resp.json();
-    } catch (_) {
-      container.innerHTML = '<div class="tv-loading"><span style="color:var(--red)">Network error</span></div>';
-      return;
-    }
-
-    if (!resp.ok) {
-      if (data.auth_url) {
-        container.innerHTML = `<div class="tv-loading" style="gap:4px;flex-direction:column;text-align:center;">
-          <span style="font-size:10px;color:var(--text-muted)">Upstox not authenticated</span>
-          <a href="${data.auth_url}" style="font-size:10px;color:var(--accent)">Re-authenticate ↗</a>
-        </div>`;
-      } else if (data.error === 'symbol_not_found') {
-        container.innerHTML = `<div class="tv-loading" style="gap:4px;flex-direction:column;text-align:center;">
-          <span style="font-size:10px;color:var(--text-muted)">Not in Upstox live map</span>
-          <a href="https://www.tradingview.com/chart/?symbol=NSE:${symbol}" target="_blank" rel="noopener" style="font-size:10px;color:var(--accent)">Open TradingView ↗</a>
-        </div>`;
-      } else {
-        container.innerHTML = `<div class="tv-loading"><span style="color:var(--red);font-size:10px;text-align:center">${data.message || 'Chart unavailable'}</span></div>`;
-      }
-      return;
-    }
-
-    const candles = data.candles || [];
-    if (candles.length === 0) {
-      container.innerHTML = '<div class="tv-loading"><span style="font-size:10px;color:var(--text-muted);text-align:center">No intraday data yet<br>(market may not be open)</span></div>';
-      return;
-    }
-
-    container.innerHTML = '';
-    const chartDiv = document.createElement('div');
-    chartDiv.style.cssText = 'width:100%;height:100%;';
-    container.appendChild(chartDiv);
-
-    const isDark = document.documentElement.dataset.theme !== 'light';
-    const chart = LightweightCharts.createChart(chartDiv, {
-      width:  chartDiv.offsetWidth  || 190,
-      height: chartDiv.offsetHeight || 180,
-      layout: {
-        background:  { type: 'solid', color: 'transparent' },
-        textColor:   isDark ? '#6b7280' : '#555',
-        fontSize:    10,
-      },
-      grid: {
-        vertLines: { color: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)' },
-        horzLines: { color: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)' },
-      },
-      rightPriceScale: {
-        visible:      true,
-        borderColor:  isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)',
-        scaleMargins: { top: 0.06, bottom: 0.06 },
-      },
-      timeScale:  { visible: false },
-      crosshair:  { mode: LightweightCharts.CrosshairMode.Hidden },
-      handleScroll: false,
-      handleScale:  false,
-    });
-
-    const series = chart.addCandlestickSeries({
-      upColor:      '#26a69a',
-      downColor:    '#ef5350',
-      borderVisible: false,
-      wickUpColor:   '#26a69a',
-      wickDownColor: '#ef5350',
-    });
-    series.setData(candles);
-    chart.timeScale().fitContent();
-
-    new ResizeObserver(() => {
-      if (chartDiv.offsetWidth) chart.applyOptions({ width: chartDiv.offsetWidth });
-    }).observe(chartDiv);
+    if (panelKey === _activeChartPanel) _selectChartPanel(panelKey, true);
   }
 
   // ── Four setup loaders ────────────────────────────────────────
@@ -2035,8 +2023,9 @@
   document.addEventListener('keydown', e => { if (e.key === 'Escape') { closePanel(); closeChartModal(); } });
 
   // ── Chart modal ───────────────────────────────────────────────
-  let   _chartInstance = null;
-  const _chartData     = {};   // "SYMBOL_tbodyId" → signal levels
+  const _chartData        = {};   // "SYMBOL_tbodyId" → signal levels
+  const _modalChartHolder  = { instance: null };
+  const _detailChartHolder = { instance: null };
 
   function openChartModal(symbol, tbodyId) {
     const sig = _chartData[`${symbol}_${tbodyId}`];
@@ -2047,15 +2036,20 @@
     document.getElementById("chart-overlay").classList.add("open");
     document.body.style.overflow = "hidden";
 
-    const container = document.getElementById("chart-container");
-    container.innerHTML =
-      `<div class="chart-error-state"><div class="spinner"></div><span>Fetching live 15-min candles…</span></div>`;
-    document.getElementById("chart-legend").innerHTML = "";
-
-    _fetchAndRenderChart(symbol, sig, container);
+    _fetchAndRenderChartInto(symbol, sig,
+      document.getElementById("chart-container"),
+      document.getElementById("chart-legend"),
+      _modalChartHolder, 460);
   }
 
-  async function _fetchAndRenderChart(symbol, sig, container) {
+  // Reusable Lightweight Charts renderer — used by the chart modal (table view)
+  // and the Live Panels stock detail pane. `holder` is a {instance} box so each
+  // call site can own/tear-down its own chart instance independently.
+  async function _fetchAndRenderChartInto(symbol, sig, container, legendEl, holder, height) {
+    container.innerHTML =
+      `<div class="chart-error-state" style="height:${height}px;"><div class="spinner"></div><span>Fetching live 15-min candles…</span></div>`;
+    legendEl.innerHTML = "";
+
     try {
       const res  = await fetch(`${API}/api/chart/${symbol}`);
       const data = await res.json();
@@ -2087,7 +2081,7 @@
              </a>`
           : "";
         container.innerHTML = `
-          <div class="chart-error-state">
+          <div class="chart-error-state" style="height:${height}px;">
             <div style="color:${iconColor};font-size:28px;">${icon}</div>
             <div style="font-weight:700;font-size:14px;color:var(--text);">${title}</div>
             <div style="font-size:12px;line-height:1.65;max-width:380px;">${msg}</div>
@@ -2096,11 +2090,11 @@
         return;
       }
 
-      _renderLWChart(container, data.candles, sig);
+      _renderLWChartInto(container, legendEl, data.candles, sig, holder, height);
 
     } catch (err) {
       container.innerHTML = `
-        <div class="chart-error-state">
+        <div class="chart-error-state" style="height:${height}px;">
           <div style="color:var(--red);font-size:22px;">&#10005;</div>
           <div>Failed to load chart data</div>
           <div style="font-size:11px;color:var(--text-muted);">${err.message}</div>
@@ -2108,15 +2102,15 @@
     }
   }
 
-  function _renderLWChart(container, candles, sig) {
-    if (_chartInstance) { _chartInstance.remove(); _chartInstance = null; }
+  function _renderLWChartInto(container, legendEl, candles, sig, holder, height) {
+    if (holder.instance) { holder.instance.remove(); holder.instance = null; }
 
-    container.innerHTML = `<div id="lw-chart" style="width:100%;height:460px;"></div>`;
-    const el = document.getElementById("lw-chart");
+    container.innerHTML = `<div class="lw-chart-el" style="width:100%;height:${height}px;"></div>`;
+    const el = container.querySelector(".lw-chart-el");
 
-    _chartInstance = LightweightCharts.createChart(el, {
+    const chart = LightweightCharts.createChart(el, {
       width:  el.clientWidth,
-      height: 460,
+      height: height,
       layout: { background: { color: "#0f1117" }, textColor: "#e2e8f0" },
       grid:   { vertLines: { color: "#1e2336" }, horzLines: { color: "#1e2336" } },
       crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
@@ -2128,8 +2122,9 @@
         })
       }
     });
+    holder.instance = chart;
 
-    const cs = _chartInstance.addCandlestickSeries({
+    const cs = chart.addCandlestickSeries({
       upColor: "#22c55e", downColor: "#ef4444",
       borderUpColor: "#22c55e", borderDownColor: "#ef4444",
       wickUpColor: "#22c55e", wickDownColor: "#ef4444",
@@ -2162,11 +2157,10 @@
       });
     }
 
-    _chartInstance.timeScale().fitContent();
+    chart.timeScale().fitContent();
 
-    // Legend
     const sep = `<span style="color:var(--border);margin:0 2px;">|</span>`;
-    document.getElementById("chart-legend").innerHTML =
+    legendEl.innerHTML =
       levels.filter(l => l.p).map(l =>
         `<span class="lv">
            <span class="lv-dot" style="background:${l.color};${l.style===D?"opacity:.6":""}"></span>
@@ -2179,10 +2173,16 @@
   function closeChartModal() {
     document.getElementById("chart-overlay").classList.remove("open");
     document.body.style.overflow = "";
-    if (_chartInstance) { _chartInstance.remove(); _chartInstance = null; }
+    if (_modalChartHolder.instance) { _modalChartHolder.instance.remove(); _modalChartHolder.instance = null; }
   }
 
   // ── Boot ──────────────────────────────────────────────────────
+  // Live Panels is the default view — build it immediately so the sidebar
+  // and stock list appear right away; _refreshChartPanel() fills in real
+  // data as each panel's fetch completes.
+  _buildChartSidebar();
+  _selectChartPanel(_activeChartPanel);
+
   refreshAll();
   setInterval(refreshAll, 5 * 60 * 1000);
 
