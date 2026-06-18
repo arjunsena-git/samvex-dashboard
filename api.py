@@ -200,8 +200,8 @@ _PANEL_LABELS = {
     (1, "bearish"): "Setup 1 — Liquidity Sweep → BOS (Bearish · Sweep PDH → Break PDL)",
     (2, "bearish"): "Exhaustion Short — Profit Booking After Rally (9:15 AM–2:00 PM)",
     (3, "bullish"): "PDH Breakout — Trend + Momentum (Close > PDH · Price > 200 EMA(15m) · RSI(14) ≥ 60 · Vol ≥ 10L)",
-    (4, "bullish"): "ORB — Opening Range Breakout (Bullish · Narrow OR · 1-2h Consolidation · Breakout on Volume)",
-    (4, "bearish"): "ORB — Opening Range Breakout (Bearish · Narrow OR · 1-2h Consolidation · Breakdown on Volume)",
+    (4, "bullish"): "ORB — Opening Range Breakout (Bullish · Narrow OR · Multi-day Consolidation · Breakout on Volume)",
+    (4, "bearish"): "ORB — Opening Range Breakout (Bearish · Narrow OR · Multi-day Consolidation · Breakdown on Volume)",
 }
 
 def _signals_path(date_str: str) -> str:
@@ -1858,14 +1858,12 @@ def _screen_pdh_trend() -> list:
 
 # ── ORB — Opening Range Breakout ────────────────────────────────────────
 #
-# Concept: the first 5-min candle (9:15-9:20) sets a tight "opening range".
-# A narrow opening range followed by a long consolidation inside it (the
-# market digesting the open) followed by a decisive, high-volume breakout
-# tends to run one-sided, since it's effectively a fresh intraday BOS with
-# a well-defined risk level (the opposite side of the range).
+# Concept: the first 5-min candle (9:15-9:20) sets a tight "opening range",
+# on a stock that's also been rangebound over the last few days. A decisive,
+# high-volume breakout out of that range tends to run one-sided, since it's
+# effectively a fresh intraday BOS with a well-defined risk level (the
+# opposite side of the range).
 ORB_MAX_RANGE_PCT         = 0.4    # opening 5-min candle range must be <= 0.4% of price (narrow)
-ORB_MIN_CONSOLIDATION_MIN = 60     # must hold inside the range for >= 1 hour before breaking out
-ORB_MAX_CONSOLIDATION_MIN = 150    # breakout must happen within 2.5h of the open (else it's stale/not "the" ORB move)
 ORB_VOL_RATIO             = 1.5    # breakout candle volume vs avg volume of the consolidation bars
 ORB_FRESHNESS_BARS        = 6      # breakout candle must be within the last 6 5-min bars (30 min)
 ORB_NO_REVERSAL_PCT       = 1.5    # current price must stay within 1.5% of the day extreme (one-side rally, no round-trip)
@@ -1925,9 +1923,8 @@ def _screen_orb(direction: str) -> list:
             except Exception:
                 today_bars5 = intra5.iloc[:0]
 
-            # Need the opening candle plus enough bars to have possibly
-            # consolidated for ORB_MIN_CONSOLIDATION_MIN already.
-            if len(today_bars5) < (ORB_MIN_CONSOLIDATION_MIN // 5) + 1:
+            # Need the opening candle plus at least one more bar to check for a breakout
+            if len(today_bars5) < 2:
                 continue
 
             opens  = today_bars5["Open"].tolist()
@@ -1963,10 +1960,6 @@ def _screen_orb(direction: str) -> list:
                     breakout_bar = -1
                     break
             if breakout_bar < 0:
-                continue
-
-            elapsed_min = breakout_bar * 5
-            if not (ORB_MIN_CONSOLIDATION_MIN <= elapsed_min <= ORB_MAX_CONSOLIDATION_MIN):
                 continue
 
             # Freshness: breakout must be recent
