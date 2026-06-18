@@ -815,6 +815,29 @@ def _get_15m_batch():
         return result
 
 
+# ── Yahoo Finance 5-min intraday batch (for impulsive-candle confirmation) ─
+def _fetch_intraday_5m() -> dict:
+    """Batch 5-min bars for Nifty 500 universe — only needed for today's
+    most recent candle, so a short lookback period is enough."""
+    return _fetch_chunked("5m", "5d")
+
+
+def _get_5m_batch():
+    now = time.time()
+    if "5m_batch" in _cache:
+        data, ts = _cache["5m_batch"]
+        if now - ts < SCREEN_TTL:
+            return data
+    with _batch_lock:
+        if "5m_batch" in _cache:
+            data, ts = _cache["5m_batch"]
+            if now - ts < SCREEN_TTL:
+                return data
+        result = _fetch_intraday_5m()
+        _cache["5m_batch"] = (result, time.time())
+        return result
+
+
 def _get_ticker_df(batch, ticker):
     try:
         if isinstance(batch, dict):
@@ -1229,27 +1252,31 @@ def _screen_sweep_watch(direction: str) -> list:
 
 
 # Exhaustion Short — Profit Booking After Rally
-#   A stock that has rallied hard intraday on strong volume but has started
-#   pulling back from the day's high, with the latest completed 15-min candle
-#   turning red — classic "profit booking" exhaustion, good for an intraday
-#   short in the cash segment.
+#   A stock that rallied huge YESTERDAY on strong volume, and today is
+#   pulling back from the day's high with an impulsive, high-turnover red
+#   5-min candle confirming sellers stepping in — classic "profit booking"
+#   exhaustion, good for an intraday short in the cash segment.
 #
 # Gates:
 #   • Active only 9:15 AM – 2:00 PM IST (avoid fresh shorts into the close)
-#   • Day change vs prev close ≥ +7% (the "huge rally")
+#   • Previous day's rally (prev close vs day-before close) ≥ +11%
 #   • Current price ≥ 0.3% off the day high (pullback already underway)
 #   • Paced day volume ≥ 1.3× prev day volume (real participation)
-#   • Latest completed candle closed red (close < open)
+#   • Latest completed 5-min candle is impulsive: body ≥ 60% of its range,
+#     closed red, with turnover (close × volume) ≥ ₹50 crore
 #   • Nifty 50 not up more than 1% (don't fight a strongly bullish market)
-EXH_RALLY_PCT    = 7.0   # min day gain vs prev close to qualify as a "huge rally"
-EXH_PULLBACK_PCT = 0.3   # min pullback off day high
-EXH_VOL_RATIO    = 1.3   # min paced-volume ratio vs prev day
+EXH_PREV_DAY_RALLY_PCT = 11.0     # min previous-day gain to qualify as a "huge rally"
+EXH_PULLBACK_PCT       = 0.3      # min pullback off day high
+EXH_VOL_RATIO          = 1.3      # min paced-volume ratio vs prev day
+EXH_IMPULSE_BODY_RATIO = 0.6      # min body/range ratio on the confirming 5-min candle
+EXH_IMPULSE_TURNOVER   = 50_00_00_000  # ₹50 crore min turnover on that 5-min candle
 
 
 def _screen_exhaustion_short() -> list:
     """Exhaustion Short / profit-booking screener — see module comment above."""
     universe    = _load_nifty500() or _get_fno_universe()
     batch_15m   = _get_15m_batch()
+    batch_5m    = _get_5m_batch()
     batch_daily = _get_daily_batch()
     ist         = pytz.timezone("Asia/Kolkata")
     now         = datetime.now(ist)
@@ -1275,9 +1302,10 @@ def _screen_exhaustion_short() -> list:
     for symbol in universe:
         try:
             intra = _get_ticker_df(batch_15m, symbol)
+            intra5 = _get_ticker_df(batch_5m, symbol)
             daily = _get_ticker_df(batch_daily, symbol)
 
-            if intra is None or daily is None or len(daily) < 2:
+            if intra is None or intra5 is None or daily is None or len(daily) < 3:
                 continue
 
             try:
@@ -1292,11 +1320,48 @@ def _screen_exhaustion_short() -> list:
             if len(today_bars) < 2:
                 continue
 
-            pdl        = float(daily["Low"].iloc[-2])
-            prev_close = float(daily["Close"].iloc[-2])
-            prev_vol   = float(daily["Volume"].iloc[-2])
+            try:
+                if intra5.index.tz is not None:
+                    today_mask5 = intra5.index.tz_convert(ist).date == today_date
+                else:
+                    today_mask5 = [ts.date() == today_date for ts in intra5.index]
+                today_bars5 = intra5[today_mask5]
+            except Exception:
+                today_bars5 = intra5.iloc[:0]
 
-            if pdl <= 0 or prev_close <= 0 or prev_vol <= 0:
+            if len(today_bars5) < 1:
+                continue
+
+            pdl             = float(daily["Low"].iloc[-2])
+            prev_close      = float(daily["Close"].iloc[-2])
+            prev_vol        = float(daily["Volume"].iloc[-2])
+            prev_prev_close = float(daily["Close"].iloc[-3])
+
+            if pdl <= 0 or prev_close <= 0 or prev_vol <= 0 or prev_prev_close <= 0:
+                continue
+
+            prev_day_rally_pct = (prev_close - prev_prev_close) / prev_prev_close * 100
+            if prev_day_rally_pct < EXH_PREV_DAY_RALLY_PCT:
+                continue
+
+            # Latest completed 5-min candle must be an impulsive, high-turnover red candle
+            c5_open  = float(today_bars5["Open"].iloc[-1])
+            c5_high  = float(today_bars5["High"].iloc[-1])
+            c5_low   = float(today_bars5["Low"].iloc[-1])
+            c5_close = float(today_bars5["Close"].iloc[-1])
+            c5_vol   = float(today_bars5["Volume"].iloc[-1])
+
+            c5_range = c5_high - c5_low
+            if c5_range <= 0:
+                continue
+            c5_body_ratio = abs(c5_close - c5_open) / c5_range
+            c5_turnover   = c5_close * c5_vol
+
+            if c5_close >= c5_open:
+                continue
+            if c5_body_ratio < EXH_IMPULSE_BODY_RATIO:
+                continue
+            if c5_turnover < EXH_IMPULSE_TURNOVER:
                 continue
 
             opens  = today_bars["Open"].tolist()
@@ -1325,13 +1390,9 @@ def _screen_exhaustion_short() -> list:
             day_chg_pct = (current_price - prev_close) / prev_close * 100
 
             # ── Gates ──────────────────────────────────────────────
-            if day_chg_pct < EXH_RALLY_PCT:
-                continue
             if current_price > day_high * (1 - EXH_PULLBACK_PCT / 100):
                 continue
             if vol_ratio < EXH_VOL_RATIO:
-                continue
-            if closes[-1] >= opens[-1]:        # latest candle must have turned red
                 continue
             if nifty_chg > 1.0:                # don't fight a strongly bullish Nifty
                 continue
@@ -1346,8 +1407,8 @@ def _screen_exhaustion_short() -> list:
             t1     = round(current_price - risk * 1.5, 2)
             t2     = round(current_price - risk * 3.0, 2)
 
-            # Confidence 0–100: rally size (40) + pullback depth (35) + volume (25)
-            rally_s      = min(day_chg_pct / 14.0, 1.0) * 40
+            # Confidence 0–100: prev-day rally size (40) + pullback depth (35) + volume (25)
+            rally_s      = min(prev_day_rally_pct / 22.0, 1.0) * 40
             pullback_pct = (day_high - current_price) / day_high * 100
             pull_s       = min(pullback_pct / 1.5, 1.0) * 35
             vol_s        = min((vol_ratio - EXH_VOL_RATIO) / 1.0, 1.0) * 25
@@ -1357,7 +1418,7 @@ def _screen_exhaustion_short() -> list:
             gap_pct = round((float(today_bars["Open"].iloc[0]) - prev_close) / prev_close * 100, 2)
 
             try:
-                ts = today_bars.index[-1]
+                ts = today_bars5.index[-1]
                 ts = ts.astimezone(ist) if ts.tzinfo else pytz.utc.localize(ts).astimezone(ist)
                 bos_time = ts.strftime("%H:%M")
             except Exception:
@@ -1368,6 +1429,7 @@ def _screen_exhaustion_short() -> list:
                 "price":            round(current_price, 2),
                 "gap_pct":          gap_pct,
                 "day_chg_pct":      round(day_chg_pct, 2),
+                "prev_day_rally_pct": round(prev_day_rally_pct, 2),
                 "day_high":         round(day_high, 2),
                 "day_low":          round(min(lows), 2),
                 "pdh":              round(float(daily["High"].iloc[-2]), 2),
@@ -1565,7 +1627,7 @@ def oauth_callback():
 
     # Clear screener cache so next load uses live data immediately
     for k in ("s1_bull", "s1_bear", "exh_short",
-              "live_quotes", "15m_batch", "ticker", "oi_buildup", "market"):
+              "live_quotes", "15m_batch", "5m_batch", "ticker", "oi_buildup", "market"):
         _cache.pop(k, None)
 
     redirect_url = FRONTEND_URL if FRONTEND_URL else None
@@ -1608,7 +1670,7 @@ def set_token():
     _save_token(_upstox_token["access_token"], _upstox_token["expires_at"])
     # Invalidate screener cache so next request uses live data immediately
     for k in ("s1_bull", "s1_bear", "exh_short",
-              "live_quotes", "15m_batch", "ticker", "oi_buildup", "market"):
+              "live_quotes", "15m_batch", "5m_batch", "ticker", "oi_buildup", "market"):
         _cache.pop(k, None)
     threading.Thread(target=_load_instrument_map, daemon=True).start()
     threading.Thread(target=_load_futures_map, daemon=True).start()
@@ -2526,7 +2588,7 @@ def _generate_setup_explanations(setup: int, direction: str, results: list) -> l
         setup_names = {
             (1, "bullish"): "SMC Bullish — liquidity sweep below PDL followed by BOS above PDH",
             (1, "bearish"): "SMC Bearish — liquidity sweep above PDH followed by BOS below PDL",
-            (2, "bearish"): "Exhaustion Short — huge intraday rally pulling back from day high on a red candle",
+            (2, "bearish"): "Exhaustion Short — huge previous-day rally pulling back from day high on an impulsive red 5-min candle",
         }
         setup_name = setup_names.get((setup, direction), "")
 
