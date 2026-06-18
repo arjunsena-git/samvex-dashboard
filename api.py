@@ -582,8 +582,18 @@ threading.Thread(target=lambda: _load_instrument_map(), daemon=True).start()
 threading.Thread(target=lambda: _load_futures_map(),    daemon=True).start()
 threading.Thread(target=lambda: _load_nifty500(),       daemon=True).start()
 threading.Thread(target=lambda: _get_daily_batch(),     daemon=True).start()
-threading.Thread(target=_load_persisted_signals,        daemon=True).start()
-threading.Thread(target=_load_persisted_history,        daemon=True).start()
+
+# These two are a single quick Redis GET each (not a slow batch fetch), so
+# they're run synchronously, not threaded — a deploy/cold-start restart
+# resets _signal_store / _smc_history in memory, and if the first request
+# races a background thread that hasn't finished its Redis round-trip yet,
+# that request sees empty history and starts overwriting it, permanently
+# losing whatever was persisted (this happened in practice: a redeploy
+# wiped a still-active Exhaustion Short signal's detected_at history).
+# Blocking here for the ~100-300ms a Redis REST call takes is cheap
+# insurance against that race.
+_load_persisted_signals()
+_load_persisted_history()
 
 # ── Startup token load ─────────────────────────────────────────────
 _startup_token, _startup_expires, _startup_source = _load_token_on_startup()
