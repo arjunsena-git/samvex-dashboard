@@ -1605,7 +1605,11 @@
 
   function _panelRows(cfg) {
     if (cfg.type === 'oi') return _oiPanelData[cfg.key]?.rows || [];
-    return (_panelData[cfg.key]?.rows || []).filter(s => s.is_active !== false);
+    return _panelData[cfg.key]?.rows || [];
+  }
+
+  function _activeCount(cfg) {
+    return _panelRows(cfg).filter(s => s.is_active !== false).length;
   }
 
   // OI Buildup is now also available as sidebar panels in Live Panels view,
@@ -1640,7 +1644,7 @@
     const list = document.getElementById('chart-sidebar-list');
     list.innerHTML = '';
     _PANEL_CONFIGS.forEach(cfg => {
-      const count = _panelRows(cfg).length;
+      const count = _activeCount(cfg);
       const btn   = document.createElement('div');
       btn.className   = 'chart-sidebar-btn' + (cfg.key === _activeChartPanel ? ' active' : '');
       btn.dataset.key = cfg.key;
@@ -1668,6 +1672,7 @@
 
     const cfg    = _PANEL_CONFIGS.find(c => c.key === panelKey);
     const stocks = _panelRows(cfg);
+    const activeStocks = stocks.filter(s => s.is_active !== false);
     const isBull = panelKey.includes('bull');
 
     const hdr = document.getElementById('chart-main-hdr');
@@ -1675,11 +1680,13 @@
       <span class="dot ${cfg.dot}"></span>
       <span class="chart-main-title">${cfg.label} &nbsp;<span style="color:${cfg.color}">${cfg.sub}</span></span>
       <span style="margin-left:auto;font-size:11px;color:var(--text-muted);font-weight:600">
-        ${stocks.length} active signal${stocks.length !== 1 ? 's' : ''}
+        ${activeStocks.length} active signal${activeStocks.length !== 1 ? 's' : ''}
       </span>`;
 
     // Name-only list — deliberately no price/gap/key-level here, just the
     // symbol, so the team isn't distracted before they pick one to inspect.
+    // Inactive (no-longer-meeting-criteria) signals are still shown, greyed
+    // out with a "Signal gone" tag, instead of disappearing without a trace.
     const list = document.getElementById('stock-name-list');
     if (stocks.length === 0) {
       const emptyMsg = (cfg.type === 'oi' && _oiPanelData[panelKey]?.notLive)
@@ -1688,13 +1695,17 @@
       list.innerHTML = `<div class="stock-name-empty">${emptyMsg}</div>`;
     } else {
       const color = isBull ? 'var(--green)' : 'var(--red)';
-      list.innerHTML = stocks.map(s => `
-        <div class="stock-name-item" data-symbol="${s.symbol}" onclick="_selectStock('${panelKey}','${s.symbol}')">
+      list.innerHTML = stocks.map(s => {
+        const isInactive = s.is_active === false;
+        return `
+        <div class="stock-name-item ${isInactive ? 'signal-inactive' : ''}" data-symbol="${s.symbol}" onclick="_selectStock('${panelKey}','${s.symbol}')">
           <span style="display:flex;align-items:center;gap:8px;">
-            <span class="dot" style="background:${color}"></span>
+            <span class="dot" style="background:${isInactive ? 'var(--text-muted)' : color}"></span>
             <span>${s.symbol}</span>
           </span>
-        </div>`).join('');
+          ${isInactive ? `<span class="gone-tag">&#8629; Signal gone</span>` : ''}
+        </div>`;
+      }).join('');
     }
 
     if (prevSymbol && stocks.some(s => s.symbol === prevSymbol)) {
