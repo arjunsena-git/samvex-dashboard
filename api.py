@@ -12,6 +12,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import os
 import io
 import gzip
+import uuid
 import requests as _http
 
 app = Flask(__name__)
@@ -368,6 +369,109 @@ def _upstash(cmd: list):
     except Exception as e:
         print(f"[Redis] Error: {e}")
         return None
+
+
+# ── Trade Journal — shared, persistent across restarts ──────────────
+# Stored as one JSON blob in Upstash Redis (survives Render free-tier
+# cold-starts, unlike /tmp) with a local-disk copy as a fallback/backup
+# for when Redis isn't configured.
+_JOURNAL_REDIS_KEY = "samvex_trade_journal"
+_JOURNAL_FILE       = os.path.join(_SIGNALS_DIR, "trade_journal.json")
+_JOURNAL_DIRECTIONS = {"Long", "Short"}
+_JOURNAL_OUTCOMES   = {"Open", "Win", "Loss", "Breakeven"}
+
+
+def _load_journal() -> list:
+    raw = _upstash(["GET", _JOURNAL_REDIS_KEY])
+    if raw:
+        try:
+            return json.loads(raw)
+        except Exception as e:
+            print(f"[Journal] Redis parse error: {e}")
+    try:
+        if os.path.exists(_JOURNAL_FILE):
+            with open(_JOURNAL_FILE) as fh:
+                return json.load(fh)
+    except Exception as e:
+        print(f"[Journal] disk load error: {e}")
+    return []
+
+
+def _save_journal(entries: list) -> None:
+    payload = json.dumps(entries)
+    _upstash(["SET", _JOURNAL_REDIS_KEY, payload])
+    try:
+        with open(_JOURNAL_FILE, "w") as fh:
+            fh.write(payload)
+    except Exception as e:
+        print(f"[Journal] disk save error: {e}")
+
+
+def _num_or_none(v):
+    try:
+        return float(v) if v not in (None, "") else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _sanitize_journal_entry(data: dict) -> dict:
+    """Build a clean entry dict from raw request JSON, auto-computing
+    P&L / outcome / R:R when the caller didn't supply them directly."""
+    ist = pytz.timezone("Asia/Kolkata")
+
+    direction = data.get("direction") if data.get("direction") in _JOURNAL_DIRECTIONS else "Long"
+    sign      = 1 if direction == "Long" else -1
+
+    entry_price = _num_or_none(data.get("entry_price"))
+    exit_price  = _num_or_none(data.get("exit_price"))
+    quantity    = _num_or_none(data.get("quantity")) or 0
+    stop_loss   = _num_or_none(data.get("stop_loss"))
+    target      = _num_or_none(data.get("target"))
+
+    pnl_amount = _num_or_none(data.get("pnl_amount"))
+    if pnl_amount is None and entry_price is not None and exit_price is not None and quantity:
+        pnl_amount = round(sign * (exit_price - entry_price) * quantity, 2)
+
+    pnl_pct = _num_or_none(data.get("pnl_pct"))
+    if pnl_pct is None and entry_price not in (None, 0) and exit_price is not None:
+        pnl_pct = round(sign * (exit_price - entry_price) / entry_price * 100, 2)
+
+    risk_reward = _num_or_none(data.get("risk_reward"))
+    if risk_reward is None and entry_price is not None and stop_loss is not None and target is not None:
+        risk = abs(entry_price - stop_loss)
+        risk_reward = round(abs(target - entry_price) / risk, 2) if risk > 0 else None
+
+    outcome = data.get("outcome") if data.get("outcome") in _JOURNAL_OUTCOMES else None
+    if not outcome:
+        if exit_price is None or pnl_amount is None:
+            outcome = "Open"
+        elif pnl_amount > 0:
+            outcome = "Win"
+        elif pnl_amount < 0:
+            outcome = "Loss"
+        else:
+            outcome = "Breakeven"
+
+    return {
+        "date":        data.get("date") or datetime.now(ist).strftime("%Y-%m-%d"),
+        "trader":      (data.get("trader") or "").strip(),
+        "symbol":      (data.get("symbol") or "").strip().upper(),
+        "direction":   direction,
+        "setup":       (data.get("setup") or "").strip(),
+        "entry_price": entry_price,
+        "entry_time":  data.get("entry_time") or "",
+        "exit_price":  exit_price,
+        "exit_time":   data.get("exit_time") or "",
+        "quantity":    quantity,
+        "stop_loss":   stop_loss,
+        "target":      target,
+        "pnl_amount":  pnl_amount,
+        "pnl_pct":     pnl_pct,
+        "risk_reward": risk_reward,
+        "outcome":     outcome,
+        "notes":       data.get("notes") or "",
+        "lessons":     data.get("lessons") or "",
+    }
 
 
 def _save_token_to_redis(token: str, expires_at: float):
@@ -2724,6 +2828,60 @@ def debug_universe():
             "source=https://... means full Nifty 500 loaded successfully."
         ),
     })
+
+
+@app.route("/api/journal", methods=["GET"])
+def journal_list():
+    entries = _load_journal()
+    entries.sort(key=lambda e: (e.get("date", ""), e.get("created_at", "")), reverse=True)
+    return jsonify(entries)
+
+
+@app.route("/api/journal", methods=["POST"])
+def journal_create():
+    data  = flask_req.get_json(force=True, silent=True) or {}
+    if not (data.get("symbol") or "").strip():
+        return jsonify({"error": "symbol is required"}), 400
+
+    ist   = pytz.timezone("Asia/Kolkata")
+    now   = datetime.now(ist).isoformat()
+    entry = _sanitize_journal_entry(data)
+    entry["id"]         = str(uuid.uuid4())
+    entry["created_at"] = now
+    entry["updated_at"] = now
+
+    entries = _load_journal()
+    entries.append(entry)
+    _save_journal(entries)
+    return jsonify(entry), 201
+
+
+@app.route("/api/journal/<entry_id>", methods=["PUT"])
+def journal_update(entry_id):
+    data    = flask_req.get_json(force=True, silent=True) or {}
+    entries = _load_journal()
+    idx     = next((i for i, e in enumerate(entries) if e.get("id") == entry_id), -1)
+    if idx < 0:
+        return jsonify({"error": "not found"}), 404
+
+    updated = _sanitize_journal_entry(data)
+    updated["id"]         = entry_id
+    updated["created_at"] = entries[idx].get("created_at", "")
+    updated["updated_at"] = datetime.now(pytz.timezone("Asia/Kolkata")).isoformat()
+
+    entries[idx] = updated
+    _save_journal(entries)
+    return jsonify(updated)
+
+
+@app.route("/api/journal/<entry_id>", methods=["DELETE"])
+def journal_delete(entry_id):
+    entries     = _load_journal()
+    new_entries = [e for e in entries if e.get("id") != entry_id]
+    if len(new_entries) == len(entries):
+        return jsonify({"error": "not found"}), 404
+    _save_journal(new_entries)
+    return jsonify({"deleted": entry_id})
 
 
 @app.route("/api/ping")

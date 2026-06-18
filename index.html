@@ -769,6 +769,84 @@
       .stock-name-list.has-selection { width: 100%; max-height: 160px; }
       .detail-stat-grid { grid-template-columns: repeat(2, 1fr); }
     }
+
+    /* ── Trade Journal ────────────────────────────────────────────── */
+    .journal-page { display: none; flex-direction: column; gap: 14px; margin-bottom: 24px; }
+    .journal-hdr {
+      display: flex; align-items: center; justify-content: space-between;
+      flex-wrap: wrap; gap: 10px;
+    }
+    .journal-hdr h2 { font-size: 16px; font-weight: 800; }
+    .journal-stats { display: flex; gap: 18px; flex-wrap: wrap; font-size: 12px; color: var(--text-muted); }
+    .journal-stats b { color: var(--text); font-size: 13px; }
+    .journal-table-wrap {
+      background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: var(--radius); overflow-x: auto;
+    }
+    .journal-table { width: 100%; border-collapse: collapse; font-size: 12px; white-space: nowrap; }
+    .journal-table th {
+      text-align: left; padding: 10px 12px; color: var(--text-muted);
+      font-weight: 700; text-transform: uppercase; font-size: 10px; letter-spacing: .4px;
+      border-bottom: 1px solid var(--border); background: var(--bg-card-2);
+    }
+    .journal-table td { padding: 9px 12px; border-bottom: 1px solid var(--border); }
+    .journal-table tr:last-child td { border-bottom: none; }
+    .journal-table tr:hover td { background: var(--bg-card-2); }
+    .journal-actions { display: flex; gap: 6px; }
+    .journal-icon-btn {
+      background: none; border: 1px solid var(--border); border-radius: 6px;
+      padding: 4px 7px; cursor: pointer; color: var(--text-muted); font-size: 12px;
+    }
+    .journal-icon-btn:hover { border-color: var(--accent); color: var(--accent); }
+    .journal-empty { padding: 48px; text-align: center; color: var(--text-muted); font-size: 13px; }
+    .journal-outcome-pill {
+      padding: 2px 9px; border-radius: 10px; font-size: 10px; font-weight: 700;
+      display: inline-block;
+    }
+    .journal-outcome-Win       { background: rgba(34,197,94,.12);  color: var(--green); }
+    .journal-outcome-Loss      { background: rgba(239,68,68,.12);  color: var(--red); }
+    .journal-outcome-Open      { background: rgba(79,142,247,.12); color: var(--accent); }
+    .journal-outcome-Breakeven { background: rgba(245,158,11,.12); color: var(--yellow); }
+
+    .journal-modal-overlay {
+      display: none; position: fixed; inset: 0; background: rgba(0,0,0,.78);
+      z-index: 1100; align-items: center; justify-content: center;
+      padding: 20px; overflow-y: auto;
+    }
+    .journal-modal-overlay.open { display: flex; }
+    .journal-modal {
+      background: #0f1117; border: 1px solid var(--border); border-radius: 12px;
+      width: 100%; max-width: 640px; max-height: 90vh; overflow-y: auto;
+      box-shadow: 0 8px 48px rgba(0,0,0,.6);
+    }
+    .journal-modal-hdr {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 16px 20px; border-bottom: 1px solid var(--border);
+    }
+    .journal-modal-hdr h3 { font-size: 15px; font-weight: 800; }
+    .journal-form { padding: 18px 20px; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .journal-form .full { grid-column: 1 / -1; }
+    .journal-form label { display: flex; flex-direction: column; gap: 4px; font-size: 11px; color: var(--text-muted); font-weight: 600; }
+    .journal-form input, .journal-form select, .journal-form textarea {
+      background: var(--bg-card-2); border: 1px solid var(--border); border-radius: 6px;
+      padding: 8px 10px; color: var(--text); font-size: 13px; font-family: inherit;
+    }
+    .journal-form textarea { resize: vertical; min-height: 56px; }
+    .journal-form-footer {
+      display: flex; justify-content: flex-end; gap: 8px;
+      padding: 14px 20px; border-top: 1px solid var(--border);
+    }
+    .journal-btn-primary {
+      background: var(--accent); color: #fff; border: none; border-radius: 6px;
+      padding: 9px 18px; font-size: 13px; font-weight: 700; cursor: pointer;
+    }
+    .journal-btn-secondary {
+      background: var(--bg-card-2); color: var(--text-muted); border: 1px solid var(--border);
+      border-radius: 6px; padding: 9px 18px; font-size: 13px; font-weight: 700; cursor: pointer;
+    }
+    @media (max-width: 600px) {
+      .journal-form { grid-template-columns: 1fr; }
+    }
   </style>
 </head>
 <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
@@ -861,6 +939,7 @@
   <!-- ── CSV download row ─────────────────────────────────────────── -->
   <div class="csv-toolbar" style="gap:8px;flex-wrap:wrap;">
     <button id="chart-mode-btn" class="chart-mode-toggle active" onclick="toggleChartMode()">&#9776; Full Table View</button>
+    <button id="journal-btn" class="chart-mode-toggle" onclick="toggleJournalView()">&#128209; Trade Journal</button>
     <button class="csv-btn" onclick="downloadAllCSV()">↓ Download Visible Signals</button>
     <a id="today-csv-btn" class="csv-btn"
        style="text-decoration:none;display:inline-flex;align-items:center;"
@@ -891,6 +970,29 @@
           <div id="stock-detail-content" style="display:none;flex:1;flex-direction:column;"></div>
         </div>
       </div>
+    </div>
+  </div>
+
+  <!-- ── Trade Journal — shared, editable, central log ────────────── -->
+  <div class="journal-page" id="journal-page">
+    <div class="journal-hdr">
+      <h2>&#128209; Trade Journal</h2>
+      <div class="journal-stats" id="journal-stats"></div>
+      <button class="csv-btn" onclick="openJournalForm()">+ Add Trade</button>
+    </div>
+    <div class="journal-table-wrap">
+      <table class="journal-table">
+        <thead>
+          <tr>
+            <th>Date</th><th>Trader</th><th>Symbol</th><th>Dir</th><th>Setup</th>
+            <th>Entry</th><th>Exit</th><th>Qty</th><th>P&amp;L ₹</th><th>P&amp;L %</th>
+            <th>R:R</th><th>Outcome</th><th></th>
+          </tr>
+        </thead>
+        <tbody id="journal-tbody">
+          <tr><td colspan="13"><div class="journal-empty"><div class="spinner"></div>Loading…</div></td></tr>
+        </tbody>
+      </table>
     </div>
   </div>
 
@@ -1515,6 +1617,7 @@
   const _SCANNER_ELS = ['s1-divider','s1-table-grid','exh-divider','exh-table-grid','pdh-divider','pdh-table-grid'];
 
   function toggleChartMode() {
+    if (_journalActive) _closeJournalView();
     _chartModeActive = !_chartModeActive;
     _applyChartModeDisplay();
   }
@@ -1707,6 +1810,163 @@
     if (!_chartModeActive) return;
     _buildChartSidebar();
     if (panelKey === _activeChartPanel) _selectChartPanel(panelKey, true);
+  }
+
+  // ── Trade Journal — shared, editable, central log ──────────────
+  let _journalActive  = false;
+  let _journalEntries = [];
+  let _journalEditId  = null;
+
+  function toggleJournalView() {
+    _journalActive = !_journalActive;
+    document.getElementById('journal-btn').classList.toggle('active', _journalActive);
+    document.getElementById('journal-page').style.display = _journalActive ? 'flex' : 'none';
+    document.querySelector('.summary-row').style.display = _journalActive ? 'none' : '';
+
+    if (_journalActive) {
+      document.getElementById('chart-fullpage').classList.remove('visible');
+      _SCANNER_ELS.forEach(id => { const el = document.getElementById(id); if (el) el.style.display = 'none'; });
+      loadJournal();
+    } else {
+      _applyChartModeDisplay();
+    }
+  }
+
+  // Used by toggleChartMode() so switching to Live Panels / Full Table View
+  // while the journal is open closes it first, without double-toggling state.
+  function _closeJournalView() {
+    _journalActive = false;
+    document.getElementById('journal-btn').classList.remove('active');
+    document.getElementById('journal-page').style.display = 'none';
+    document.querySelector('.summary-row').style.display = '';
+  }
+
+  async function loadJournal() {
+    const tbody = document.getElementById('journal-tbody');
+    tbody.innerHTML = `<tr><td colspan="13"><div class="journal-empty"><div class="spinner"></div>Loading…</div></td></tr>`;
+    try {
+      const res = await fetch(`${API}/api/journal`);
+      _journalEntries = await res.json();
+      _renderJournalTable();
+    } catch (e) {
+      tbody.innerHTML = `<tr><td colspan="13"><div class="journal-empty">Failed to load journal — ${e.message}</div></td></tr>`;
+    }
+  }
+
+  function _renderJournalTable() {
+    const tbody = document.getElementById('journal-tbody');
+    const stats = document.getElementById('journal-stats');
+
+    if (!_journalEntries.length) {
+      tbody.innerHTML = `<tr><td colspan="13"><div class="journal-empty">No trades logged yet. Click "+ Add Trade" to start.</div></td></tr>`;
+      stats.innerHTML = '';
+      return;
+    }
+
+    const closed   = _journalEntries.filter(e => e.outcome !== 'Open');
+    const wins     = closed.filter(e => e.outcome === 'Win').length;
+    const totalPnl = closed.reduce((s, e) => s + (e.pnl_amount || 0), 0);
+    const winRate  = closed.length ? (wins / closed.length * 100).toFixed(1) + '%' : '—';
+    stats.innerHTML = `
+      <span><b>${_journalEntries.length}</b> trades</span>
+      <span><b>${winRate}</b> win rate (${closed.length} closed)</span>
+      <span style="color:${totalPnl >= 0 ? 'var(--green)' : 'var(--red)'}"><b>${fmt(totalPnl)}</b> total P&amp;L</span>`;
+
+    tbody.innerHTML = _journalEntries.map(e => `
+      <tr>
+        <td>${e.date || ''}</td>
+        <td>${e.trader || '—'}</td>
+        <td><a class="sym" href="https://www.tradingview.com/chart/?symbol=NSE:${e.symbol}" target="_blank" rel="noopener noreferrer">${e.symbol}</a></td>
+        <td><span class="pill pill-${e.direction === 'Long' ? 'green' : 'red'}">${e.direction}</span></td>
+        <td>${e.setup || '—'}</td>
+        <td>${e.entry_price != null ? fmt(e.entry_price) : '—'}</td>
+        <td>${e.exit_price != null ? fmt(e.exit_price) : '—'}</td>
+        <td>${e.quantity || '—'}</td>
+        <td style="color:${(e.pnl_amount || 0) >= 0 ? 'var(--green)' : 'var(--red)'}">${e.pnl_amount != null ? fmt(e.pnl_amount) : '—'}</td>
+        <td style="color:${(e.pnl_pct || 0) >= 0 ? 'var(--green)' : 'var(--red)'}">${e.pnl_pct != null ? e.pnl_pct + '%' : '—'}</td>
+        <td>${e.risk_reward != null ? e.risk_reward : '—'}</td>
+        <td><span class="journal-outcome-pill journal-outcome-${e.outcome}">${e.outcome}</span></td>
+        <td class="journal-actions">
+          <button class="journal-icon-btn" onclick="openJournalForm('${e.id}')" title="Edit">&#9998;</button>
+          <button class="journal-icon-btn" onclick="deleteJournalEntry('${e.id}')" title="Delete">&#128465;</button>
+        </td>
+      </tr>`).join('');
+  }
+
+  function openJournalForm(id) {
+    _journalEditId = id || null;
+    const e = id ? _journalEntries.find(x => x.id === id) : null;
+    document.getElementById('journal-modal-title').textContent = e ? `Edit Trade — ${e.symbol}` : 'Add Trade';
+    document.getElementById('jf-symbol').value      = e?.symbol || '';
+    document.getElementById('jf-date').value        = e?.date || new Date().toLocaleDateString('en-CA');
+    document.getElementById('jf-trader').value      = e?.trader || '';
+    document.getElementById('jf-direction').value   = e?.direction || 'Long';
+    document.getElementById('jf-setup').value       = e?.setup || '';
+    document.getElementById('jf-entry-price').value = e?.entry_price ?? '';
+    document.getElementById('jf-entry-time').value  = e?.entry_time || '';
+    document.getElementById('jf-exit-price').value  = e?.exit_price ?? '';
+    document.getElementById('jf-exit-time').value   = e?.exit_time || '';
+    document.getElementById('jf-quantity').value    = e?.quantity ?? '';
+    document.getElementById('jf-sl').value          = e?.stop_loss ?? '';
+    document.getElementById('jf-target').value      = e?.target ?? '';
+    document.getElementById('jf-outcome').value     = (e && e.outcome !== 'Open') ? e.outcome : '';
+    document.getElementById('jf-notes').value       = e?.notes || '';
+    document.getElementById('jf-lessons').value     = e?.lessons || '';
+    document.getElementById('journal-modal-overlay').classList.add('open');
+  }
+
+  function closeJournalForm() {
+    document.getElementById('journal-modal-overlay').classList.remove('open');
+  }
+
+  async function saveJournalEntry() {
+    const symbol = document.getElementById('jf-symbol').value.trim();
+    if (!symbol) { alert('Symbol is required'); return; }
+
+    const payload = {
+      symbol,
+      date:        document.getElementById('jf-date').value,
+      trader:      document.getElementById('jf-trader').value,
+      direction:   document.getElementById('jf-direction').value,
+      setup:       document.getElementById('jf-setup').value,
+      entry_price: document.getElementById('jf-entry-price').value,
+      entry_time:  document.getElementById('jf-entry-time').value,
+      exit_price:  document.getElementById('jf-exit-price').value,
+      exit_time:   document.getElementById('jf-exit-time').value,
+      quantity:    document.getElementById('jf-quantity').value,
+      stop_loss:   document.getElementById('jf-sl').value,
+      target:      document.getElementById('jf-target').value,
+      outcome:     document.getElementById('jf-outcome').value,
+      notes:       document.getElementById('jf-notes').value,
+      lessons:     document.getElementById('jf-lessons').value,
+    };
+
+    try {
+      const url    = _journalEditId ? `${API}/api/journal/${_journalEditId}` : `${API}/api/journal`;
+      const method = _journalEditId ? 'PUT' : 'POST';
+      const res    = await fetch(url, {
+        method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Save failed');
+      }
+      closeJournalForm();
+      await loadJournal();
+    } catch (e) {
+      alert(`Failed to save trade: ${e.message}`);
+    }
+  }
+
+  async function deleteJournalEntry(id) {
+    if (!confirm('Delete this trade from the journal? This cannot be undone.')) return;
+    try {
+      const res = await fetch(`${API}/api/journal/${id}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error('Delete failed');
+      await loadJournal();
+    } catch (e) {
+      alert(`Failed to delete trade: ${e.message}`);
+    }
   }
 
   // ── Setup loaders ────────────────────────────────────────────
@@ -2338,6 +2598,77 @@
     </div>
     <div class="chart-legend" id="chart-legend"></div>
     <div class="chart-src-note">&#9679; Live data via Upstox · 15-min candles · IST times</div>
+  </div>
+</div>
+
+<!-- ── Trade Journal: Add/Edit Modal ────────────────────────────── -->
+<div class="journal-modal-overlay" id="journal-modal-overlay" onclick="if(event.target===this)closeJournalForm()">
+  <div class="journal-modal">
+    <div class="journal-modal-hdr">
+      <h3 id="journal-modal-title">Add Trade</h3>
+      <button class="chart-close" onclick="closeJournalForm()">&#x2715;</button>
+    </div>
+    <div class="journal-form" id="journal-form">
+      <label class="full">Symbol
+        <input id="jf-symbol" type="text" placeholder="e.g. RELIANCE" style="text-transform:uppercase;">
+      </label>
+      <label>Date
+        <input id="jf-date" type="date">
+      </label>
+      <label>Trader
+        <input id="jf-trader" type="text" placeholder="e.g. Arjun">
+      </label>
+      <label>Direction
+        <select id="jf-direction"><option>Long</option><option>Short</option></select>
+      </label>
+      <label>Setup / Strategy
+        <input id="jf-setup" type="text" list="jf-setup-options" placeholder="e.g. Liq. Sweep → BOS">
+        <datalist id="jf-setup-options">
+          <option value="Liq. Sweep → BOS Bullish">
+          <option value="Liq. Sweep → BOS Bearish">
+          <option value="Exhaustion Short">
+          <option value="PDH Breakout">
+          <option value="Manual / Discretionary">
+        </datalist>
+      </label>
+      <label>Entry Price
+        <input id="jf-entry-price" type="number" step="0.01" placeholder="₹">
+      </label>
+      <label>Entry Time
+        <input id="jf-entry-time" type="time">
+      </label>
+      <label>Exit Price
+        <input id="jf-exit-price" type="number" step="0.01" placeholder="₹ (leave blank if still open)">
+      </label>
+      <label>Exit Time
+        <input id="jf-exit-time" type="time">
+      </label>
+      <label>Quantity
+        <input id="jf-quantity" type="number" step="1" placeholder="Shares">
+      </label>
+      <label>Stop Loss
+        <input id="jf-sl" type="number" step="0.01" placeholder="₹">
+      </label>
+      <label>Target
+        <input id="jf-target" type="number" step="0.01" placeholder="₹">
+      </label>
+      <label>Outcome
+        <select id="jf-outcome">
+          <option value="">Auto (from P&amp;L)</option>
+          <option>Open</option><option>Win</option><option>Loss</option><option>Breakeven</option>
+        </select>
+      </label>
+      <label class="full">Notes / Entry Reasoning
+        <textarea id="jf-notes" placeholder="Why did you take this trade? What was the setup/confirmation?"></textarea>
+      </label>
+      <label class="full">Lessons / Mistakes
+        <textarea id="jf-lessons" placeholder="What went well or wrong? What would you do differently next time?"></textarea>
+      </label>
+    </div>
+    <div class="journal-form-footer">
+      <button class="journal-btn-secondary" onclick="closeJournalForm()">Cancel</button>
+      <button class="journal-btn-primary" onclick="saveJournalEntry()">Save Trade</button>
+    </div>
   </div>
 </div>
 </body>
