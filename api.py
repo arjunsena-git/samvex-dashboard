@@ -355,9 +355,14 @@ def _merge_with_history(active: list, setup: int, direction: str) -> list:
                 changed = True  # signal just dropped off the active list
             history[sym]["is_active"] = False
 
-    # Persist to disk whenever state changes so restarts don't lose history
+    # Persist to disk + Redis synchronously whenever state changes. This used to
+    # be a background thread, but a Render restart landing between "state
+    # changed in memory" and "thread finishes its Redis write" permanently
+    # loses that change (this happened in practice — see the NIACL incident).
+    # Blocking ~100-300ms here on a detected-signal request is cheap insurance
+    # against silently losing a captured signal.
     if changed:
-        threading.Thread(target=_persist_history, args=(today_str,), daemon=True).start()
+        _persist_history(today_str)
 
     active_out   = sorted(
         [s for s in history.values() if s["is_active"]],
@@ -2185,7 +2190,7 @@ def signals_backfill():
         key = (1, direction, today_str)
         if key not in _signal_store:
             _signal_store[key] = signals
-    threading.Thread(target=_persist_signals, args=(today_str,), daemon=True).start()
+    _persist_signals(today_str)
     total = sum(len(v) for v in panels.values())
     print(f"[Backfill] Refreshed {total} SMC signals for {today_str}")
     return jsonify({
@@ -2249,7 +2254,7 @@ def signals_today_json():
             signals = _screen_smc(direction)
             key = (1, direction, today_str)
             _signal_store[key] = signals
-        threading.Thread(target=_persist_signals, args=(today_str,), daemon=True).start()
+        _persist_signals(today_str)
     for (setup, direction, date_str), signals in _signal_store.items():
         if date_str == today_str:
             label = _PANEL_LABELS.get((setup, direction), f"Setup {setup} {direction}")
@@ -2274,7 +2279,7 @@ def signals_today_csv():
             signals = _screen_smc(direction)
             key = (1, direction, today_str)
             _signal_store[key] = signals
-        threading.Thread(target=_persist_signals, args=(today_str,), daemon=True).start()
+        _persist_signals(today_str)
     headers = ["Panel","Symbol","Setup","Price","Gap%","PDH","PDL",
                "Key Level","Key Label","Vol Ratio","Score","Label",
                "Demand Zone","Supply Zone","Entry","SL","SL%","T1","T2","R:R"]
