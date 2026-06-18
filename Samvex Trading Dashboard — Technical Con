@@ -1,0 +1,132 @@
+Samvex Trading Dashboard — Technical Context Brief
+This document explains how the Samvex LLP intraday trading dashboard works end-to-end: architecture, data sources, every screening algorithm with exact thresholds, UI structure, and persistence model. Written to hand to another LLM as grounding context before discussing new scanner/feature ideas.
+
+1. Who this is for / what it is
+Samvex LLP is a 5-partner proprietary trading firm (₹20L pooled capital). This dashboard is their internal intraday stock-screening tool for the Indian cash/F&O market (NSE, Nifty 500 universe). It surfaces a small number (max 5 per panel) of high-conviction setups per scanner, each with a pre-built trade plan (entry/SL/targets), rather than a raw data table to sift through.
+
+Backend: api.py — Python/Flask, deployed on Render (samvex-api.onrender.com)
+Frontend: index.html — single-file vanilla JS/HTML/CSS, deployed on Vercel
+Repo: github.com/arjunsena-git/samvex-dashboard
+2. Data sources and the live/delayed distinction
+Two data sources, used for very different purposes — this separation is a hard rule, not a preference:
+
+Yahoo Finance (yfinance): batch-fetched OHLCV bars (daily, 15-min, 5-min) for the whole Nifty 500 universe. Used ONLY for historical/structural bars — yesterday's high/low/close (PDH/PDL), today's completed candles, volume series, EMA/RSI inputs. Never used for "the current price" when live data is available.
+Upstox API (live): real-time quotes once the user authenticates via OAuth. Whenever live quotes are available, current_price for every screener is overridden with the live tick; Yahoo's last close is only a fallback when Upstox isn't authenticated. If live data isn't available, the dashboard shows an explicit "re-authenticate" prompt — it never silently serves delayed Yahoo data as if it were live.
+Batch fetchers (chunked, 10 concurrent workers, to stay under Render's 512MB free-tier limit):
+
+_fetch_daily_only() — 1-day candles, 45-day lookback (~30 trading days; needed so Exhaustion Short's 20-day Bollinger Band and PDH Breakout's daily RSI(14) have enough closed daily bars to compute on). Cached 10 min.
+_fetch_intraday_15m() — 15-min candles, 60-day lookback (Yahoo's max for that interval; expanded from 5d specifically to support a real 200-period EMA). Cached 5 min.
+_fetch_intraday_5m() — 5-min candles, 5-day lookback. Cached 5 min. Used only by the Exhaustion Short screener's "impulsive candle" confirmation.
+All screeners pull from these same shared caches — no per-screener network calls.
+
+3. Universe and basic filters
+Universe: Nifty 500 (loaded from a CSV; falls back to the F&O futures-map universe if that fails).
+Common floor: price ≥ ₹100 (liquidity/quality filter, applied in every screener).
+A screener is only "ready" (i.e. endpoints return non-empty) once _smc_ready() is true: IST time ≥ 9:45 AM. Rationale: the earliest setups (sweep + BOS) need at least 2 completed 15-min bars, which only exist from 9:45 AM.
+4. The four screeners — exact logic
+4.1 Setup 1 — Liquidity Sweep → BOS (SMC/ICT concept)
+The flagship screener. Concept: smart money sweeps retail stop-losses just past yesterday's range before reversing hard the other way (a "liquidity grab"), then breaks structure (BOS) in the new direction. Endpoint: /api/setup1/bullish, /api/setup1/bearish.
+
+Bullish:
+
+Today's low swept below PDL (previous day low) at some point intraday.
+AFTER that sweep bar, a later 15-min candle closed above PDH (previous day high) — this is the BOS (Break of Structure) candle.
+BOS candle must be within the last 6 bars (90 min) of the most recent bar — freshness gate (was 3 bars/45 min; widened so early-morning setups aren't invisible by the time someone checks the dashboard mid-morning).
+BOS candle's volume ≥ 1.5× the average 15-min candle volume so far today.
+Paced day volume ≥ 1.3× yesterday's full-day volume (paced = extrapolate today's volume-so-far to a full 375-minute session).
+No-reversal gate: current price within 2% of today's high (bullish) / low (bearish) — i.e. don't show a "breakout" that has already round-tripped back down.
+Nifty 50 not down >1% (bullish) / not up >1% (bearish) — don't fight the index.
+Bearish is the mirror: sweep above PDH, BOS close below PDL.
+
+Trade plan: SL = swept level ± 0.3% buffer (below PDL for bullish, above PDH for bearish). Targets: entry + 1.5×risk (T1), entry + 3×risk (T2). Risk:reward always quoted as 1.5.
+
+Confidence score (0–100): volume strength (40 pts, scaled from 1.2–2.5× ratio) + proximity to day extreme (35 pts) + fixed structure score (25 pts). Labels: STRONG ≥65, GOOD ≥40 (WATCH <40 is computed but dropped — only GOOD+ ever ships). Top 5 by score per panel.
+
+Extra fields: retrace_entry (the BOS level itself — the "ideal" entry is a pullback retest of the breakout level, not the already-extended current price), signal_age_min, and a freshness tier: FRESH (≤2 bars old), VALID (≤4 bars), AGING (5–6 bars) — lets the UI/trader judge staleness even though the hard cutoff is 6 bars.
+
+4.2 Exhaustion Short — Profit Booking After Rally (bearish only)
+Concept ported and tuned from the trading team's manual observations: a stock that rallied huge YESTERDAY is prone to profit-booking pullbacks today. Endpoint: /api/exhaustion/short. Only generates new signals between 9:15 AM – 2:00 PM IST (team doesn't want fresh shorts into the close).
+
+All gates must pass:
+
+Previous day's rally: (yesterday's close − day-before's close) / day-before's close ≥ +11%.
+Price has crossed above the 20-day Bollinger Band upper (SMA20 + 2σ of daily closes, computed on the 20 closes before today) — confirms genuine overextension, not just one big green daily candle.
+Current price ≤ today's high × (1 − 0.3%) — i.e. already pulled back ≥0.3% off the day high.
+Paced day volume ≥ 1.3× yesterday's volume.
+The latest completed 5-min candle is "impulsive": body ≥60% of its high-low range, AND closed red (close < open), AND turnover (close × volume) ≥ ₹50 crore.
+That same 5-min candle's volume must exceed the average volume of the same time-of-day slot on the previous 2–3 trading days (e.g. today's 11:15 candle vs the last 2–3 days' 11:15 candles) — filters out a candle that's only "big" because the whole day is busy.
+Nifty 50 not up >1%.
+Trade plan: SL = day high × 1.003 (short invalidated if price reclaims the high). Targets at 1.5R/3R below entry. Confidence: prev-day-rally size (40 pts, scaled to ~22% for max) + pullback depth (35 pts) + volume (25 pts).
+
+4.3 PDH Breakout — Trend + Momentum (bullish only)
+Directly ported from a trading-team-vetted Chartink screen (UNIVERSEPDHEMA200RSI60V10LKH). Unlike Setup 1, no liquidity sweep required first — this is a plain trend-continuation breakout. Endpoint: /api/pdh-breakout/bullish.
+
+Gates:
+
+Close crossed above PDH, fresh within the last 3 bars (45 min).
+Current price ≥ the 200-period EMA on 15-min closes (simple EMA, seeded with the first available value; uses the full 60-day 15-min history, not just today).
+Daily RSI(14) ≥ 60 (Wilder's RSI, computed on daily closes including today's in-progress candle).
+Day volume so far ≥ 10,00,000 shares (10 lakh).
+Trade plan: SL = PDH × 0.997 (just under the breakout level). Targets 1.5R/3R above entry. Confidence: RSI strength above 60 (35 pts, maxes at RSI 80) + distance above the 200-EMA (30 pts, maxes at 5% above) + volume vs the 10L floor (35 pts, maxes at 3× the floor).
+
+4.4 OI Buildup Scanner — near-month futures (F&O only)
+Different mechanism entirely — based on open interest change, not price structure. Endpoint: /api/oi-buildup. Requires live Upstox (no Yahoo fallback at all for OI — OI isn't available via Yahoo). For each F&O stock's near-month future, classifies by price-change × OI-change direction into 4 buckets:
+
+Long Buildup: price up + OI up (new longs being added — bullish, strong)
+Short Covering: price up + OI down (shorts exiting — bullish, weaker)
+Short Buildup: price down + OI up (new shorts being added — bearish, strong)
+Long Unwinding: price down + OI down (longs exiting — bearish, weaker)
+Frontend buckets Long Buildup + Short Covering into "Bullish OI Signals", Short Buildup + Long Unwinding into "Bearish OI Signals", sorted by |OI change %|, top 10 each.
+
+4.5 Not yet wired to the UI (backend only)
+_screen_sweep_watch(direction) — a lighter "pre-BOS" early-warning screen: fires the moment a PDL/PDH sweep is detected, BEFORE BOS confirms (no BOS gate, no proximity gate). Tagged "WATCH — No BOS Yet" and explicitly meant as a radar ping, not a tradeable signal on its own. Exists in api.py (/api/setup1/sweep-watch/bullish|bearish) but has no frontend panel yet.
+
+5. Persistence model — why this matters for any new feature
+Render's free tier sleeps after ~15 min of no traffic and wipes /tmp on every cold-start restart. This burned us once already (a stock would just vanish from the dashboard instead of fading to "inactive" — its history record was lost on a mid-session restart). The fix pattern, now standard for anything that must survive a restart:
+
+Upstash Redis (REST API, via a tiny _upstash(cmd: list) helper) is the durable store. Used for: the Upstox OAuth token, _signal_store (today's signals, feeds CSV export), _smc_history (per-stock detected_at/first_shown_at/is_active — drives the greyed-out-row-with-"Signal gone"-badge UI once a stock stops meeting criteria), and the Trade Journal (see §7).
+Local disk (_SIGNALS_DIR, defaults to /tmp/samvex_signals, overridable via DATA_DIR env var) is kept only as a fallback for local dev / when Redis env vars aren't set.
+Any new feature that needs to remember state across a session must go through Redis, not disk alone, or it will silently lose data on the next cold-start.
+_merge_with_history(active, setup, direction) is the shared mechanism all three trade-setup screeners (Setup 1, Exhaustion Short, PDH Breakout) funnel through: it diffs the screener's freshly-computed "active" list against history, marks stocks no longer active as is_active: false (kept visible, greyed out, with a "Detected HH:MM IST" / "Signal gone" badge) instead of deleting them, and persists on every change. setup numbering: 1 = Setup 1, 2 = Exhaustion Short, 3 = PDH Breakout.
+
+6. Frontend architecture — three views
+Single HTML file, vanilla JS, no framework/build step. Three mutually-exclusive top-level views, toggled by buttons in the toolbar:
+
+6.1 Live Panels (default view on load)
+A permanent (not collapsible) three-pane layout:
+
+Left sidebar: fixed list of every panel — Liq. Sweep→BOS Bullish/Bearish, Exhaustion Short, PDH Breakout, OI Buildup Bullish/Bearish — each with a live count badge.
+Middle: clicking a panel shows ONLY the stock symbols in a vertical list (deliberately no price/gap/key-level — kept uncluttered).
+Right (appears on click): clicking a symbol shows full trade detail (entry/SL/T1/T2, score, volume, key level) + an embedded live candlestick chart (Lightweight Charts) with price lines for every level. The name list shrinks to a narrow column to make room. OI panels use a different detail template (LTP/price-chg%/OI-chg%/signal type — no entry/SL since OI buildup isn't a directional trade setup) but still show a plain price chart.
+Selection survives the 5-min auto-refresh (re-selects the same symbol if still active).
+6.2 Full Table View
+The "classic" view: one full-width table per panel with all columns (Symbol, Price, Gap%, Key Level, Volume bar, Score, Trade Plan cell). This is where the "greyed out + Signal gone" inactive-row behavior is most visible (the Live Panels name-list filters out inactive symbols entirely; only Full Table View shows them fading out).
+
+6.3 Trade Journal
+A full-page, shared, CRUD-editable table — see §7.
+
+Opening any one of these three views hides the other two, plus the OI Buildup raw table and Global Market Intelligence section (kept out of all three signal views; they're "static market context" sections that live below the toggleable area). _chartModeActive (bool) and _journalActive (bool) are the two pieces of state driving all of this visibility logic.
+
+7. Trade Journal — the central shared log
+Not a screener — a manually-maintained, team-shared trade log. No auth wall (same trust model as the rest of the dashboard: anyone with the URL can view/edit).
+
+Schema (one JSON object per trade): id (uuid4), created_at/updated_at (ISO), date, trader (free text), symbol, direction (Long/Short), setup (free text with suggestions: the four scanner names + "Manual/Discretionary"), entry_price, entry_time, exit_price, exit_time, quantity, stop_loss, target, pnl_amount, pnl_pct, risk_reward, outcome (Open/Win/Loss/Breakeven), notes (entry reasoning), lessons (post-trade mistakes/learnings — deliberately included since most journals skip this and it's the most useful field for actually improving).
+
+Auto-computed when not supplied directly:
+
+pnl_amount = sign × (exit − entry) × qty (sign = +1 Long, −1 Short)
+pnl_pct = sign × (exit − entry) / entry × 100
+risk_reward = |reward_basis − entry| / |entry − stop_loss|, where reward_basis prefers the actual exit price once the trade is closed, falling back to the original target only while still open. (This was a deliberate fix — originally always used target, which showed the full planned ratio even for a trade that exited well short of target; now shows the realized ratio.)
+outcome: Open if no exit yet, else Win/Loss/Breakeven from the sign of pnl_amount.
+Storage: one JSON blob in Redis (samvex_trade_journal key, no expiry) + a local-disk mirror. Endpoints: GET/POST /api/journal, PUT/DELETE /api/journal/<id>.
+
+8. Things explicitly tried and rejected
+Setup 2 (CHoCH — Change of Character): an earlier bear-trap/bull-trap reversal screener, fully removed (not just disabled) because it wasn't producing useful signals. If a future idea resembles "reversal after a failed breakout," know that this was already tried under a different name and dropped.
+Freshness gate started at 3 bars, was widened to 6 — the team found 3 bars too aggressive (early setups would vanish before anyone saw them).
+Exhaustion Short's rally threshold started at 3% (today's intraday move), was changed to be based on yesterday's move instead, then the threshold raised 3%→7%→11% as the team tightened it with real usage.
+9. Known limitations worth being upfront about
+No user accounts — "Trader" in the journal is free text, no real attribution/audit trail beyond timestamps.
+All screeners are intraday-cash-segment focused; nothing here handles options strategies.
+Yahoo Finance intraday data has known gaps/delays around exchange holidays and circuit-filter days; the screeners don't special-case those.
+The OI screener requires live Upstox; there is intentionally no delayed-data fallback for it.
+_screen_sweep_watch exists server-side but isn't exposed in the UI yet.

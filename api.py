@@ -200,6 +200,8 @@ _PANEL_LABELS = {
     (1, "bearish"): "Setup 1 — Liquidity Sweep → BOS (Bearish · Sweep PDH → Break PDL)",
     (2, "bearish"): "Exhaustion Short — Profit Booking After Rally (9:15 AM–2:00 PM)",
     (3, "bullish"): "PDH Breakout — Trend + Momentum (Close > PDH · Price > 200 EMA(15m) · RSI(14) ≥ 60 · Vol ≥ 10L)",
+    (4, "bullish"): "ORB — Opening Range Breakout (Bullish · Narrow OR · 1-2h Consolidation · Breakout on Volume)",
+    (4, "bearish"): "ORB — Opening Range Breakout (Bearish · Narrow OR · 1-2h Consolidation · Breakdown on Volume)",
 }
 
 def _signals_path(date_str: str) -> str:
@@ -1854,6 +1856,213 @@ def _screen_pdh_trend() -> list:
     return [r for r in results if r["confidence_score"] >= 40][:5]
 
 
+# ── ORB — Opening Range Breakout ────────────────────────────────────────
+#
+# Concept: the first 5-min candle (9:15-9:20) sets a tight "opening range".
+# A narrow opening range followed by a long consolidation inside it (the
+# market digesting the open) followed by a decisive, high-volume breakout
+# tends to run one-sided, since it's effectively a fresh intraday BOS with
+# a well-defined risk level (the opposite side of the range).
+ORB_MAX_RANGE_PCT         = 0.4    # opening 5-min candle range must be <= 0.4% of price (narrow)
+ORB_MIN_CONSOLIDATION_MIN = 60     # must hold inside the range for >= 1 hour before breaking out
+ORB_MAX_CONSOLIDATION_MIN = 150    # breakout must happen within 2.5h of the open (else it's stale/not "the" ORB move)
+ORB_VOL_RATIO             = 1.5    # breakout candle volume vs avg volume of the consolidation bars
+ORB_FRESHNESS_BARS        = 6      # breakout candle must be within the last 6 5-min bars (30 min)
+ORB_NO_REVERSAL_PCT       = 1.5    # current price must stay within 1.5% of the day extreme (one-side rally, no round-trip)
+
+
+def _screen_orb(direction: str) -> list:
+    """Opening Range Breakout screener — see module comment above."""
+    universe    = _load_nifty500() or _get_fno_universe()
+    batch_5m    = _get_5m_batch()
+    batch_daily = _get_daily_batch()
+    ist         = pytz.timezone("Asia/Kolkata")
+    today_date  = datetime.now(ist).date()
+    bullish     = direction == "bullish"
+
+    live_quotes = None
+    if _is_live():
+        live_quotes = _cached("live_quotes", _fetch_live_quotes, ttl=LIVE_TTL)
+
+    try:
+        market_data = _cached("market", _fetch_market,
+                              ttl=LIVE_TTL if _is_live() else CACHE_TTL)
+        nifty_chg   = float(market_data.get("NIFTY 50", {}).get("change_pct", 0) or 0)
+    except Exception:
+        nifty_chg = 0.0
+
+    results = []
+
+    for symbol in universe:
+        try:
+            intra5 = _get_ticker_df(batch_5m, symbol)
+            daily  = _get_ticker_df(batch_daily, symbol)
+            if intra5 is None or daily is None or len(daily) < 2:
+                continue
+
+            try:
+                if intra5.index.tz is not None:
+                    today_mask5 = intra5.index.tz_convert(ist).date == today_date
+                else:
+                    today_mask5 = [ts.date() == today_date for ts in intra5.index]
+                today_bars5 = intra5[today_mask5]
+            except Exception:
+                today_bars5 = intra5.iloc[:0]
+
+            # Need the opening candle plus enough bars to have possibly
+            # consolidated for ORB_MIN_CONSOLIDATION_MIN already.
+            if len(today_bars5) < (ORB_MIN_CONSOLIDATION_MIN // 5) + 1:
+                continue
+
+            opens  = today_bars5["Open"].tolist()
+            highs  = today_bars5["High"].tolist()
+            lows   = today_bars5["Low"].tolist()
+            closes = today_bars5["Close"].tolist()
+            vols   = today_bars5["Volume"].tolist()
+            n_bars = len(closes)
+
+            or_high = highs[0]
+            or_low  = lows[0]
+            or_close = closes[0]
+            or_range = or_high - or_low
+            if or_close <= 0 or or_range <= 0:
+                continue
+
+            # Narrow opening range gate
+            or_range_pct = or_range / or_close * 100
+            if or_range_pct > ORB_MAX_RANGE_PCT:
+                continue
+
+            # Find the first bar (after the opening candle) whose close breaks
+            # the range in our direction, while confirming every bar before it
+            # stayed inside the range — i.e. a genuine, undisturbed consolidation.
+            breakout_bar = -1
+            for i in range(1, n_bars):
+                broke = (closes[i] > or_high) if bullish else (closes[i] < or_low)
+                if broke:
+                    breakout_bar = i
+                    break
+                if closes[i] > or_high or closes[i] < or_low:
+                    # broke the *other* side first — this isn't a clean ORB setup
+                    breakout_bar = -1
+                    break
+            if breakout_bar < 0:
+                continue
+
+            elapsed_min = breakout_bar * 5
+            if not (ORB_MIN_CONSOLIDATION_MIN <= elapsed_min <= ORB_MAX_CONSOLIDATION_MIN):
+                continue
+
+            # Freshness: breakout must be recent
+            if n_bars - 1 - breakout_bar > ORB_FRESHNESS_BARS:
+                continue
+
+            # Volume confirmation: breakout candle vs avg volume of the
+            # consolidation bars that preceded it
+            consolidation_vols = vols[1:breakout_bar]
+            avg_consol_vol = (sum(consolidation_vols) / len(consolidation_vols)
+                               if consolidation_vols else vols[0])
+            if avg_consol_vol <= 0:
+                continue
+            vol_ratio = vols[breakout_bar] / avg_consol_vol
+            if vol_ratio < ORB_VOL_RATIO:
+                continue
+
+            if live_quotes:
+                q  = live_quotes.get(symbol)
+                lp = float(q.get("last_price", 0) or 0) if q else 0
+                current_price = lp if lp > 0 else closes[-1]
+            else:
+                current_price = closes[-1]
+
+            if current_price < 100:
+                continue
+
+            day_high = max(highs)
+            day_low  = min(lows)
+
+            # One-side rally gate: no round-trip back through the breakout level
+            if bullish:
+                if current_price < day_high * (1 - ORB_NO_REVERSAL_PCT / 100):
+                    continue
+                if nifty_chg < -1.0:
+                    continue
+            else:
+                if current_price > day_low * (1 + ORB_NO_REVERSAL_PCT / 100):
+                    continue
+                if nifty_chg > 1.0:
+                    continue
+
+            prev_close = float(daily["Close"].iloc[-2])
+            pdh        = float(daily["High"].iloc[-2])
+            pdl        = float(daily["Low"].iloc[-2])
+            gap_pct    = round((opens[0] - prev_close) / prev_close * 100, 2) if prev_close > 0 else 0.0
+
+            # Trade plan: SL on the opposite side of the opening range
+            if bullish:
+                sl   = round(or_low * 0.997, 2)
+                risk = current_price - sl
+            else:
+                sl   = round(or_high * 1.003, 2)
+                risk = sl - current_price
+            if risk <= 0:
+                continue
+
+            sign_  = 1 if bullish else -1
+            sl_pct = round(risk / current_price * 100, 2)
+            t1     = round(current_price + sign_ * risk * 1.5, 2)
+            t2     = round(current_price + sign_ * risk * 3.0, 2)
+
+            # Confidence 0-100: breakout volume (40) + proximity to day extreme,
+            # i.e. how one-sided the rally has stayed (35) + how narrow/clean
+            # the opening range was (25)
+            vol_s    = min((vol_ratio - ORB_VOL_RATIO) / 1.5, 1.0) * 40
+            prox_r   = (current_price / day_high) if bullish else (day_low / current_price)
+            prox_s   = max(prox_r - (1 - ORB_NO_REVERSAL_PCT / 100), 0.0) / (ORB_NO_REVERSAL_PCT / 100) * 35
+            range_s  = max(ORB_MAX_RANGE_PCT - or_range_pct, 0.0) / ORB_MAX_RANGE_PCT * 25
+            conf_score = round(vol_s + prox_s + range_s)
+            conf_label = "STRONG" if conf_score >= 65 else "GOOD" if conf_score >= 40 else "WATCH"
+
+            try:
+                ts = today_bars5.index[breakout_bar]
+                ts = ts.astimezone(ist) if ts.tzinfo else pytz.utc.localize(ts).astimezone(ist)
+                bos_time = ts.strftime("%H:%M")
+            except Exception:
+                bos_time = datetime.now(ist).strftime("%H:%M")
+
+            results.append({
+                "symbol":           symbol.replace(".NS", ""),
+                "price":            round(current_price, 2),
+                "gap_pct":          gap_pct,
+                "day_high":         round(day_high, 2),
+                "day_low":          round(day_low, 2),
+                "pdh":              round(pdh, 2),
+                "pdl":              round(pdl, 2),
+                "key_level":        round(or_high if bullish else or_low, 2),
+                "key_label":        "OR High" if bullish else "OR Low",
+                "volume_ratio":     round(vol_ratio, 2),
+                "setup":            "ORB Bullish" if bullish else "ORB Bearish",
+                "entry":            round(current_price, 2),
+                "sl":               sl,
+                "sl_pct":           sl_pct,
+                "sl_label":         "Below OR Low" if bullish else "Above OR High",
+                "t1":               t1,
+                "t2":               t2,
+                "risk_reward":      1.5,
+                "confidence_score": conf_score,
+                "confidence_label": conf_label,
+                "demand_zone":      round(or_low, 2),
+                "supply_zone":      round(or_high, 2),
+                "bos_time":         bos_time,
+            })
+
+        except Exception:
+            continue
+
+    results.sort(key=lambda x: x["confidence_score"], reverse=True)
+    return [r for r in results if r["confidence_score"] >= 40][:5]
+
+
 # ── Market index data ──────────────────────────────────────────────
 _INDEX_YF = {"NIFTY 50": "^NSEI", "SENSEX": "^BSESN", "BANK NIFTY": "^NSEBANK"}
 _INDEX_KEY = {
@@ -2021,7 +2230,7 @@ def oauth_callback():
     threading.Thread(target=_load_futures_map, daemon=True).start()
 
     # Clear screener cache so next load uses live data immediately
-    for k in ("s1_bull", "s1_bear", "exh_short", "pdh_breakout_bull",
+    for k in ("s1_bull", "s1_bear", "exh_short", "pdh_breakout_bull", "orb_bull", "orb_bear",
               "live_quotes", "15m_batch", "5m_batch", "ticker", "oi_buildup", "market"):
         _cache.pop(k, None)
 
@@ -2064,7 +2273,7 @@ def set_token():
     _upstox_token["expires_at"]   = time.time() + 23 * 3600
     _save_token(_upstox_token["access_token"], _upstox_token["expires_at"])
     # Invalidate screener cache so next request uses live data immediately
-    for k in ("s1_bull", "s1_bear", "exh_short", "pdh_breakout_bull",
+    for k in ("s1_bull", "s1_bear", "exh_short", "pdh_breakout_bull", "orb_bull", "orb_bear",
               "live_quotes", "15m_batch", "5m_batch", "ticker", "oi_buildup", "market"):
         _cache.pop(k, None)
     threading.Thread(target=_load_instrument_map, daemon=True).start()
@@ -2157,6 +2366,20 @@ def api_pdh_breakout_bull():
         return jsonify([])
     active = _cached("pdh_breakout_bull", _screen_pdh_trend, ttl=SCREEN_TTL)
     return jsonify(_merge_with_history(active, 3, "bullish"))
+
+@app.route("/api/orb/bullish")
+def api_orb_bull():
+    if not _smc_ready():
+        return jsonify([])
+    active = _cached("orb_bull", _screen_orb, "bullish", ttl=SCREEN_TTL)
+    return jsonify(_merge_with_history(active, 4, "bullish"))
+
+@app.route("/api/orb/bearish")
+def api_orb_bear():
+    if not _smc_ready():
+        return jsonify([])
+    active = _cached("orb_bear", _screen_orb, "bearish", ttl=SCREEN_TTL)
+    return jsonify(_merge_with_history(active, 4, "bearish"))
 
 @app.route("/api/setup1/sweep-watch/bullish")
 def api_sweep_watch_bull():
@@ -3133,6 +3356,7 @@ def insights_setup_explain():
         "s1_bull": (1, "bullish"), "s1_bear": (1, "bearish"),
         "exh_short": (2, "bearish"),
         "pdh_breakout_bull": (3, "bullish"),
+        "orb_bull": (4, "bullish"), "orb_bear": (4, "bearish"),
     }
     if setup_key not in setup_map:
         return jsonify({"error": "invalid setup"}), 400
@@ -3144,6 +3368,8 @@ def insights_setup_explain():
         results = _screen_exhaustion_short()
     elif setup_key == "pdh_breakout_bull":
         results = _screen_pdh_trend()
+    elif setup_key in ("orb_bull", "orb_bear"):
+        results = _screen_orb(direction)
     else:
         results = _screen_smc(direction)
     if not results:
