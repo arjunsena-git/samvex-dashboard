@@ -1129,7 +1129,7 @@ def _screen_smc(direction: str) -> list:
             # Extended from 3 (45 min) → 6 (90 min) so early-morning setups
             # aren't invisible by the time traders check the dashboard.
             # Freshness tier (FRESH/VALID/AGING) flags staleness instead.
-            _FRESH = 6
+            _FRESH = 7
 
             def _bar_time(bar_idx):
                 try:
