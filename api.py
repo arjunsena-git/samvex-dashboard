@@ -1869,6 +1869,8 @@ ORB_MAX_CONSOLIDATION_MIN = 150    # breakout must happen within 2.5h of the ope
 ORB_VOL_RATIO             = 1.5    # breakout candle volume vs avg volume of the consolidation bars
 ORB_FRESHNESS_BARS        = 6      # breakout candle must be within the last 6 5-min bars (30 min)
 ORB_NO_REVERSAL_PCT       = 1.5    # current price must stay within 1.5% of the day extreme (one-side rally, no round-trip)
+ORB_PRIOR_DAYS            = 3      # also require the stock to have been rangebound over the last N trading days
+ORB_PRIOR_RANGE_MAX_PCT   = 5.0    # (highest high - lowest low) over those N days, as % of price — multi-day consolidation, not just an intraday narrow open
 
 
 def _screen_orb(direction: str) -> list:
@@ -1897,7 +1899,21 @@ def _screen_orb(direction: str) -> list:
         try:
             intra5 = _get_ticker_df(batch_5m, symbol)
             daily  = _get_ticker_df(batch_daily, symbol)
-            if intra5 is None or daily is None or len(daily) < 2:
+            if intra5 is None or daily is None or len(daily) < ORB_PRIOR_DAYS + 1:
+                continue
+
+            # Multi-day consolidation gate: the stock must already have been
+            # rangebound over the last ORB_PRIOR_DAYS trading days (excluding
+            # today's in-progress bar) — the opening-range narrowness check
+            # alone only looks at today, this confirms it's not narrow by
+            # fluke on a stock that was actually trending into the open.
+            prior_days = daily.iloc[-(ORB_PRIOR_DAYS + 1):-1]
+            prior_high = float(prior_days["High"].max())
+            prior_low  = float(prior_days["Low"].min())
+            if prior_low <= 0:
+                continue
+            prior_range_pct = (prior_high - prior_low) / prior_low * 100
+            if prior_range_pct > ORB_PRIOR_RANGE_MAX_PCT:
                 continue
 
             try:
