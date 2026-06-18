@@ -1447,10 +1447,21 @@
   let _activeStockSymbol = null;
 
   const _PANEL_CONFIGS = [
-    { key: 's1-bull', label: 'Liq. Sweep → BOS', sub: 'Bullish', dot: 'dot-green', color: 'var(--green)' },
-    { key: 's1-bear', label: 'Liq. Sweep → BOS', sub: 'Bearish', dot: 'dot-red',   color: 'var(--red)'   },
-    { key: 'exh-short', label: 'Exhaustion Short', sub: 'Profit Booking', dot: 'dot-red', color: 'var(--red)' },
+    { key: 's1-bull', label: 'Liq. Sweep → BOS', sub: 'Bullish', dot: 'dot-green', color: 'var(--green)', type: 'trade' },
+    { key: 's1-bear', label: 'Liq. Sweep → BOS', sub: 'Bearish', dot: 'dot-red',   color: 'var(--red)',   type: 'trade' },
+    { key: 'exh-short', label: 'Exhaustion Short', sub: 'Profit Booking', dot: 'dot-red', color: 'var(--red)', type: 'trade' },
+    { key: 'oi-bull', label: 'OI Buildup', sub: 'Bullish', dot: 'dot-green', color: 'var(--green)', type: 'oi' },
+    { key: 'oi-bear', label: 'OI Buildup', sub: 'Bearish', dot: 'dot-red',   color: 'var(--red)',   type: 'oi' },
   ];
+
+  // OI panels use a separate store (not _panelData) since their rows aren't
+  // trade setups — they'd pollute downloadAllCSV()'s trade-setup CSV columns.
+  const _oiPanelData = {};   // key → { rows, notLive }
+
+  function _panelRows(cfg) {
+    if (cfg.type === 'oi') return _oiPanelData[cfg.key]?.rows || [];
+    return (_panelData[cfg.key]?.rows || []).filter(s => s.is_active !== false);
+  }
 
   const _SCANNER_ELS = ['s1-divider','s1-table-grid','exh-divider','exh-table-grid'];
 
@@ -1480,7 +1491,7 @@
     const list = document.getElementById('chart-sidebar-list');
     list.innerHTML = '';
     _PANEL_CONFIGS.forEach(cfg => {
-      const count = (_panelData[cfg.key]?.rows || []).filter(s => s.is_active !== false).length;
+      const count = _panelRows(cfg).length;
       const btn   = document.createElement('div');
       btn.className   = 'chart-sidebar-btn' + (cfg.key === _activeChartPanel ? ' active' : '');
       btn.dataset.key = cfg.key;
@@ -1507,7 +1518,7 @@
       b.classList.toggle('active', b.dataset.key === panelKey));
 
     const cfg    = _PANEL_CONFIGS.find(c => c.key === panelKey);
-    const stocks = (_panelData[panelKey]?.rows || []).filter(s => s.is_active !== false);
+    const stocks = _panelRows(cfg);
     const isBull = panelKey.includes('bull');
 
     const hdr = document.getElementById('chart-main-hdr');
@@ -1522,7 +1533,10 @@
     // symbol, so the team isn't distracted before they pick one to inspect.
     const list = document.getElementById('stock-name-list');
     if (stocks.length === 0) {
-      list.innerHTML = `<div class="stock-name-empty">No active signals in this panel</div>`;
+      const emptyMsg = (cfg.type === 'oi' && _oiPanelData[panelKey]?.notLive)
+        ? 'OI data requires live Upstox connection'
+        : 'No active signals in this panel';
+      list.innerHTML = `<div class="stock-name-empty">${emptyMsg}</div>`;
     } else {
       const color = isBull ? 'var(--green)' : 'var(--red)';
       list.innerHTML = stocks.map(s => `
@@ -1546,7 +1560,8 @@
   }
 
   function _selectStock(panelKey, symbol) {
-    const stocks = _panelData[panelKey]?.rows || [];
+    const cfg    = _PANEL_CONFIGS.find(c => c.key === panelKey);
+    const stocks = _panelRows(cfg);
     const s = stocks.find(r => r.symbol === symbol);
     if (!s) return;
 
@@ -1555,15 +1570,21 @@
     document.querySelectorAll('#stock-name-list .stock-name-item').forEach(el =>
       el.classList.toggle('active', el.dataset.symbol === symbol));
 
+    document.getElementById('stock-detail-placeholder').style.display = 'none';
+    document.getElementById('stock-detail-pane').classList.add('visible');
+    const content = document.getElementById('stock-detail-content');
+    content.style.display = 'flex';
+
+    if (cfg.type === 'oi') {
+      _renderOIDetail(content, s);
+      return;
+    }
+
     const isBull  = panelKey.includes('bull');
     const color   = isBull ? 'var(--green)' : 'var(--red)';
     const detected = s.detected_at
       ? `<span style="font-size:11px;color:var(--text);font-weight:700;">&#9201; Since ${s.detected_at} IST</span>` : '';
 
-    document.getElementById('stock-detail-placeholder').style.display = 'none';
-    document.getElementById('stock-detail-pane').classList.add('visible');
-    const content = document.getElementById('stock-detail-content');
-    content.style.display = 'flex';
     content.innerHTML = `
       <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px;">
         <div>
@@ -1598,6 +1619,39 @@
       document.getElementById('detail-chart-container'),
       document.getElementById('detail-chart-legend'),
       _detailChartHolder, 320);
+  }
+
+  // OI rows aren't directional trade setups (no entry/SL/targets), so the
+  // detail pane shows LTP/price-chg/OI-chg/signal instead, with a plain
+  // price chart (no trade-level lines) for context.
+  function _renderOIDetail(content, s) {
+    const pDir  = s.price_chg_pct >= 0 ? 'green' : 'red';
+    const oiDir = s.oi_chg_pct   >= 0 ? 'green' : 'red';
+    const pSign = s.price_chg_pct >= 0 ? '+' : '';
+    const oSign = s.oi_chg_pct   >= 0 ? '+' : '';
+
+    content.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px;">
+        <div>
+          <a href="https://www.tradingview.com/chart/?symbol=NSE:${s.symbol}" target="_blank" rel="noopener"
+             style="font-size:19px;font-weight:800;color:var(--text);text-decoration:none;">${s.symbol}</a>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:3px;">Near-month futures OI</div>
+        </div>
+        <div style="text-align:right;">
+          <div style="font-size:19px;font-weight:800;color:var(--text)">${fmt(s.last_price)}</div>
+          <div style="font-size:11px;color:var(--${pDir})">${pSign}${s.price_chg_pct}%</div>
+        </div>
+      </div>
+      <div class="detail-stat-grid">
+        <div class="detail-stat"><span class="lbl">Signal</span><span class="val">${OI_PILLS[s.activity] || s.activity}</span></div>
+        <div class="detail-stat"><span class="lbl">Price Chg</span><span class="val" style="color:var(--${pDir})">${pSign}${s.price_chg_pct}%</span></div>
+        <div class="detail-stat"><span class="lbl">OI Chg</span><span class="val" style="color:var(--${oiDir})">${oSign}${s.oi_chg_pct}%</span></div>
+      </div>
+      <div id="detail-chart-container" style="flex:1;min-height:320px;"></div>
+      <div class="chart-legend" id="detail-chart-legend" style="border-top:none;padding:10px 0 0;"></div>`;
+
+    _fetchAndRenderChartInto(s.symbol, {}, document.getElementById('detail-chart-container'),
+      document.getElementById('detail-chart-legend'), _detailChartHolder, 320);
   }
 
   function _refreshChartPanel(panelKey) {
@@ -1959,6 +2013,10 @@
       if (!data.is_live) {
         document.getElementById("oi-bullish-body").innerHTML = notLiveMsg;
         document.getElementById("oi-bearish-body").innerHTML = notLiveMsg;
+        _oiPanelData['oi-bull'] = { rows: [], notLive: true };
+        _oiPanelData['oi-bear'] = { rows: [], notLive: true };
+        _refreshChartPanel('oi-bull');
+        _refreshChartPanel('oi-bear');
         return;
       }
 
@@ -1971,10 +2029,19 @@
 
       renderOIRows(bullish, "oi-bullish-body");
       renderOIRows(bearish, "oi-bearish-body");
+
+      _oiPanelData['oi-bull'] = { rows: bullish, notLive: false };
+      _oiPanelData['oi-bear'] = { rows: bearish, notLive: false };
+      _refreshChartPanel('oi-bull');
+      _refreshChartPanel('oi-bear');
     } catch (_) {
       const err = `<tr><td colspan="5"><div class="empty-state">OI data unavailable</div></td></tr>`;
       document.getElementById("oi-bullish-body").innerHTML = err;
       document.getElementById("oi-bearish-body").innerHTML = err;
+      _oiPanelData['oi-bull'] = { rows: [], notLive: false };
+      _oiPanelData['oi-bear'] = { rows: [], notLive: false };
+      _refreshChartPanel('oi-bull');
+      _refreshChartPanel('oi-bear');
     }
   }
 
