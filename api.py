@@ -2092,6 +2092,39 @@ def _smc_ready() -> bool:
     Earlier than this there's no second bar for a BOS to even be possible."""
     return datetime.now(pytz.timezone("Asia/Kolkata")).time() >= _dtime(9, 45)
 
+@app.route("/api/admin/revive-history", methods=["POST"])
+def admin_revive_history():
+    """One-off recovery tool: re-insert signals into _smc_history that were lost
+    to a cold-start/restart wipe before Redis persistence caught them, using
+    data the user salvaged from a downloaded CSV. Inserted as is_active=False
+    (they're historical for today, not re-validated against the live screener)
+    so they reappear as greyed-out 'Signal gone' rows instead of vanishing.
+    POST body: {"secret": "...", "records": [{"setup":1,"direction":"bullish","symbol":"ATGL","detected_at":"16:30","signal":{...fields...}}, ...]}"""
+    body = flask_req.get_json(force=True, silent=True) or {}
+    if not SET_TOKEN_SECRET or body.get("secret") != SET_TOKEN_SECRET:
+        return jsonify({"error": "Unauthorized"}), 403
+    ist = pytz.timezone("Asia/Kolkata")
+    today_str = datetime.now(ist).strftime("%Y-%m-%d")
+    inserted = []
+    for rec in body.get("records", []):
+        setup     = int(rec["setup"])
+        direction = rec["direction"]
+        symbol    = rec["symbol"]
+        key = (setup, direction, today_str)
+        if key not in _smc_history:
+            _smc_history[key] = {}
+        _smc_history[key][symbol] = {
+            **rec["signal"],
+            "symbol":        symbol,
+            "detected_at":   rec["detected_at"],
+            "first_shown_at": rec.get("first_shown_at", rec["detected_at"]),
+            "is_active":     False,
+        }
+        inserted.append(symbol)
+    _persist_history(today_str)
+    return jsonify({"inserted": inserted, "date": today_str})
+
+
 @app.route("/api/setup1/bullish")
 def api_s1_bull():
     if not _smc_ready():
