@@ -144,7 +144,7 @@
     /* ── Top summary cards ───────────────────────────────────────── */
     .summary-row {
       display: grid;
-      grid-template-columns: repeat(4, 1fr);
+      grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
       gap: 14px;
       margin-bottom: 20px;
     }
@@ -851,6 +851,11 @@
       <div class="value" id="exh-count" style="color:var(--red)">—</div>
       <div class="sub">Profit booking after a huge rally · 9:15–2:00 PM</div>
     </div>
+    <div class="summary-card">
+      <div class="label">PDH Breakouts</div>
+      <div class="value" id="pdh-count" style="color:var(--green)">—</div>
+      <div class="sub">Close &gt; PDH · trend + momentum confirmed</div>
+    </div>
   </div>
 
   <!-- ── CSV download row ─────────────────────────────────────────── -->
@@ -1008,6 +1013,49 @@
           <th>PDH / Key Level</th><th>Volume</th><th>Score</th><th>Trade Plan</th>
         </tr></thead>
         <tbody id="exh-short-body">
+          <tr><td colspan="7"><div class="empty-state"><div class="spinner"></div>Loading…</div></td></tr>
+        </tbody>
+      </table>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ── PDH Breakout: Trend + Momentum ───────────────────────────── -->
+  <div class="section-divider" id="pdh-divider" style="margin-top:24px;display:none;">
+    <div class="section-divider-line"></div>
+    <div class="section-divider-title">PDH Breakout — Trend + Momentum · Top 5 High-Conviction Signals Only (GOOD+ Score)</div>
+    <div class="section-divider-line"></div>
+  </div>
+  <div class="scanner-grid" id="pdh-table-grid" style="grid-template-columns: 1fr;display:none;">
+
+    <!-- PDH Breakout -->
+    <div class="panel">
+      <div class="panel-header">
+        <div class="panel-title">
+          <span class="dot dot-green"></span>
+          PDH Breakout &nbsp;<span style="font-size:11px;color:var(--text-muted);font-weight:400;">Close &gt; PDH · trend + momentum confirmed</span>
+        </div>
+        <div style="display:flex;gap:6px;align-items:center;">
+          <a class="diag-link diagnose-link" target="_blank" rel="noopener">Diagnose ↗</a>
+          <button class="refresh-btn" onclick="loadPdhBreakout()">↺ Refresh</button>
+          <button class="expand-btn" onclick="expandPanel(this)" title="Full screen (Esc to close)">⤢ Expand</button>
+        </div>
+      </div>
+      <div class="criteria-row">
+        <span class="chip chip-green">Close crossed above PDH</span>
+        <span class="chip chip-blue">Price &gt; 200 EMA (15-min)</span>
+        <span class="chip chip-green">Daily RSI(14) ≥ 60</span>
+        <span class="chip chip-blue">Day volume ≥ 10L shares</span>
+        <span class="chip chip-orange">Max 5 · GOOD+ only</span>
+      </div>
+      <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>Symbol</th><th>Price</th><th>Gap</th>
+          <th>PDH / Key Level</th><th>Volume</th><th>Score</th><th>Trade Plan</th>
+        </tr></thead>
+        <tbody id="pdh-breakout-body">
           <tr><td colspan="7"><div class="empty-state"><div class="spinner"></div>Loading…</div></td></tr>
         </tbody>
       </table>
@@ -1450,6 +1498,7 @@
     { key: 's1-bull', label: 'Liq. Sweep → BOS', sub: 'Bullish', dot: 'dot-green', color: 'var(--green)', type: 'trade' },
     { key: 's1-bear', label: 'Liq. Sweep → BOS', sub: 'Bearish', dot: 'dot-red',   color: 'var(--red)',   type: 'trade' },
     { key: 'exh-short', label: 'Exhaustion Short', sub: 'Profit Booking', dot: 'dot-red', color: 'var(--red)', type: 'trade' },
+    { key: 'pdh-breakout', label: 'PDH Breakout', sub: 'Trend + Momentum', dot: 'dot-green', color: 'var(--green)', type: 'trade' },
     { key: 'oi-bull', label: 'OI Buildup', sub: 'Bullish', dot: 'dot-green', color: 'var(--green)', type: 'oi' },
     { key: 'oi-bear', label: 'OI Buildup', sub: 'Bearish', dot: 'dot-red',   color: 'var(--red)',   type: 'oi' },
   ];
@@ -1463,7 +1512,7 @@
     return (_panelData[cfg.key]?.rows || []).filter(s => s.is_active !== false);
   }
 
-  const _SCANNER_ELS = ['s1-divider','s1-table-grid','exh-divider','exh-table-grid'];
+  const _SCANNER_ELS = ['s1-divider','s1-table-grid','exh-divider','exh-table-grid','pdh-divider','pdh-table-grid'];
 
   function toggleChartMode() {
     _chartModeActive = !_chartModeActive;
@@ -1660,9 +1709,16 @@
     if (panelKey === _activeChartPanel) _selectChartPanel(panelKey, true);
   }
 
-  // ── Four setup loaders ────────────────────────────────────────
+  // ── Setup loaders ────────────────────────────────────────────
   // label is stored in the registry so downloadAllCSV() can use it as a heading.
   // Any future panel added here is automatically included in the download.
+  const _INSIGHT_KEY_MAP = {
+    "setup1/bullish":     "s1_bull",
+    "setup1/bearish":     "s1_bear",
+    "exhaustion/short":   "exh_short",
+    "pdh-breakout/bullish": "pdh_breakout_bull",
+  };
+
   async function _loadSetup(endpoint, tbodyId, direction, refLevelKey, countId, label) {
     const tbody    = document.getElementById(tbodyId);
     const panelKey = tbodyId.replace("-body", "");
@@ -1673,8 +1729,7 @@
       renderSetupRows(data, tbodyId, direction, refLevelKey, panelKey);
       if (countId) document.getElementById(countId).textContent = data.length;
       // Non-blocking: load AI insights after table is visible
-      const sk = endpoint.startsWith("setup1") ? (direction === "bullish" ? "s1_bull" : "s1_bear")
-                                                : "exh_short";
+      const sk = _INSIGHT_KEY_MAP[endpoint] || endpoint;
       loadInsights(sk, tbodyId, data);
       return data;
     } catch (e) {
@@ -1706,6 +1761,10 @@
   async function loadExhaustionShort() {
     return _loadSetup("exhaustion/short", "exh-short-body", "bearish", "pdh", "exh-count",
                       "Exhaustion Short — Profit Booking After Rally");
+  }
+  async function loadPdhBreakout() {
+    return _loadSetup("pdh-breakout/bullish", "pdh-breakout-body", "bullish", "pdh", "pdh-count",
+                      "PDH Breakout — Trend + Momentum");
   }
   // ── AI Market Brief ───────────────────────────────────────────
   async function loadMarketBrief() {
@@ -2055,7 +2114,7 @@
   // ── Auto-refresh every 5 min ──────────────────────────────────
   async function refreshAll() {
     await Promise.all([loadMarket(), loadStatus()]);
-    await Promise.all([loadS1Bullish(), loadS1Bearish(), loadExhaustionShort()]);
+    await Promise.all([loadS1Bullish(), loadS1Bearish(), loadExhaustionShort(), loadPdhBreakout()]);
     await Promise.all([loadTicker(), loadOI(), loadMarketBrief()]);
     stampUpdated();
   }

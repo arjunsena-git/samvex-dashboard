@@ -198,6 +198,7 @@ _PANEL_LABELS = {
     (1, "bullish"): "Setup 1 — Liquidity Sweep → BOS (Bullish · Sweep PDL → Break PDH)",
     (1, "bearish"): "Setup 1 — Liquidity Sweep → BOS (Bearish · Sweep PDH → Break PDL)",
     (2, "bearish"): "Exhaustion Short — Profit Booking After Rally (9:15 AM–2:00 PM)",
+    (3, "bullish"): "PDH Breakout — Trend + Momentum (Close > PDH · Price > 200 EMA(15m) · RSI(14) ≥ 60 · Vol ≥ 10L)",
 }
 
 def _signals_path(date_str: str) -> str:
@@ -795,8 +796,9 @@ INSIGHTS_TTL = 300   # 5-min AI insights cache (aligned with screener)
 
 def _fetch_intraday_15m() -> dict:
     """Batch 15-min bars for Nifty 500 universe, chunked to stay within 512 MB.
-    5d gives ~125 bars/stock — enough history for RSI-14 on the 15-min timeframe."""
-    return _fetch_chunked("15m", "5d")
+    60d is Yahoo's max lookback for the 15m interval — needed so the PDH
+    Breakout screener has enough bars for a real 200-period EMA."""
+    return _fetch_chunked("15m", "60d")
 
 
 def _get_15m_batch():
@@ -1492,6 +1494,204 @@ def _screen_exhaustion_short() -> list:
     return [r for r in results if r["confidence_score"] >= 40][:5]
 
 
+# PDH Breakout — Trend + Momentum (ported from a trading-team-vetted
+# Chartink screen: "UNIVERSEPDHEMA200RSI60V10LKH")
+#   Close crossed above PDH, price holding above the 200-period EMA on the
+#   15-min chart (trend filter), daily RSI(14) >= 60 (momentum filter), and
+#   day volume >= 10 lakh shares (liquidity filter). Plain trend-continuation
+#   breakout — no liquidity sweep required first (unlike Setup 1).
+#
+# Gates:
+#   • Close crossed above PDH within the last 3 bars (45 min) — fresh breakout
+#   • Current price >= 200-period EMA on 15-min closes
+#   • Daily RSI(14) >= 60
+#   • Day volume so far >= 10,00,000 shares
+PDH_EMA_PERIOD = 200
+PDH_RSI_PERIOD = 14
+PDH_RSI_MIN    = 60.0
+PDH_VOL_MIN    = 1_000_000   # 10 lakh shares
+_PDH_FRESH     = 3           # breakout candle must be within the last 3 bars (45 min)
+
+
+def _ema(values: list, period: int):
+    """Simple EMA seeded with the first value — fine for a trend filter
+    even when fewer than `period` bars are available."""
+    if not values:
+        return None
+    alpha = 2 / (period + 1)
+    ema = values[0]
+    for v in values[1:]:
+        ema = alpha * v + (1 - alpha) * ema
+    return ema
+
+
+def _wilder_rsi(closes: list, period: int = 14):
+    """Wilder's RSI over a list of closes (oldest → newest)."""
+    if len(closes) < period + 1:
+        return None
+    deltas = [closes[i] - closes[i - 1] for i in range(1, len(closes))]
+    gains  = [d if d > 0 else 0.0 for d in deltas]
+    losses = [-d if d < 0 else 0.0 for d in deltas]
+
+    avg_gain = sum(gains[:period]) / period
+    avg_loss = sum(losses[:period]) / period
+    for i in range(period, len(gains)):
+        avg_gain = (avg_gain * (period - 1) + gains[i]) / period
+        avg_loss = (avg_loss * (period - 1) + losses[i]) / period
+
+    if avg_loss == 0:
+        return 100.0
+    rs = avg_gain / avg_loss
+    return 100 - (100 / (1 + rs))
+
+
+def _screen_pdh_trend() -> list:
+    """PDH Breakout / Trend + Momentum screener — see module comment above."""
+    universe    = _load_nifty500() or _get_fno_universe()
+    batch_15m   = _get_15m_batch()
+    batch_daily = _get_daily_batch()
+    ist         = pytz.timezone("Asia/Kolkata")
+    today_date  = datetime.now(ist).date()
+
+    live_quotes = None
+    if _is_live():
+        live_quotes = _cached("live_quotes", _fetch_live_quotes, ttl=LIVE_TTL)
+
+    results = []
+
+    for symbol in universe:
+        try:
+            intra = _get_ticker_df(batch_15m, symbol)
+            daily = _get_ticker_df(batch_daily, symbol)
+
+            if intra is None or daily is None or len(daily) < PDH_RSI_PERIOD + 2:
+                continue
+
+            try:
+                if intra.index.tz is not None:
+                    today_mask = intra.index.tz_convert(ist).date == today_date
+                else:
+                    today_mask = [ts.date() == today_date for ts in intra.index]
+                today_bars = intra[today_mask]
+            except Exception:
+                today_bars = intra.iloc[:0]
+
+            if len(today_bars) < 1:
+                continue
+
+            pdh = float(daily["High"].iloc[-2])
+            if pdh <= 0:
+                continue
+
+            closes = today_bars["Close"].tolist()
+            vols   = today_bars["Volume"].tolist()
+            n_bars = len(closes)
+
+            if live_quotes:
+                q  = live_quotes.get(symbol)
+                lp = float(q.get("last_price", 0) or 0) if q else 0
+                current_price = lp if lp > 0 else closes[-1]
+            else:
+                current_price = closes[-1]
+
+            if current_price < 100 or current_price <= pdh:
+                continue
+
+            # Fresh breakout: the bar that first closed above PDH must be recent
+            bos_bar = next((i for i, c in enumerate(closes) if c > pdh), -1)
+            if bos_bar < 0:
+                continue
+            if n_bars - 1 - bos_bar > _PDH_FRESH:
+                continue
+
+            # Trend filter: price above 200-period EMA on all available 15-min closes
+            all_closes_15m = intra["Close"].dropna().astype(float).tolist()
+            if len(all_closes_15m) < 30:
+                continue
+            ema200 = _ema(all_closes_15m, PDH_EMA_PERIOD)
+            if ema200 is None or current_price < ema200:
+                continue
+
+            # Momentum filter: daily RSI(14) >= 60
+            daily_closes = daily["Close"].astype(float).tolist()
+            rsi = _wilder_rsi(daily_closes, PDH_RSI_PERIOD)
+            if rsi is None or rsi < PDH_RSI_MIN:
+                continue
+
+            # Liquidity filter: day volume so far >= 10 lakh shares
+            day_vol = sum(vols)
+            if day_vol < PDH_VOL_MIN:
+                continue
+
+            prev_close = float(daily["Close"].iloc[-2])
+            pdl        = float(daily["Low"].iloc[-2])
+            prev_vol   = float(daily["Volume"].iloc[-2])
+            elapsed_min = max(15.0, n_bars * 15.0)
+            paced_vol   = (day_vol / elapsed_min) * 375.0
+            vol_ratio   = (paced_vol / prev_vol) if prev_vol > 0 else 0.0
+
+            # Trade plan: structural SL just below PDH (the breakout level)
+            sl   = round(pdh * 0.997, 2)
+            risk = current_price - sl
+            if risk <= 0:
+                continue
+
+            sl_pct = round(risk / current_price * 100, 2)
+            t1     = round(current_price + risk * 1.5, 2)
+            t2     = round(current_price + risk * 3.0, 2)
+
+            # Confidence 0–100: RSI strength (35) + EMA distance (30) + volume (35)
+            rsi_s      = min(max(rsi - PDH_RSI_MIN, 0) / 20.0, 1.0) * 35
+            ema_dist   = (current_price - ema200) / ema200 * 100
+            ema_s      = min(max(ema_dist, 0) / 5.0, 1.0) * 30
+            vol_s      = min(day_vol / (PDH_VOL_MIN * 3), 1.0) * 35
+            conf_score = round(rsi_s + ema_s + vol_s)
+            conf_label = "STRONG" if conf_score >= 65 else "GOOD" if conf_score >= 40 else "WATCH"
+
+            gap_pct = round((float(today_bars["Open"].iloc[0]) - prev_close) / prev_close * 100, 2) if prev_close > 0 else 0.0
+
+            try:
+                ts = today_bars.index[bos_bar]
+                ts = ts.astimezone(ist) if ts.tzinfo else pytz.utc.localize(ts).astimezone(ist)
+                bos_time = ts.strftime("%H:%M")
+            except Exception:
+                bos_time = datetime.now(ist).strftime("%H:%M")
+
+            results.append({
+                "symbol":           symbol.replace(".NS", ""),
+                "price":            round(current_price, 2),
+                "gap_pct":          gap_pct,
+                "rsi":              round(rsi, 1),
+                "ema200_15m":       round(ema200, 2),
+                "day_high":         round(max(today_bars["High"].tolist()), 2),
+                "day_low":          round(min(today_bars["Low"].tolist()), 2),
+                "pdh":              round(pdh, 2),
+                "pdl":              round(pdl, 2),
+                "key_level":        round(pdh, 2),
+                "key_label":        "PDH",
+                "volume_ratio":     round(vol_ratio, 2),
+                "setup":            "PDH Breakout — Trend + Momentum",
+                "entry":            round(current_price, 2),
+                "sl":               sl,
+                "sl_pct":           sl_pct,
+                "sl_label":         "Below PDH (breakout level)",
+                "t1":               t1,
+                "t2":               t2,
+                "risk_reward":      1.5,
+                "confidence_score": conf_score,
+                "confidence_label": conf_label,
+                "demand_zone":      round(pdl, 2),
+                "supply_zone":      round(pdh, 2),
+                "bos_time":         bos_time,
+            })
+
+        except Exception:
+            continue
+
+    results.sort(key=lambda x: x["confidence_score"], reverse=True)
+    return [r for r in results if r["confidence_score"] >= 40][:5]
+
+
 # ── Market index data ──────────────────────────────────────────────
 _INDEX_YF = {"NIFTY 50": "^NSEI", "SENSEX": "^BSESN", "BANK NIFTY": "^NSEBANK"}
 _INDEX_KEY = {
@@ -1659,7 +1859,7 @@ def oauth_callback():
     threading.Thread(target=_load_futures_map, daemon=True).start()
 
     # Clear screener cache so next load uses live data immediately
-    for k in ("s1_bull", "s1_bear", "exh_short",
+    for k in ("s1_bull", "s1_bear", "exh_short", "pdh_breakout_bull",
               "live_quotes", "15m_batch", "5m_batch", "ticker", "oi_buildup", "market"):
         _cache.pop(k, None)
 
@@ -1702,7 +1902,7 @@ def set_token():
     _upstox_token["expires_at"]   = time.time() + 23 * 3600
     _save_token(_upstox_token["access_token"], _upstox_token["expires_at"])
     # Invalidate screener cache so next request uses live data immediately
-    for k in ("s1_bull", "s1_bear", "exh_short",
+    for k in ("s1_bull", "s1_bear", "exh_short", "pdh_breakout_bull",
               "live_quotes", "15m_batch", "5m_batch", "ticker", "oi_buildup", "market"):
         _cache.pop(k, None)
     threading.Thread(target=_load_instrument_map, daemon=True).start()
@@ -1755,6 +1955,13 @@ def api_exhaustion_short():
         return jsonify([])
     active = _cached("exh_short", _screen_exhaustion_short, ttl=SCREEN_TTL)
     return jsonify(_merge_with_history(active, 2, "bearish"))
+
+@app.route("/api/pdh-breakout/bullish")
+def api_pdh_breakout_bull():
+    if not _smc_ready():
+        return jsonify([])
+    active = _cached("pdh_breakout_bull", _screen_pdh_trend, ttl=SCREEN_TTL)
+    return jsonify(_merge_with_history(active, 3, "bullish"))
 
 @app.route("/api/setup1/sweep-watch/bullish")
 def api_sweep_watch_bull():
@@ -2622,6 +2829,7 @@ def _generate_setup_explanations(setup: int, direction: str, results: list) -> l
             (1, "bullish"): "SMC Bullish — liquidity sweep below PDL followed by BOS above PDH",
             (1, "bearish"): "SMC Bearish — liquidity sweep above PDH followed by BOS below PDL",
             (2, "bearish"): "Exhaustion Short — huge previous-day rally pulling back from day high on an impulsive red 5-min candle",
+            (3, "bullish"): "PDH Breakout — close above PDH, trending above 200 EMA(15m), daily RSI >= 60, strong volume",
         }
         setup_name = setup_names.get((setup, direction), "")
 
@@ -2675,6 +2883,7 @@ def insights_setup_explain():
     setup_map = {
         "s1_bull": (1, "bullish"), "s1_bear": (1, "bearish"),
         "exh_short": (2, "bearish"),
+        "pdh_breakout_bull": (3, "bullish"),
     }
     if setup_key not in setup_map:
         return jsonify({"error": "invalid setup"}), 400
@@ -2684,6 +2893,8 @@ def insights_setup_explain():
         results = cached[0]
     elif setup_key == "exh_short":
         results = _screen_exhaustion_short()
+    elif setup_key == "pdh_breakout_bull":
+        results = _screen_pdh_trend()
     else:
         results = _screen_smc(direction)
     if not results:
