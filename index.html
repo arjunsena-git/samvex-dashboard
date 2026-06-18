@@ -1614,7 +1614,10 @@
     return (_panelData[cfg.key]?.rows || []).filter(s => s.is_active !== false);
   }
 
-  const _SCANNER_ELS = ['s1-divider','s1-table-grid','exh-divider','exh-table-grid','pdh-divider','pdh-table-grid'];
+  // OI Buildup is now also available as sidebar panels in Live Panels view,
+  // so the raw OI table below is hidden there too (it's only meaningful in
+  // Full Table View, alongside the other raw scanner tables).
+  const _SCANNER_ELS = ['s1-divider','s1-table-grid','exh-divider','exh-table-grid','pdh-divider','pdh-table-grid','oi-divider','oi-table-grid'];
 
   function toggleChartMode() {
     if (_journalActive) _closeJournalView();
