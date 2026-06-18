@@ -206,70 +206,106 @@ def _signals_path(date_str: str) -> str:
     return os.path.join(_SIGNALS_DIR, f"signals_{date_str}.json")
 
 def _persist_signals(date_str: str) -> None:
-    """Write today's _signal_store to disk (called in a background thread)."""
+    """Write today's _signal_store to disk + Redis (called in a background thread).
+    Redis is the durable copy — Render free tier wipes /tmp on every cold-start,
+    so disk alone silently loses today's signal history mid-session."""
     try:
         payload = {
             f"{k[0]}|{k[1]}": v
             for k, v in _signal_store.items()
             if k[2] == date_str
         }
+        blob = {"date": date_str, "panels": payload}
         with open(_signals_path(date_str), "w") as fh:
-            json.dump({"date": date_str, "panels": payload}, fh)
+            json.dump(blob, fh)
+        _upstash(["SETEX", f"samvex_signal_store_{date_str}", "259200", json.dumps(blob)])
     except Exception as exc:
         print(f"[Signals] persist error: {exc}")
 
 def _load_persisted_signals() -> None:
-    """On server start, reload today's signals from disk into _signal_store."""
+    """On server start, reload today's signals — Redis first (survives cold-starts),
+    disk as a fallback for local/non-Redis environments."""
     ist = pytz.timezone("Asia/Kolkata")
     today_str = datetime.now(ist).strftime("%Y-%m-%d")
-    path = _signals_path(today_str)
-    if not os.path.exists(path):
-        return
+    data = None
     try:
-        with open(path) as fh:
-            data = json.load(fh)
+        raw = _upstash(["GET", f"samvex_signal_store_{today_str}"])
+        if raw:
+            data = json.loads(raw)
+    except Exception as exc:
+        print(f"[Signals] Redis load error: {exc}")
+    if data is None:
+        path = _signals_path(today_str)
+        if not os.path.exists(path):
+            return
+        try:
+            with open(path) as fh:
+                data = json.load(fh)
+        except Exception as exc:
+            print(f"[Signals] disk load error: {exc}")
+            return
+    try:
         for k_str, signals in data.get("panels", {}).items():
             setup_str, direction = k_str.split("|")
             _signal_store[(int(setup_str), direction, today_str)] = signals
         total = sum(len(v) for v in _signal_store.values())
-        print(f"[Signals] Restored {total} signals from {path}")
+        print(f"[Signals] Restored {total} signals for {today_str}")
     except Exception as exc:
-        print(f"[Signals] load error: {exc}")
+        print(f"[Signals] restore error: {exc}")
 
 
 # ── Signal history persistence (detected_at + inactive signals) ───
+# This is what drives the "greyed out / Detected HH:MM / Signal gone" rows in
+# Full Table View. It's continuously updated all day, so losing it mid-session
+# to a Render cold-start makes previously-detected stocks vanish without a
+# trace instead of fading to inactive — hence Redis as the durable copy.
 def _history_path(date_str: str) -> str:
     return os.path.join(_SIGNALS_DIR, f"history_{date_str}.json")
 
 def _persist_history(date_str: str) -> None:
-    """Write today's _smc_history to disk. Called in a background thread on every state change."""
+    """Write today's _smc_history to disk + Redis (called in a background thread)."""
     try:
         payload = {}
         for k, v in list(_smc_history.items()):
             if k[2] == date_str:
                 payload[f"{k[0]}|{k[1]}"] = v
+        blob = {"date": date_str, "panels": payload}
         with open(_history_path(date_str), "w") as fh:
-            json.dump({"date": date_str, "panels": payload}, fh)
+            json.dump(blob, fh)
+        _upstash(["SETEX", f"samvex_smc_history_{date_str}", "259200", json.dumps(blob)])
     except Exception as exc:
         print(f"[History] persist error: {exc}")
 
 def _load_persisted_history() -> None:
-    """On server start, reload today's signal history from disk into _smc_history."""
+    """On server start, reload today's signal history — Redis first (survives
+    cold-starts), disk as a fallback for local/non-Redis environments."""
     ist = pytz.timezone("Asia/Kolkata")
     today_str = datetime.now(ist).strftime("%Y-%m-%d")
-    path = _history_path(today_str)
-    if not os.path.exists(path):
-        return
+    data = None
     try:
-        with open(path) as fh:
-            data = json.load(fh)
+        raw = _upstash(["GET", f"samvex_smc_history_{today_str}"])
+        if raw:
+            data = json.loads(raw)
+    except Exception as exc:
+        print(f"[History] Redis load error: {exc}")
+    if data is None:
+        path = _history_path(today_str)
+        if not os.path.exists(path):
+            return
+        try:
+            with open(path) as fh:
+                data = json.load(fh)
+        except Exception as exc:
+            print(f"[History] disk load error: {exc}")
+            return
+    try:
         for k_str, signals in data.get("panels", {}).items():
             setup_str, direction = k_str.split("|")
             _smc_history[(int(setup_str), direction, today_str)] = signals
         total = sum(len(v) for v in _smc_history.values())
-        print(f"[History] Restored {total} historical signals from {path}")
+        print(f"[History] Restored {total} historical signals for {today_str}")
     except Exception as exc:
-        print(f"[History] load error: {exc}")
+        print(f"[History] restore error: {exc}")
 
 
 def _merge_with_history(active: list, setup: int, direction: str) -> list:
