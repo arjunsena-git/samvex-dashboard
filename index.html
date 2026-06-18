@@ -1167,13 +1167,13 @@
   </div>
 
   <!-- ── OI Buildup Scanner ───────────────────────────────────── -->
-  <div class="section-divider">
+  <div class="section-divider" id="oi-divider">
     <div class="section-divider-line"></div>
     <div class="section-divider-title">OI Buildup Scanner — Near-Month Futures</div>
     <div class="section-divider-line"></div>
   </div>
 
-  <div class="scanner-grid">
+  <div class="scanner-grid" id="oi-table-grid">
 
     <!-- Bullish OI Signals -->
     <div class="panel">
@@ -1242,13 +1242,13 @@
   </div>
 
   <!-- ── Global Market Intelligence ──────────────────────────── -->
-  <div class="section-divider">
+  <div class="section-divider" id="geo-divider">
     <div class="section-divider-line"></div>
     <div class="section-divider-title">Global Market Intelligence</div>
     <div class="section-divider-line"></div>
   </div>
 
-  <div class="geo-panel">
+  <div class="geo-panel" id="geo-panel">
     <div class="geo-header" onclick="toggleGeo()">
       <div class="geo-title">
         <span class="geo-globe">🌐</span>
@@ -1817,11 +1817,20 @@
   let _journalEntries = [];
   let _journalEditId  = null;
 
+  // Sections below the signal panels that aren't part of Live Panels /
+  // Full Table View toggling, but should still get out of the way when
+  // the journal is open — it should be the only thing on screen.
+  const _JOURNAL_HIDE_ELS = ['oi-divider', 'oi-table-grid', 'geo-divider', 'geo-panel'];
+
   function toggleJournalView() {
     _journalActive = !_journalActive;
     document.getElementById('journal-btn').classList.toggle('active', _journalActive);
     document.getElementById('journal-page').style.display = _journalActive ? 'flex' : 'none';
     document.querySelector('.summary-row').style.display = _journalActive ? 'none' : '';
+    _JOURNAL_HIDE_ELS.forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.style.display = _journalActive ? 'none' : '';
+    });
 
     if (_journalActive) {
       document.getElementById('chart-fullpage').classList.remove('visible');
@@ -1839,6 +1848,10 @@
     document.getElementById('journal-btn').classList.remove('active');
     document.getElementById('journal-page').style.display = 'none';
     document.querySelector('.summary-row').style.display = '';
+    _JOURNAL_HIDE_ELS.forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.style.display = '';
+    });
   }
 
   async function loadJournal() {
