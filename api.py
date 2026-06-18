@@ -436,10 +436,17 @@ def _sanitize_journal_entry(data: dict) -> dict:
     if pnl_pct is None and entry_price not in (None, 0) and exit_price is not None:
         pnl_pct = round(sign * (exit_price - entry_price) / entry_price * 100, 2)
 
+    # R:R = reward achieved / risk taken. Risk is always the planned distance
+    # to the stop-loss. Reward prefers the ACTUAL exit (realized R:R) over the
+    # original target (planned R:R) once the trade is closed — otherwise a
+    # trade exited well short of its target would misleadingly show its
+    # full planned ratio instead of what was actually achieved.
     risk_reward = _num_or_none(data.get("risk_reward"))
-    if risk_reward is None and entry_price is not None and stop_loss is not None and target is not None:
-        risk = abs(entry_price - stop_loss)
-        risk_reward = round(abs(target - entry_price) / risk, 2) if risk > 0 else None
+    if risk_reward is None and entry_price is not None and stop_loss is not None:
+        risk         = abs(entry_price - stop_loss)
+        reward_basis = exit_price if exit_price is not None else target
+        if risk > 0 and reward_basis is not None:
+            risk_reward = round(abs(reward_basis - entry_price) / risk, 2)
 
     outcome = data.get("outcome") if data.get("outcome") in _JOURNAL_OUTCOMES else None
     if not outcome:
