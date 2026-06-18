@@ -1558,7 +1558,7 @@
     const isBull  = panelKey.includes('bull');
     const color   = isBull ? 'var(--green)' : 'var(--red)';
     const detected = s.detected_at
-      ? `<span style="font-size:10px;color:var(--text-muted);">&#9201; Since ${s.detected_at} IST</span>` : '';
+      ? `<span style="font-size:11px;color:var(--text);font-weight:700;">&#9201; Since ${s.detected_at} IST</span>` : '';
 
     document.getElementById('stock-detail-placeholder').style.display = 'none';
     document.getElementById('stock-detail-pane').classList.add('visible');
