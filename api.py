@@ -769,7 +769,7 @@ def _fetch_chunked(interval: str, period: str) -> dict:
 
 
 def _fetch_daily_only() -> dict:
-    return _fetch_chunked("1d", "10d")   # 10d sufficient for PDH/PDL (RSI removed)
+    return _fetch_chunked("1d", "45d")   # 45d gives ~30 trading days — enough for a 20-day Bollinger Band
 
 
 def _get_daily_batch():
@@ -1264,12 +1264,17 @@ def _screen_sweep_watch(direction: str) -> list:
 #   • Paced day volume ≥ 1.3× prev day volume (real participation)
 #   • Latest completed 5-min candle is impulsive: body ≥ 60% of its range,
 #     closed red, with turnover (close × volume) ≥ ₹50 crore
+#   • That same 5-min candle's volume > avg volume of the same time slot
+#     on the previous 2–3 trading days (unusual participation, not routine)
+#   • Price has crossed above the 20-day Bollinger upper band (overextended)
 #   • Nifty 50 not up more than 1% (don't fight a strongly bullish market)
 EXH_PREV_DAY_RALLY_PCT = 11.0     # min previous-day gain to qualify as a "huge rally"
 EXH_PULLBACK_PCT       = 0.3      # min pullback off day high
 EXH_VOL_RATIO          = 1.3      # min paced-volume ratio vs prev day
 EXH_IMPULSE_BODY_RATIO = 0.6      # min body/range ratio on the confirming 5-min candle
 EXH_IMPULSE_TURNOVER   = 50_00_00_000  # ₹50 crore min turnover on that 5-min candle
+EXH_BB_PERIOD          = 20       # Bollinger Band lookback (daily closes)
+EXH_BB_STD_MULT        = 2.0      # Bollinger Band std-dev multiplier
 
 
 def _screen_exhaustion_short() -> list:
@@ -1305,7 +1310,7 @@ def _screen_exhaustion_short() -> list:
             intra5 = _get_ticker_df(batch_5m, symbol)
             daily = _get_ticker_df(batch_daily, symbol)
 
-            if intra is None or intra5 is None or daily is None or len(daily) < 3:
+            if intra is None or intra5 is None or daily is None or len(daily) < EXH_BB_PERIOD + 1:
                 continue
 
             try:
@@ -1351,6 +1356,25 @@ def _screen_exhaustion_short() -> list:
             c5_close = float(today_bars5["Close"].iloc[-1])
             c5_vol   = float(today_bars5["Volume"].iloc[-1])
 
+            # That same 5-min slot's volume must beat its own recent (2–3 day) average
+            try:
+                c5_ts = today_bars5.index[-1]
+                c5_ts_ist = c5_ts.astimezone(ist) if c5_ts.tzinfo else pytz.utc.localize(c5_ts).astimezone(ist)
+                target_hm = c5_ts_ist.strftime("%H:%M")
+                idx_ist = intra5.index.tz_convert(ist) if intra5.index.tz is not None else intra5.index
+                same_slot_vols = [
+                    float(v) for ts, v in zip(idx_ist, intra5["Volume"])
+                    if ts.date() < today_date and ts.strftime("%H:%M") == target_hm
+                ][-3:]
+            except Exception:
+                same_slot_vols = []
+
+            if len(same_slot_vols) < 2:
+                continue
+            avg_same_slot_vol = sum(same_slot_vols) / len(same_slot_vols)
+            if c5_vol <= avg_same_slot_vol:
+                continue
+
             c5_range = c5_high - c5_low
             if c5_range <= 0:
                 continue
@@ -1379,6 +1403,14 @@ def _screen_exhaustion_short() -> list:
                 current_price = closes[-1]
 
             if current_price < 100:
+                continue
+
+            # Price must have crossed above the 20-day Bollinger upper band
+            closes_hist = daily["Close"].iloc[-(EXH_BB_PERIOD + 1):-1].astype(float)
+            bb_sma   = float(closes_hist.mean())
+            bb_std   = float(closes_hist.std(ddof=0))
+            bb_upper = bb_sma + EXH_BB_STD_MULT * bb_std
+            if current_price <= bb_upper:
                 continue
 
             day_high = max(highs)
@@ -1430,6 +1462,7 @@ def _screen_exhaustion_short() -> list:
                 "gap_pct":          gap_pct,
                 "day_chg_pct":      round(day_chg_pct, 2),
                 "prev_day_rally_pct": round(prev_day_rally_pct, 2),
+                "bb_upper":         round(bb_upper, 2),
                 "day_high":         round(day_high, 2),
                 "day_low":          round(min(lows), 2),
                 "pdh":              round(float(daily["High"].iloc[-2]), 2),
