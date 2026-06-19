@@ -1,0 +1,52 @@
+name: Daily Signal Analysis
+
+on:
+  schedule:
+    # 4:30 PM IST = 11:00 UTC, Monday–Friday
+    - cron: '0 11 * * 1-5'
+  workflow_dispatch:
+    # Allow manual trigger from GitHub UI anytime
+
+jobs:
+  analyse:
+    name: Run Signal Performance Analysis
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.SAMVEX_GH_PAT }}
+          fetch-depth: 0
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install pytz requests yfinance pandas
+
+      - name: Configure git for auto-improvement commits
+        run: |
+          git config user.name  "Samvex AI"
+          git config user.email "ai@samvex.in"
+          git remote set-url origin https://x-access-token:${{ secrets.SAMVEX_GH_PAT }}@github.com/arjunsena-git/samvex-dashboard.git
+
+      - name: Run daily analysis
+        env:
+          NOTION_API_KEY: ${{ secrets.NOTION_API_KEY }}
+        run: |
+          python scripts/daily_analysis.py
+
+      - name: Upload report artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: signal-report-${{ github.run_id }}
+          path: /tmp/samvex-logs/report_*.json
+          retention-days: 30
