@@ -194,6 +194,14 @@
       padding: 4px 10px; cursor: pointer; font-size: 12px;
     }
     .refresh-btn:hover { color: var(--text); border-color: var(--accent); }
+    .collapse-btn {
+      background: var(--bg-card-2); border: 1px solid var(--border);
+      color: var(--text-muted); border-radius: 6px;
+      padding: 4px 10px; cursor: pointer; font-size: 12px;
+    }
+    .collapse-btn:hover { color: var(--text); border-color: var(--accent); }
+    .panel.collapsed .criteria-row,
+    .panel.collapsed .table-wrap { display: none; }
     .diag-link {
       background: var(--bg-card-2); border: 1px solid var(--border);
       color: var(--accent); border-radius: 6px; text-decoration: none;
@@ -1010,6 +1018,7 @@
         <div style="display:flex;gap:6px;align-items:center;">
           <a class="diag-link diagnose-link" target="_blank" rel="noopener">Diagnose ↗</a>
           <button class="refresh-btn" onclick="loadS1Bullish()">↺ Refresh</button>
+          <button class="collapse-btn" onclick="togglePanelCollapse(this)" title="Collapse/expand this panel">&#9662; Collapse</button>
           <button class="expand-btn" onclick="expandPanel(this)" title="Full screen (Esc to close)">⤢ Expand</button>
         </div>
       </div>
@@ -1045,6 +1054,7 @@
         <div style="display:flex;gap:6px;align-items:center;">
           <a class="diag-link diagnose-link" target="_blank" rel="noopener">Diagnose ↗</a>
           <button class="refresh-btn" onclick="loadS1Bearish()">↺ Refresh</button>
+          <button class="collapse-btn" onclick="togglePanelCollapse(this)" title="Collapse/expand this panel">&#9662; Collapse</button>
           <button class="expand-btn" onclick="expandPanel(this)" title="Full screen (Esc to close)">⤢ Expand</button>
         </div>
       </div>
@@ -1090,6 +1100,7 @@
         <div style="display:flex;gap:6px;align-items:center;">
           <a class="diag-link diagnose-link" target="_blank" rel="noopener">Diagnose ↗</a>
           <button class="refresh-btn" onclick="loadExhaustionShort()">↺ Refresh</button>
+          <button class="collapse-btn" onclick="togglePanelCollapse(this)" title="Collapse/expand this panel">&#9662; Collapse</button>
           <button class="expand-btn" onclick="expandPanel(this)" title="Full screen (Esc to close)">⤢ Expand</button>
         </div>
       </div>
@@ -1136,6 +1147,7 @@
         <div style="display:flex;gap:6px;align-items:center;">
           <a class="diag-link diagnose-link" target="_blank" rel="noopener">Diagnose ↗</a>
           <button class="refresh-btn" onclick="loadPdhBreakout()">↺ Refresh</button>
+          <button class="collapse-btn" onclick="togglePanelCollapse(this)" title="Collapse/expand this panel">&#9662; Collapse</button>
           <button class="expand-btn" onclick="expandPanel(this)" title="Full screen (Esc to close)">⤢ Expand</button>
         </div>
       </div>
@@ -1179,6 +1191,7 @@
         <div style="display:flex;gap:6px;align-items:center;">
           <a class="diag-link diagnose-link" target="_blank" rel="noopener">Diagnose ↗</a>
           <button class="refresh-btn" onclick="loadOrbBullish()">↺ Refresh</button>
+          <button class="collapse-btn" onclick="togglePanelCollapse(this)" title="Collapse/expand this panel">&#9662; Collapse</button>
           <button class="expand-btn" onclick="expandPanel(this)" title="Full screen (Esc to close)">⤢ Expand</button>
         </div>
       </div>
@@ -1213,6 +1226,7 @@
         <div style="display:flex;gap:6px;align-items:center;">
           <a class="diag-link diagnose-link" target="_blank" rel="noopener">Diagnose ↗</a>
           <button class="refresh-btn" onclick="loadOrbBearish()">↺ Refresh</button>
+          <button class="collapse-btn" onclick="togglePanelCollapse(this)" title="Collapse/expand this panel">&#9662; Collapse</button>
           <button class="expand-btn" onclick="expandPanel(this)" title="Full screen (Esc to close)">⤢ Expand</button>
         </div>
       </div>
@@ -1259,6 +1273,7 @@
           <span class="chip chip-green" style="font-size:9px;padding:2px 6px;">Long Buildup</span>
           <span class="chip chip-blue"  style="font-size:9px;padding:2px 6px;">Short Covering</span>
           <button class="refresh-btn" onclick="loadOI()">↺</button>
+          <button class="collapse-btn" onclick="togglePanelCollapse(this)" title="Collapse/expand this panel">&#9662; Collapse</button>
           <button class="expand-btn" onclick="expandPanel(this)" title="Full screen (Esc to close)">⤢ Expand</button>
         </div>
       </div>
@@ -1291,6 +1306,7 @@
           <span class="chip chip-red"    style="font-size:9px;padding:2px 6px;">Short Buildup</span>
           <span class="chip chip-orange" style="font-size:9px;padding:2px 6px;">Long Unwinding</span>
           <button class="refresh-btn" onclick="loadOI()">↺</button>
+          <button class="collapse-btn" onclick="togglePanelCollapse(this)" title="Collapse/expand this panel">&#9662; Collapse</button>
           <button class="expand-btn" onclick="expandPanel(this)" title="Full screen (Esc to close)">⤢ Expand</button>
         </div>
       </div>
@@ -2538,6 +2554,13 @@
   window.addEventListener('scroll', () => {
     document.getElementById('scroll-top-btn').classList.toggle('visible', window.scrollY > 300);
   }, { passive: true });
+
+  // ── Panel collapse/expand (Full Table View) ────────────────────
+  function togglePanelCollapse(btn) {
+    const panel = btn.closest('.panel');
+    const collapsed = panel.classList.toggle('collapsed');
+    btn.innerHTML = collapsed ? '&#9656; Expand' : '&#9662; Collapse';
+  }
 
   // ── Panel fullscreen expand ───────────────────────────────────
   function expandPanel(btn) {
