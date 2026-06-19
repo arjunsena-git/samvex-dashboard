@@ -23,7 +23,7 @@ TODAY_STR        = NOW.strftime("%Y-%m-%d")
 TODAY_DISPLAY    = NOW.strftime("%d-%b-%y")
 API_BASE         = "https://samvex-api.onrender.com"
 NOTION_KEY       = os.environ.get("NOTION_API_KEY", "")
-NOTION_DB_ID     = "41128c28-7566-4b36-85b6-38dc805a5654"
+NOTION_DB_ID     = "1696c985-fc7e-4409-967a-5ceb650bfc5f"
 NOTION_IMPR_PAGE = "381c1120a5e5812d9f36c10005d13644"
 LOG_DIR          = Path("/tmp/samvex-logs")
 LOG_DIR.mkdir(parents=True, exist_ok=True)
