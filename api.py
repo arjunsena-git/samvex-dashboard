@@ -1966,6 +1966,25 @@ def _screen_orb(direction: str) -> list:
             if n_bars - 1 - breakout_bar > ORB_FRESHNESS_BARS:
                 continue
 
+            # VWAP confirmation: the breakout candle itself must close on the
+            # right side of the day's volume-weighted average price (computed
+            # from the open through the breakout bar) — confirms real
+            # participation behind the move, not just a thin print.
+            vwap_den = sum(vols[:breakout_bar + 1])
+            if vwap_den <= 0:
+                continue
+            vwap_num = sum(
+                ((highs[i] + lows[i] + closes[i]) / 3) * vols[i]
+                for i in range(breakout_bar + 1)
+            )
+            vwap = vwap_num / vwap_den
+            if bullish:
+                if closes[breakout_bar] <= vwap:
+                    continue
+            else:
+                if closes[breakout_bar] >= vwap:
+                    continue
+
             # Volume confirmation: breakout candle vs avg volume of the
             # consolidation bars that preceded it
             consolidation_vols = vols[1:breakout_bar]
@@ -2047,6 +2066,7 @@ def _screen_orb(direction: str) -> list:
                 "day_low":          round(day_low, 2),
                 "pdh":              round(pdh, 2),
                 "pdl":              round(pdl, 2),
+                "vwap":             round(vwap, 2),
                 "key_level":        round(or_high if bullish else or_low, 2),
                 "key_label":        "OR High" if bullish else "OR Low",
                 "volume_ratio":     round(vol_ratio, 2),
