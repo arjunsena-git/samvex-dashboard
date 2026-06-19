@@ -2344,6 +2344,13 @@ def _smc_ready() -> bool:
     Earlier than this there's no second bar for a BOS to even be possible."""
     return datetime.now(pytz.timezone("Asia/Kolkata")).time() >= _dtime(9, 45)
 
+def _orb_ready() -> bool:
+    """ORB only needs the opening 5-min candle plus one more completed 5-min
+    bar to detect a breakout, i.e. ~9:25 AM IST — unlike the 15-min-bar
+    screeners, it must NOT share _smc_ready()'s 9:45 gate, or a breakout that
+    fires on the very first post-open candle sits undetected for ~20 min."""
+    return datetime.now(pytz.timezone("Asia/Kolkata")).time() >= _dtime(9, 25)
+
 @app.route("/api/admin/revive-history", methods=["POST"])
 def admin_revive_history():
     """One-off recovery tool: re-insert signals into _smc_history that were lost
@@ -2407,14 +2414,14 @@ def api_pdh_breakout_bull():
 
 @app.route("/api/orb/bullish")
 def api_orb_bull():
-    if not _smc_ready():
+    if not _orb_ready():
         return jsonify([])
     active = _cached("orb_bull", _screen_orb, "bullish", ttl=SCREEN_TTL)
     return jsonify(_merge_with_history(active, 4, "bullish"))
 
 @app.route("/api/orb/bearish")
 def api_orb_bear():
-    if not _smc_ready():
+    if not _orb_ready():
         return jsonify([])
     active = _cached("orb_bear", _screen_orb, "bearish", ttl=SCREEN_TTL)
     return jsonify(_merge_with_history(active, 4, "bearish"))
