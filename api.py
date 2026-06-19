@@ -2149,6 +2149,35 @@ def _fetch_market():
     return result
 
 
+# ── Global indices (overnight / pre-market cues) ───────────────────
+# Delayed Yahoo Finance data — Upstox doesn't cover foreign exchanges, so
+# unlike NIFTY/SENSEX/BANK NIFTY there's no live source for these at all.
+# GIFT Nifty is intentionally NOT included: there's no reliable Yahoo
+# ticker for it (it would have to come from a different source later).
+_GLOBAL_INDEX_YF = {
+    "Dow Futures":        "YM=F",
+    "Nikkei 225":         "^N225",
+    "Hang Seng":          "^HSI",
+    "Shanghai Composite": "000001.SS",
+}
+
+def _fetch_global_indices():
+    result = {}
+    for name, sym in _GLOBAL_INDEX_YF.items():
+        try:
+            d = yf.Ticker(sym).history(interval="1d", period="5d")
+            if len(d) >= 2:
+                prev = float(d["Close"].iloc[-2])
+                curr = float(d["Close"].iloc[-1])
+                result[name] = {
+                    "price":      round(curr, 2),
+                    "change_pct": round((curr - prev) / prev * 100, 2) if prev > 0 else 0.0,
+                }
+        except Exception:
+            pass
+    return result
+
+
 # ── Ticker prices ─────────────────────────────────────────────────
 TICKER_SYMBOLS = [
     "RELIANCE.NS", "TCS.NS", "INFY.NS", "HDFCBANK.NS", "ICICIBANK.NS",
@@ -2552,6 +2581,10 @@ def market():
 @app.route("/api/ticker")
 def ticker():
     return jsonify(_cached("ticker", _fetch_ticker, ttl=LIVE_TTL))
+
+@app.route("/api/global-indices")
+def global_indices():
+    return jsonify(_cached("global_indices", _fetch_global_indices, ttl=CACHE_TTL))
 
 @app.route("/api/status")
 def status():
