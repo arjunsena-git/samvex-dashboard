@@ -194,14 +194,6 @@
       padding: 4px 10px; cursor: pointer; font-size: 12px;
     }
     .refresh-btn:hover { color: var(--text); border-color: var(--accent); }
-    .collapse-btn {
-      background: var(--bg-card-2); border: 1px solid var(--border);
-      color: var(--text-muted); border-radius: 6px;
-      padding: 4px 10px; cursor: pointer; font-size: 12px;
-    }
-    .collapse-btn:hover { color: var(--text); border-color: var(--accent); }
-    .panel.collapsed .criteria-row,
-    .panel.collapsed .table-wrap { display: none; }
     .diag-link {
       background: var(--bg-card-2); border: 1px solid var(--border);
       color: var(--accent); border-radius: 6px; text-decoration: none;
@@ -393,6 +385,14 @@
       font-size: 12px; font-weight: 700; color: var(--text-muted);
       letter-spacing: .8px; text-transform: uppercase; white-space: nowrap;
     }
+    .section-collapse-btn {
+      background: var(--bg-card-2); border: 1px solid var(--border);
+      color: var(--text-muted); border-radius: 6px;
+      padding: 2px 9px; cursor: pointer; font-size: 11px;
+      white-space: nowrap; text-transform: none; letter-spacing: 0;
+    }
+    .section-collapse-btn:hover { color: var(--text); border-color: var(--accent); }
+    .scanner-grid.section-collapsed { display: none !important; }
 
     .vol-bar-wrap { display: flex; align-items: center; gap: 6px; }
     .vol-bar {
@@ -1004,6 +1004,7 @@
   <div class="section-divider" id="s1-divider" style="display:none;">
     <div class="section-divider-line"></div>
     <div class="section-divider-title">Setup 1 — SMC Liquidity Sweep → BOS · Top 5 High-Conviction Signals Only (GOOD+ Score)</div>
+    <button class="section-collapse-btn" onclick="toggleSectionCollapse('s1-table-grid', this)">&#9662; Collapse</button>
     <div class="section-divider-line"></div>
   </div>
   <div class="scanner-grid" id="s1-table-grid" style="display:none;">
@@ -1018,7 +1019,6 @@
         <div style="display:flex;gap:6px;align-items:center;">
           <a class="diag-link diagnose-link" target="_blank" rel="noopener">Diagnose ↗</a>
           <button class="refresh-btn" onclick="loadS1Bullish()">↺ Refresh</button>
-          <button class="collapse-btn" onclick="togglePanelCollapse(this)" title="Collapse/expand this panel">&#9662; Collapse</button>
           <button class="expand-btn" onclick="expandPanel(this)" title="Full screen (Esc to close)">⤢ Expand</button>
         </div>
       </div>
@@ -1054,7 +1054,6 @@
         <div style="display:flex;gap:6px;align-items:center;">
           <a class="diag-link diagnose-link" target="_blank" rel="noopener">Diagnose ↗</a>
           <button class="refresh-btn" onclick="loadS1Bearish()">↺ Refresh</button>
-          <button class="collapse-btn" onclick="togglePanelCollapse(this)" title="Collapse/expand this panel">&#9662; Collapse</button>
           <button class="expand-btn" onclick="expandPanel(this)" title="Full screen (Esc to close)">⤢ Expand</button>
         </div>
       </div>
@@ -1086,6 +1085,7 @@
   <div class="section-divider" id="exh-divider" style="margin-top:24px;display:none;">
     <div class="section-divider-line"></div>
     <div class="section-divider-title">Exhaustion Short — Profit Booking After Rally · Top 5 High-Conviction Signals Only (GOOD+ Score)</div>
+    <button class="section-collapse-btn" onclick="toggleSectionCollapse('exh-table-grid', this)">&#9662; Collapse</button>
     <div class="section-divider-line"></div>
   </div>
   <div class="scanner-grid" id="exh-table-grid" style="grid-template-columns: 1fr;display:none;">
@@ -1100,7 +1100,6 @@
         <div style="display:flex;gap:6px;align-items:center;">
           <a class="diag-link diagnose-link" target="_blank" rel="noopener">Diagnose ↗</a>
           <button class="refresh-btn" onclick="loadExhaustionShort()">↺ Refresh</button>
-          <button class="collapse-btn" onclick="togglePanelCollapse(this)" title="Collapse/expand this panel">&#9662; Collapse</button>
           <button class="expand-btn" onclick="expandPanel(this)" title="Full screen (Esc to close)">⤢ Expand</button>
         </div>
       </div>
@@ -1133,6 +1132,7 @@
   <div class="section-divider" id="pdh-divider" style="margin-top:24px;display:none;">
     <div class="section-divider-line"></div>
     <div class="section-divider-title">PDH Breakout — Trend + Momentum · Top 5 High-Conviction Signals Only (GOOD+ Score)</div>
+    <button class="section-collapse-btn" onclick="toggleSectionCollapse('pdh-table-grid', this)">&#9662; Collapse</button>
     <div class="section-divider-line"></div>
   </div>
   <div class="scanner-grid" id="pdh-table-grid" style="grid-template-columns: 1fr;display:none;">
@@ -1147,7 +1147,6 @@
         <div style="display:flex;gap:6px;align-items:center;">
           <a class="diag-link diagnose-link" target="_blank" rel="noopener">Diagnose ↗</a>
           <button class="refresh-btn" onclick="loadPdhBreakout()">↺ Refresh</button>
-          <button class="collapse-btn" onclick="togglePanelCollapse(this)" title="Collapse/expand this panel">&#9662; Collapse</button>
           <button class="expand-btn" onclick="expandPanel(this)" title="Full screen (Esc to close)">⤢ Expand</button>
         </div>
       </div>
@@ -1177,6 +1176,7 @@
   <div class="section-divider" id="orb-divider" style="margin-top:24px;display:none;">
     <div class="section-divider-line"></div>
     <div class="section-divider-title">ORB — Opening Range Breakout · Top 5 High-Conviction Signals Only (GOOD+ Score)</div>
+    <button class="section-collapse-btn" onclick="toggleSectionCollapse('orb-table-grid', this)">&#9662; Collapse</button>
     <div class="section-divider-line"></div>
   </div>
   <div class="scanner-grid" id="orb-table-grid" style="display:none;">
@@ -1191,7 +1191,6 @@
         <div style="display:flex;gap:6px;align-items:center;">
           <a class="diag-link diagnose-link" target="_blank" rel="noopener">Diagnose ↗</a>
           <button class="refresh-btn" onclick="loadOrbBullish()">↺ Refresh</button>
-          <button class="collapse-btn" onclick="togglePanelCollapse(this)" title="Collapse/expand this panel">&#9662; Collapse</button>
           <button class="expand-btn" onclick="expandPanel(this)" title="Full screen (Esc to close)">⤢ Expand</button>
         </div>
       </div>
@@ -1226,7 +1225,6 @@
         <div style="display:flex;gap:6px;align-items:center;">
           <a class="diag-link diagnose-link" target="_blank" rel="noopener">Diagnose ↗</a>
           <button class="refresh-btn" onclick="loadOrbBearish()">↺ Refresh</button>
-          <button class="collapse-btn" onclick="togglePanelCollapse(this)" title="Collapse/expand this panel">&#9662; Collapse</button>
           <button class="expand-btn" onclick="expandPanel(this)" title="Full screen (Esc to close)">⤢ Expand</button>
         </div>
       </div>
@@ -1257,6 +1255,7 @@
   <div class="section-divider" id="oi-divider">
     <div class="section-divider-line"></div>
     <div class="section-divider-title">OI Buildup Scanner — Near-Month Futures</div>
+    <button class="section-collapse-btn" onclick="toggleSectionCollapse('oi-table-grid', this)">&#9662; Collapse</button>
     <div class="section-divider-line"></div>
   </div>
 
@@ -1273,7 +1272,6 @@
           <span class="chip chip-green" style="font-size:9px;padding:2px 6px;">Long Buildup</span>
           <span class="chip chip-blue"  style="font-size:9px;padding:2px 6px;">Short Covering</span>
           <button class="refresh-btn" onclick="loadOI()">↺</button>
-          <button class="collapse-btn" onclick="togglePanelCollapse(this)" title="Collapse/expand this panel">&#9662; Collapse</button>
           <button class="expand-btn" onclick="expandPanel(this)" title="Full screen (Esc to close)">⤢ Expand</button>
         </div>
       </div>
@@ -1306,7 +1304,6 @@
           <span class="chip chip-red"    style="font-size:9px;padding:2px 6px;">Short Buildup</span>
           <span class="chip chip-orange" style="font-size:9px;padding:2px 6px;">Long Unwinding</span>
           <button class="refresh-btn" onclick="loadOI()">↺</button>
-          <button class="collapse-btn" onclick="togglePanelCollapse(this)" title="Collapse/expand this panel">&#9662; Collapse</button>
           <button class="expand-btn" onclick="expandPanel(this)" title="Full screen (Esc to close)">⤢ Expand</button>
         </div>
       </div>
@@ -2555,10 +2552,12 @@
     document.getElementById('scroll-top-btn').classList.toggle('visible', window.scrollY > 300);
   }, { passive: true });
 
-  // ── Panel collapse/expand (Full Table View) ────────────────────
-  function togglePanelCollapse(btn) {
-    const panel = btn.closest('.panel');
-    const collapsed = panel.classList.toggle('collapsed');
+  // ── Section collapse/expand (Full Table View) ──────────────────
+  // One toggle per scanner section (covers both its panels, e.g. Setup 1
+  // Bullish + Bearish together) rather than per individual panel.
+  function toggleSectionCollapse(gridId, btn) {
+    const grid = document.getElementById(gridId);
+    const collapsed = grid.classList.toggle('section-collapsed');
     btn.innerHTML = collapsed ? '&#9656; Expand' : '&#9662; Collapse';
   }
 
