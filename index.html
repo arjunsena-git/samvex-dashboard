@@ -2610,7 +2610,7 @@
   // call site can own/tear-down its own chart instance independently.
   async function _fetchAndRenderChartInto(symbol, sig, container, legendEl, holder, height) {
     container.innerHTML =
-      `<div class="chart-error-state" style="height:${height}px;"><div class="spinner"></div><span>Fetching live 15-min candles…</span></div>`;
+      `<div class="chart-error-state" style="height:${height}px;"><div class="spinner"></div><span>Fetching live 5-min candles…</span></div>`;
     legendEl.innerHTML = "";
 
     try {
@@ -2678,7 +2678,16 @@
       grid:   { vertLines: { color: "#1e2336" }, horzLines: { color: "#1e2336" } },
       crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
       rightPriceScale: { borderColor: "#2a2f45" },
-      timeScale: { borderColor: "#2a2f45", timeVisible: true, secondsVisible: false },
+      timeScale: {
+        borderColor: "#2a2f45", timeVisible: true, secondsVisible: false,
+        // Lightweight Charts' default axis-tick formatter renders in UTC and
+        // ignores localization.timeFormatter (that one only covers the
+        // crosshair tooltip below) — without this override the axis showed
+        // times 5:30 behind actual IST regardless of the viewer's browser tz.
+        tickMarkFormatter: t => new Date(t * 1000).toLocaleTimeString("en-IN", {
+          timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit", hour12: false
+        }),
+      },
       localization: {
         timeFormatter: t => new Date(t * 1000).toLocaleTimeString("en-IN", {
           timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit", hour12: false
@@ -2774,7 +2783,7 @@
       </div>
     </div>
     <div class="chart-legend" id="chart-legend"></div>
-    <div class="chart-src-note">&#9679; Live data via Upstox · 15-min candles · IST times</div>
+    <div class="chart-src-note">&#9679; Live data via Upstox · 5-min candles · IST times</div>
   </div>
 </div>
 

@@ -2613,8 +2613,10 @@ def status():
 
 @app.route("/api/chart/<symbol>")
 def chart_candles(symbol):
-    """Live intraday 30-min candles from Upstox for the chart modal.
-    Upstox v2 intraday endpoint only supports 1minute and 30minute intervals.
+    """Live intraday 5-min candles from Upstox for the chart modal.
+    Upstox v2 intraday endpoint only supports 1minute and 30minute intervals
+    natively — there's no 5minute option — so we fetch 1-minute candles and
+    resample them into 5-min OHLCV bars ourselves.
     Returns 401 if Upstox is not authenticated — no Yahoo Finance fallback."""
     if not _is_live():
         return jsonify({
@@ -2645,22 +2647,22 @@ def chart_candles(symbol):
 
     # Serve from in-memory cache if we already fetched today's candles
     if cached.get("date") == today_str and cached.get("candles"):
-        return jsonify({"symbol": base, "interval": "15m", "candles": cached["candles"]})
+        return jsonify({"symbol": base, "interval": "5m", "candles": cached["candles"]})
 
     try:
         encoded_key = ikey.replace("|", "%7C")
         headers     = _upstox_headers()
 
         r = _http.get(
-            f"{UPSTOX_BASE}/historical-candle/intraday/{encoded_key}/30minute",
+            f"{UPSTOX_BASE}/historical-candle/intraday/{encoded_key}/1minute",
             headers=headers, timeout=15,
         )
 
         if r.status_code == 400:
             # Market closed — return stale cache (any date) if available, else empty
             if cached.get("candles"):
-                return jsonify({"symbol": base, "interval": "15m", "candles": cached["candles"]})
-            return jsonify({"symbol": base, "interval": "15m", "candles": []})
+                return jsonify({"symbol": base, "interval": "5m", "candles": cached["candles"]})
+            return jsonify({"symbol": base, "interval": "5m", "candles": []})
 
         if r.status_code != 200:
             return jsonify({
@@ -2668,26 +2670,38 @@ def chart_candles(symbol):
                 "message": f"Upstox returned HTTP {r.status_code}.",
             }), 502
 
-        raw     = r.json().get("data", {}).get("candles", [])
-        candles = []
+        raw  = r.json().get("data", {}).get("candles", [])
+        rows = []
         for c in raw:
             try:
-                unix_ts = int(pd.Timestamp(c[0]).timestamp())
-                candles.append({
-                    "time":   unix_ts,
-                    "open":   round(float(c[1]), 2),
-                    "high":   round(float(c[2]), 2),
-                    "low":    round(float(c[3]), 2),
-                    "close":  round(float(c[4]), 2),
-                    "volume": int(c[5]),
+                rows.append({
+                    "ts": pd.Timestamp(c[0]), "open": float(c[1]), "high": float(c[2]),
+                    "low": float(c[3]), "close": float(c[4]), "volume": int(c[5]),
                 })
             except Exception:
                 continue
 
-        candles.sort(key=lambda x: x["time"])
+        candles = []
+        if rows:
+            df  = pd.DataFrame(rows).set_index("ts").sort_index()
+            agg = df.resample("5min").agg({
+                "open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum",
+            }).dropna()
+            candles = [
+                {
+                    "time":   int(idx.timestamp()),
+                    "open":   round(float(row["open"]), 2),
+                    "high":   round(float(row["high"]), 2),
+                    "low":    round(float(row["low"]), 2),
+                    "close":  round(float(row["close"]), 2),
+                    "volume": int(row["volume"]),
+                }
+                for idx, row in agg.iterrows()
+            ]
+
         # Cache so after-hours requests are served without hitting Upstox
         _candle_cache[ikey] = {"date": today_str, "candles": candles}
-        return jsonify({"symbol": base, "interval": "30m", "candles": candles})
+        return jsonify({"symbol": base, "interval": "5m", "candles": candles})
 
     except Exception as e:
         return jsonify({"error": "fetch_error", "message": str(e)}), 500
