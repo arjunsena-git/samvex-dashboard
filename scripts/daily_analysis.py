@@ -218,12 +218,14 @@ def post_to_notion(report, code_change_note=""):
         w = report["win_rate_pct"]
         perf_label = "Strong 💪" if w >= 60 else "Moderate 🤔" if w >= 40 else "Weak ❌"
 
-    short_notes = (
+    summary = (
         f"{report['wins']}W / {report['losses']}L / {report['expired']}E | "
-        f"Avg R {report['avg_r_achieved']}R | BOS delay {report['avg_bos_delay_min']}min"
+        f"Win rate {report['win_rate_pct']}% | Avg R {report['avg_r_achieved']}R | "
+        f"BOS delay {report['avg_bos_delay_min']}min"
     )
     if code_change_note:
-        short_notes += f" | 🤖 {code_change_note}"
+        summary += f"\n\n{code_change_note}"
+    short_notes = summary
 
     body = {
         "parent": {"database_id": NOTION_DB_ID},
@@ -324,7 +326,16 @@ def apply_code_improvement(report):
         content = re.sub(r'(_FRESH\s*=\s*)\d+', f'\\g<1>{new}', content, count=1)
         msg = f"perf: decrease _FRESH {old}→{new} — expired_rate={exp}%, avg_delay={bos}min [auto-{TODAY_STR}]"
         api_path.write_text(content)
-        return msg, f"RULE B — _FRESH {old}→{new}"
+        narrative = (
+            f"🤖 Auto-improvement applied — RULE B (High Expired Rate + Late BOS)\n"
+            f"Trigger: {exp}% of signals expired and avg BOS delay was {bos} min after open.\n"
+            f"Problem: Signals are firing too late in the day — BOS events are being detected "
+            f"well after the optimal entry window, leaving signals with little time to play out.\n"
+            f"Change: Decreased _FRESH {old}→{new} in api.py. This tightens the BOS detection "
+            f"window, only accepting BOS events closer to the initial sweep — earlier, cleaner entries.\n"
+            f"Commit: {{commit_placeholder}}"
+        )
+        return msg, narrative
 
     # RULE C: poor win rate → raise vol_ratio filter (stricter signals)
     if w < 25 and val >= 3:
@@ -335,7 +346,18 @@ def apply_code_improvement(report):
         content = content[:m.start(2)] + str(new) + content[m.end(2):]
         msg = f"perf: raise vol_ratio {old}→{new} — win_rate={w}% [auto-{TODAY_STR}]"
         api_path.write_text(content)
-        return msg, f"RULE C — vol_ratio {old}→{new}"
+        narrative = (
+            f"🤖 Auto-improvement applied — RULE C (Poor Win Rate)\n"
+            f"Trigger: Win rate {w}% is below the 25% threshold across {val} valid signals.\n"
+            f"Problem: Too many low-quality signals are being generated. With {report['losses']} SL hits "
+            f"and only {report['wins']} wins, setups lack sufficient volume confirmation — "
+            f"the moves aren't backed by real institutional interest.\n"
+            f"Change: Raised vol_ratio threshold {old}→{new} in api.py (_screen_smc). "
+            f"From tomorrow, a signal only fires if volume is at least {new}× the 20-day average "
+            f"(was {old}×). Tighter filter = fewer but higher-conviction setups.\n"
+            f"Commit: {{commit_placeholder}}"
+        )
+        return msg, narrative
 
     # RULE D: great win rate → lower vol_ratio (allow more signals)
     if w >= 65 and val >= 3:
@@ -346,7 +368,17 @@ def apply_code_improvement(report):
         content = content[:m.start(2)] + str(new) + content[m.end(2):]
         msg = f"perf: lower vol_ratio {old}→{new} — strong day win_rate={w}% [auto-{TODAY_STR}]"
         api_path.write_text(content)
-        return msg, f"RULE D — vol_ratio {old}→{new}"
+        narrative = (
+            f"🤖 Auto-improvement applied — RULE D (Strong Win Rate — Loosen Filter)\n"
+            f"Trigger: Win rate {w}% exceeds 65% across {val} valid signals — strong day.\n"
+            f"Problem (positive): Current vol_ratio filter of {old}× is working well but may be "
+            f"too restrictive, filtering out valid setups that could add more wins.\n"
+            f"Change: Lowered vol_ratio threshold {old}→{new} in api.py (_screen_smc). "
+            f"Slightly more signals will be admitted tomorrow — capturing more opportunities "
+            f"while the strategy is clearly working.\n"
+            f"Commit: {{commit_placeholder}}"
+        )
+        return msg, narrative
 
     # RULE E: very late BOS → expand freshness window
     if bos > 90:
@@ -357,7 +389,17 @@ def apply_code_improvement(report):
         content = re.sub(r'(_FRESH\s*=\s*)\d+', f'\\g<1>{new}', content, count=1)
         msg = f"perf: increase _FRESH {old}→{new} — avg BOS delay {bos}min [auto-{TODAY_STR}]"
         api_path.write_text(content)
-        return msg, f"RULE E — _FRESH {old}→{new}"
+        narrative = (
+            f"🤖 Auto-improvement applied — RULE E (Very Late BOS Detection)\n"
+            f"Trigger: Avg BOS delay was {bos} min after open — signals firing very late.\n"
+            f"Problem: BOS events are consistently happening long after the 9:15 open, "
+            f"meaning liquidity sweeps are taking longer to resolve into directional breaks. "
+            f"A tighter _FRESH window would miss these valid but delayed setups.\n"
+            f"Change: Increased _FRESH {old}→{new} in api.py. This expands how far back "
+            f"the system looks for a qualifying BOS event, accommodating slower-developing setups.\n"
+            f"Commit: {{commit_placeholder}}"
+        )
+        return msg, narrative
 
     return None, f"No rule triggered (win_rate={w}%, expired={exp}%, bos={bos}min)"
 
@@ -434,7 +476,9 @@ def main():
     if commit_msg:
         commit_hash = git_commit_push(commit_msg)
         if commit_hash:
-            change_note += f" | commit {commit_hash}"
+            change_note = change_note.replace("{commit_placeholder}", commit_hash)
+        else:
+            change_note = change_note.replace("{commit_placeholder}", "(push failed)")
 
     # Post to Notion
     post_to_notion(report, change_note)
