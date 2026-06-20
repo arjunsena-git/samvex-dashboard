@@ -1404,6 +1404,85 @@
 
   </div>
 
+  <!-- ── Trap Reversal: failed breakdown/breakout, caught at reversal ──── -->
+  <div class="section-divider" id="trap-divider" style="margin-top:24px;display:none;">
+    <div class="section-divider-line"></div>
+    <div class="section-divider-title">Trap Reversal — Failed Breakdown/Breakout · Top 5 High-Conviction Signals Only (GOOD+ Score)</div>
+    <button class="section-collapse-btn" onclick="toggleSectionCollapse('trap-table-grid', this)">&#9662; Collapse</button>
+    <div class="section-divider-line"></div>
+  </div>
+  <div class="scanner-grid" id="trap-table-grid" style="display:none;">
+
+    <!-- Bear Trap (Bullish) -->
+    <div class="panel">
+      <div class="panel-header">
+        <div class="panel-title">
+          <span class="dot dot-green"></span>
+          Bear Trap &nbsp;<span style="font-size:11px;color:var(--text-muted);font-weight:400;">Failed PDL breakdown → buyers take control</span>
+        </div>
+        <div style="display:flex;gap:6px;align-items:center;">
+          <a class="diag-link diagnose-link" target="_blank" rel="noopener">Diagnose ↗</a>
+          <button class="refresh-btn" onclick="loadBearTrap()">↺ Refresh</button>
+          <button class="expand-btn" onclick="expandPanel(this)" title="Full screen (Esc to close)">⤢ Expand</button>
+        </div>
+      </div>
+      <div class="criteria-row">
+        <span class="chip chip-blue">Opened in range or near PDL</span>
+        <span class="chip chip-red">Close &lt; PDL (breakdown attempt)</span>
+        <span class="chip chip-green">Reclaims PDL on ≥1.5×avg vol (green candle)</span>
+        <span class="chip chip-green">Still above PDL now</span>
+        <span class="chip chip-blue">Nifty aligned</span>
+        <span class="chip chip-orange">Max 5 · GOOD+ only</span>
+      </div>
+      <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>Symbol</th><th>Price</th><th>Gap</th>
+          <th>PDL / Key Level</th><th>Volume</th><th>Score</th><th>Trade Plan</th>
+        </tr></thead>
+        <tbody id="trap-bull-body">
+          <tr><td colspan="7"><div class="empty-state"><div class="spinner"></div>Loading…</div></td></tr>
+        </tbody>
+      </table>
+      </div>
+    </div>
+
+    <!-- Bull Trap (Bearish) -->
+    <div class="panel">
+      <div class="panel-header">
+        <div class="panel-title">
+          <span class="dot dot-red"></span>
+          Bull Trap &nbsp;<span style="font-size:11px;color:var(--text-muted);font-weight:400;">Failed PDH breakout → sellers take control</span>
+        </div>
+        <div style="display:flex;gap:6px;align-items:center;">
+          <a class="diag-link diagnose-link" target="_blank" rel="noopener">Diagnose ↗</a>
+          <button class="refresh-btn" onclick="loadBullTrap()">↺ Refresh</button>
+          <button class="expand-btn" onclick="expandPanel(this)" title="Full screen (Esc to close)">⤢ Expand</button>
+        </div>
+      </div>
+      <div class="criteria-row">
+        <span class="chip chip-blue">Opened in range or near PDH</span>
+        <span class="chip chip-green">Close &gt; PDH (breakout attempt)</span>
+        <span class="chip chip-red">Reclaims below PDH on ≥1.5×avg vol (red candle)</span>
+        <span class="chip chip-red">Still below PDH now</span>
+        <span class="chip chip-blue">Nifty aligned</span>
+        <span class="chip chip-orange">Max 5 · GOOD+ only</span>
+      </div>
+      <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>Symbol</th><th>Price</th><th>Gap</th>
+          <th>PDH / Key Level</th><th>Volume</th><th>Score</th><th>Trade Plan</th>
+        </tr></thead>
+        <tbody id="trap-bear-body">
+          <tr><td colspan="7"><div class="empty-state"><div class="spinner"></div>Loading…</div></td></tr>
+        </tbody>
+      </table>
+      </div>
+    </div>
+
+  </div>
+
   <!-- ── OI Options Buy Screener (fresh buildup only) ──────────── -->
   <div class="section-divider" id="oi-divider" style="margin-top:24px;display:none;">
     <div class="section-divider-line"></div>
@@ -1866,6 +1945,8 @@
     { key: 'zone-supply', label: 'Supply Zone', sub: 'Bearish', dot: 'dot-red',   color: 'var(--red)',   type: 'trade' },
     { key: 'mb-bull', label: 'Momentum Breakout', sub: 'Bullish', dot: 'dot-green', color: 'var(--green)', type: 'trade' },
     { key: 'mb-bear', label: 'Momentum Breakdown', sub: 'Bearish', dot: 'dot-red',   color: 'var(--red)',   type: 'trade' },
+    { key: 'trap-bull', label: 'Bear Trap', sub: 'Bullish', dot: 'dot-green', color: 'var(--green)', type: 'trade' },
+    { key: 'trap-bear', label: 'Bull Trap', sub: 'Bearish', dot: 'dot-red',   color: 'var(--red)',   type: 'trade' },
     { key: 'oi-bull', label: 'OI Options', sub: 'Bullish · Buy Call', dot: 'dot-green', color: 'var(--green)', type: 'trade' },
     { key: 'oi-bear', label: 'OI Options', sub: 'Bearish · Buy Put',  dot: 'dot-red',   color: 'var(--red)',   type: 'trade' },
   ];
@@ -1881,7 +1962,7 @@
   // OI Buildup is now also available as sidebar panels in Live Panels view,
   // so the raw OI table below is hidden there too (it's only meaningful in
   // Full Table View, alongside the other raw scanner tables).
-  const _SCANNER_ELS = ['s1-divider','s1-table-grid','exh-divider','exh-table-grid','pdh-divider','pdh-table-grid','orb-divider','orb-table-grid','zone-divider','zone-table-grid','mb-divider','mb-table-grid','oi-divider','oi-table-grid'];
+  const _SCANNER_ELS = ['s1-divider','s1-table-grid','exh-divider','exh-table-grid','pdh-divider','pdh-table-grid','orb-divider','orb-table-grid','zone-divider','zone-table-grid','mb-divider','mb-table-grid','trap-divider','trap-table-grid','oi-divider','oi-table-grid'];
 
   function toggleChartMode() {
     if (_journalActive) _closeJournalView();
@@ -2232,6 +2313,8 @@
     "zone/supply": "zone_supply",
     "momentum-breakout/bullish": "mb_bull",
     "momentum-breakout/bearish": "mb_bear",
+    "trap/bullish": "trap_bull",
+    "trap/bearish": "trap_bear",
   };
 
   async function _loadSetup(endpoint, tbodyId, direction, refLevelKey, countId, label) {
@@ -2304,6 +2387,14 @@
   async function loadMomentumBreakoutBearish() {
     return _loadSetup("momentum-breakout/bearish", "mb-bear-body", "bearish", "pdl", null,
                       "Momentum Breakdown — Range Open + Clean PDL Break (Bearish)");
+  }
+  async function loadBearTrap() {
+    return _loadSetup("trap/bullish", "trap-bull-body", "bullish", "pdl", null,
+                      "Bear Trap Reversal — Failed PDL Breakdown (Bullish)");
+  }
+  async function loadBullTrap() {
+    return _loadSetup("trap/bearish", "trap-bear-body", "bearish", "pdh", null,
+                      "Bull Trap Reversal — Failed PDH Breakout (Bearish)");
   }
   // ── Global Indices (overnight / pre-market cues) ──────────────
   async function loadGlobalIndices() {
@@ -2612,7 +2703,7 @@
   // ── Auto-refresh every 5 min ──────────────────────────────────
   async function refreshAll() {
     await Promise.all([loadMarket(), loadStatus()]);
-    await Promise.all([loadS1Bullish(), loadS1Bearish(), loadExhaustionShort(), loadPdhBreakout(), loadOrbBullish(), loadOrbBearish(), loadDemandZone(), loadSupplyZone(), loadMomentumBreakoutBullish(), loadMomentumBreakoutBearish()]);
+    await Promise.all([loadS1Bullish(), loadS1Bearish(), loadExhaustionShort(), loadPdhBreakout(), loadOrbBullish(), loadOrbBearish(), loadDemandZone(), loadSupplyZone(), loadMomentumBreakoutBullish(), loadMomentumBreakoutBearish(), loadBearTrap(), loadBullTrap()]);
     await Promise.all([loadTicker(), loadOiOptionsBullish(), loadOiOptionsBearish(), loadMarketBrief(), loadGlobalIndices()]);
     stampUpdated();
   }
@@ -2892,6 +2983,8 @@
           <option value="Supply Zone Retest">
           <option value="Momentum Breakout Bullish">
           <option value="Momentum Breakdown Bearish">
+          <option value="Bear Trap Reversal">
+          <option value="Bull Trap Reversal">
           <option value="Manual / Discretionary">
         </datalist>
       </label>

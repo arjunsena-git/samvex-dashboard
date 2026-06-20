@@ -208,6 +208,8 @@ _PANEL_LABELS = {
     (6, "bearish"): "Supply Zone — Institutional Order Block Retest (Bearish)",
     (7, "bullish"): "Momentum Breakout — Range Open + Clean PDH Break (Bullish)",
     (7, "bearish"): "Momentum Breakdown — Range Open + Clean PDL Break (Bearish)",
+    (8, "bullish"): "Bear Trap Reversal — Failed PDL Breakdown (Bullish)",
+    (8, "bearish"): "Bull Trap Reversal — Failed PDH Breakout (Bearish)",
 }
 
 def _signals_path(date_str: str) -> str:
@@ -2592,6 +2594,212 @@ def _screen_momentum_breakout(direction: str) -> list:
     return [r for r in results if r["confidence_score"] >= 40][:5]
 
 
+# ── Trap Reversal — failed breakdown/breakout, caught at the reversal ──────
+#
+# Bear Trap (bullish signal): a stock opens within (or just below) yesterday's
+# range, closes below PDL — a breakdown that would normally trigger fresh
+# shorts — but sellers fail to extend it: a later candle closes back above
+# PDL on strong volume, trapping those shorts as buyers take control. Bull
+# Trap (bearish signal) is the mirror: a close above PDH fails to hold, price
+# closes back below PDH on volume, trapping breakout buyers. This fires right
+# at the reversal candle — earlier and lighter than Setup 1, which waits for
+# a full BOS to the opposite side of the range.
+TRAP_NEAR_LEVEL_PCT   = 1.0   # open can be up to 1% beyond PDL/PDH and still qualify ("near" the level)
+TRAP_VOL_RATIO        = 1.5   # reversal candle's volume vs avg volume of bars so far today
+TRAP_FRESHNESS_BARS   = 6     # the reversal must be within the last 6 5-min bars (30 min)
+TRAP_RECLAIM_MAX_BARS = 12    # the reclaim must happen within this many bars of the trap bar (60 min)
+
+
+def _screen_trap(direction: str) -> list:
+    """Bear Trap (bullish) / Bull Trap (bearish) reversal screener — see module comment above."""
+    universe    = _load_nifty500() or _get_fno_universe()
+    batch_5m    = _get_5m_batch()
+    batch_daily = _get_daily_batch()
+    ist         = pytz.timezone("Asia/Kolkata")
+    today_date  = datetime.now(ist).date()
+    bullish     = direction == "bullish"   # bullish => Bear Trap; bearish => Bull Trap
+
+    live_quotes = None
+    if _is_live():
+        live_quotes = _cached("live_quotes", _fetch_live_quotes, ttl=LIVE_TTL)
+
+    try:
+        market_data = _cached("market", _fetch_market,
+                              ttl=LIVE_TTL if _is_live() else CACHE_TTL)
+        nifty_chg   = float(market_data.get("NIFTY 50", {}).get("change_pct", 0) or 0)
+    except Exception:
+        nifty_chg = 0.0
+
+    results = []
+
+    for symbol in universe:
+        try:
+            intra5 = _get_ticker_df(batch_5m, symbol)
+            daily  = _get_ticker_df(batch_daily, symbol)
+            if intra5 is None or daily is None or len(daily) < 2:
+                continue
+
+            try:
+                if intra5.index.tz is not None:
+                    today_mask5 = intra5.index.tz_convert(ist).date == today_date
+                else:
+                    today_mask5 = [ts.date() == today_date for ts in intra5.index]
+                today_bars5 = intra5[today_mask5]
+            except Exception:
+                today_bars5 = intra5.iloc[:0]
+
+            if len(today_bars5) < 3:
+                continue
+
+            pdh = float(daily["High"].iloc[-2])
+            pdl = float(daily["Low"].iloc[-2])
+            if pdh <= 0 or pdl <= 0:
+                continue
+
+            opens  = today_bars5["Open"].tolist()
+            highs  = today_bars5["High"].tolist()
+            lows   = today_bars5["Low"].tolist()
+            closes = today_bars5["Close"].tolist()
+            vols   = today_bars5["Volume"].tolist()
+            n_bars = len(closes)
+
+            # Opened within range, or near the level the trap forms around
+            if bullish:
+                if opens[0] < pdl * (1 - TRAP_NEAR_LEVEL_PCT / 100) or opens[0] > pdh:
+                    continue
+            else:
+                if opens[0] > pdh * (1 + TRAP_NEAR_LEVEL_PCT / 100) or opens[0] < pdl:
+                    continue
+
+            # Find the trap bar: first close beyond the level (the breakdown/breakout)
+            trap_bar = -1
+            for i in range(0, n_bars - 1):
+                broke = (closes[i] < pdl) if bullish else (closes[i] > pdh)
+                if broke:
+                    trap_bar = i
+                    break
+            if trap_bar < 0:
+                continue
+
+            # Find the reversal bar: first LATER close back on the right side
+            # of the level, within TRAP_RECLAIM_MAX_BARS of the trap bar
+            reversal_bar = -1
+            search_end = min(n_bars, trap_bar + 1 + TRAP_RECLAIM_MAX_BARS)
+            for j in range(trap_bar + 1, search_end):
+                reclaimed = (closes[j] > pdl) if bullish else (closes[j] < pdh)
+                if reclaimed:
+                    reversal_bar = j
+                    break
+            if reversal_bar < 0:
+                continue
+
+            # Reversal candle must be in the right direction and on volume —
+            # confirms buyers/sellers actually stepped in, not a fluke close
+            rev_open  = opens[reversal_bar]
+            rev_close = closes[reversal_bar]
+            if bullish and rev_close <= rev_open:
+                continue
+            if not bullish and rev_close >= rev_open:
+                continue
+
+            avg_vol_before = sum(vols[:reversal_bar]) / reversal_bar
+            if avg_vol_before <= 0:
+                continue
+            vol_ratio = vols[reversal_bar] / avg_vol_before
+            if vol_ratio < TRAP_VOL_RATIO:
+                continue
+
+            # Freshness: the reversal must be recent
+            bars_since_reversal = n_bars - 1 - reversal_bar
+            if bars_since_reversal > TRAP_FRESHNESS_BARS:
+                continue
+
+            if live_quotes:
+                q  = live_quotes.get(symbol)
+                lp = float(q.get("last_price", 0) or 0) if q else 0
+                current_price = lp if lp > 0 else closes[-1]
+            else:
+                current_price = closes[-1]
+
+            if current_price < 100:
+                continue
+
+            # Validity: current price must still be on the reclaimed side of
+            # the level — if it's broken back through, the trap failed again
+            if bullish:
+                if current_price < pdl:
+                    continue
+                if nifty_chg < -1.0:
+                    continue
+            else:
+                if current_price > pdh:
+                    continue
+                if nifty_chg > 1.0:
+                    continue
+
+            day_high   = max(highs)
+            day_low    = min(lows)
+            prev_close = float(daily["Close"].iloc[-2])
+            gap_pct    = round((opens[0] - prev_close) / prev_close * 100, 2) if prev_close > 0 else 0.0
+
+            sl   = round(day_low * 0.997, 2) if bullish else round(day_high * 1.003, 2)
+            risk = abs(current_price - sl)
+            if risk <= 0:
+                continue
+            sign_ = 1 if bullish else -1
+            t1    = round(current_price + sign_ * risk * 1.5, 2)
+            t2    = round(current_price + sign_ * risk * 3.0, 2)
+
+            # Confidence 0-100: reversal volume (40) + how decisively price is
+            # back on the right side of the level (35) + freshness — more
+            # recent reversals score higher (25)
+            vol_s       = min((vol_ratio - TRAP_VOL_RATIO) / 1.5, 1.0) * 40
+            reclaim_pct = (abs(current_price - pdl) / pdl * 100) if bullish else (abs(pdh - current_price) / pdh * 100)
+            reclaim_s   = min(reclaim_pct / 1.0, 1.0) * 35
+            fresh_s     = max(0.0, (TRAP_FRESHNESS_BARS - bars_since_reversal) / TRAP_FRESHNESS_BARS) * 25
+            conf_score  = round(vol_s + reclaim_s + fresh_s)
+            conf_label  = "STRONG" if conf_score >= 65 else "GOOD" if conf_score >= 40 else "WATCH"
+
+            try:
+                ts = today_bars5.index[reversal_bar]
+                ts = ts.astimezone(ist) if ts.tzinfo else pytz.utc.localize(ts).astimezone(ist)
+                bos_time = ts.strftime("%H:%M")
+            except Exception:
+                bos_time = datetime.now(ist).strftime("%H:%M")
+
+            results.append({
+                "symbol":           symbol.replace(".NS", ""),
+                "price":            round(current_price, 2),
+                "gap_pct":          gap_pct,
+                "day_high":         round(day_high, 2),
+                "day_low":          round(day_low, 2),
+                "pdh":              round(pdh, 2),
+                "pdl":              round(pdl, 2),
+                "key_level":        round(pdl if bullish else pdh, 2),
+                "key_label":        "PDL" if bullish else "PDH",
+                "volume_ratio":     round(vol_ratio, 2),
+                "setup":            "Bear Trap Reversal" if bullish else "Bull Trap Reversal",
+                "entry":            round(current_price, 2),
+                "sl":               sl,
+                "sl_pct":           round(risk / current_price * 100, 2),
+                "sl_label":         "Below breakdown low" if bullish else "Above breakout high",
+                "t1":               t1,
+                "t2":               t2,
+                "risk_reward":      1.5,
+                "confidence_score": conf_score,
+                "confidence_label": conf_label,
+                "demand_zone":      round(pdl, 2),
+                "supply_zone":      round(pdh, 2),
+                "bos_time":         bos_time,
+            })
+
+        except Exception:
+            continue
+
+    results.sort(key=lambda x: x["confidence_score"], reverse=True)
+    return [r for r in results if r["confidence_score"] >= 40][:5]
+
+
 # ── Market index data ──────────────────────────────────────────────
 _INDEX_YF = {"NIFTY 50": "^NSEI", "SENSEX": "^BSESN", "BANK NIFTY": "^NSEBANK"}
 _INDEX_KEY = {
@@ -2790,7 +2998,8 @@ def oauth_callback():
     # Clear screener cache so next load uses live data immediately
     for k in ("s1_bull", "s1_bear", "exh_short", "pdh_breakout_bull", "orb_bull", "orb_bear",
               "oi_opt_bull", "oi_opt_bear", "zone_demand", "zone_supply", "mb_bull", "mb_bear",
-              "live_quotes", "15m_batch", "5m_batch", "ticker", "oi_buildup", "market"):
+              "trap_bull", "trap_bear", "live_quotes", "15m_batch", "5m_batch", "ticker",
+              "oi_buildup", "market"):
         _cache.pop(k, None)
 
     redirect_url = FRONTEND_URL if FRONTEND_URL else None
@@ -2834,7 +3043,8 @@ def set_token():
     # Invalidate screener cache so next request uses live data immediately
     for k in ("s1_bull", "s1_bear", "exh_short", "pdh_breakout_bull", "orb_bull", "orb_bear",
               "oi_opt_bull", "oi_opt_bear", "zone_demand", "zone_supply", "mb_bull", "mb_bear",
-              "live_quotes", "15m_batch", "5m_batch", "ticker", "oi_buildup", "market"):
+              "trap_bull", "trap_bear", "live_quotes", "15m_batch", "5m_batch", "ticker",
+              "oi_buildup", "market"):
         _cache.pop(k, None)
     threading.Thread(target=_load_instrument_map, daemon=True).start()
     threading.Thread(target=_load_futures_map, daemon=True).start()
@@ -2875,6 +3085,11 @@ def _orb_ready() -> bool:
 
 def _momentum_ready() -> bool:
     """Momentum Breakout needs the open bar + a breakout bar + a confirm bar,
+    i.e. 3 completed 5-min bars — ready by ~9:30 AM IST."""
+    return datetime.now(pytz.timezone("Asia/Kolkata")).time() >= _dtime(9, 30)
+
+def _trap_ready() -> bool:
+    """Trap Reversal needs the open bar + a trap bar + a reversal bar,
     i.e. 3 completed 5-min bars — ready by ~9:30 AM IST."""
     return datetime.now(pytz.timezone("Asia/Kolkata")).time() >= _dtime(9, 30)
 
@@ -2966,6 +3181,22 @@ def api_momentum_breakout_bear():
         return jsonify([])
     active = _cached("mb_bear", _screen_momentum_breakout, "bearish", ttl=SCREEN_TTL)
     return jsonify(_merge_with_history(active, 7, "bearish"))
+
+@app.route("/api/trap/bullish")
+def api_trap_bull():
+    """Bear Trap reversal — bullish signal."""
+    if not _trap_ready():
+        return jsonify([])
+    active = _cached("trap_bull", _screen_trap, "bullish", ttl=SCREEN_TTL)
+    return jsonify(_merge_with_history(active, 8, "bullish"))
+
+@app.route("/api/trap/bearish")
+def api_trap_bear():
+    """Bull Trap reversal — bearish signal."""
+    if not _trap_ready():
+        return jsonify([])
+    active = _cached("trap_bear", _screen_trap, "bearish", ttl=SCREEN_TTL)
+    return jsonify(_merge_with_history(active, 8, "bearish"))
 
 @app.route("/api/oi-options/bullish")
 def api_oi_options_bull():
@@ -3988,6 +4219,7 @@ def insights_setup_explain():
         "oi_opt_bull": (5, "bullish"), "oi_opt_bear": (5, "bearish"),
         "zone_demand": (6, "bullish"), "zone_supply": (6, "bearish"),
         "mb_bull": (7, "bullish"), "mb_bear": (7, "bearish"),
+        "trap_bull": (8, "bullish"), "trap_bear": (8, "bearish"),
     }
     if setup_key not in setup_map:
         return jsonify({"error": "invalid setup"}), 400
@@ -4007,6 +4239,8 @@ def insights_setup_explain():
         results = _screen_demand_supply_zone(direction)
     elif setup_key in ("mb_bull", "mb_bear"):
         results = _screen_momentum_breakout(direction)
+    elif setup_key in ("trap_bull", "trap_bear"):
+        results = _screen_trap(direction)
     else:
         results = _screen_smc(direction)
     if not results:
