@@ -949,11 +949,6 @@
     <button id="chart-mode-btn" class="chart-mode-toggle active" onclick="toggleChartMode()">&#9776; Full Table View</button>
     <button id="journal-btn" class="chart-mode-toggle" onclick="toggleJournalView()">&#128209; Trade Journal</button>
     <button class="csv-btn" onclick="downloadAllCSV()">↓ Download Visible Signals</button>
-    <a id="backfill-csv-btn"
-       style="text-decoration:none;font-size:11px;color:var(--text-muted);align-self:center;white-space:nowrap;"
-       title="Re-run SMC screener and refresh signal store (use after server restart)">
-      ↓ Refresh signals
-    </a>
   </div>
 
   <!-- ── Live Panels view (default landing view) ───────────────────── -->
@@ -1580,7 +1575,6 @@
     ? "http://localhost:5050"
     : "https://samvex-api.onrender.com";
   document.querySelectorAll('.diagnose-link').forEach(el => el.href = API + '/debug/screen');
-  document.getElementById('backfill-csv-btn').href = API + '/api/signals/backfill.csv';
 
   // ── Fetch with retry (handles Render cold-start wake-up) ────────
   // Render free tier takes 30-60s to wake up after idle. We retry 3 times
