@@ -590,6 +590,100 @@ def _load_token_on_startup():
     return None, 0.0, None
 
 
+# ── Upstox session expiry alerting ──────────────────────────────────
+# Upstox tokens expire daily by SEBI mandate — there is no refresh token
+# and no long-lived option (confirmed directly with Upstox support: "you
+# are required to log in to your account daily... no immediate plans to
+# extend the token validity"). The dashboard banner (_updateUpstoxBanner
+# in index.html) covers anyone actively looking at the page; this adds an
+# out-of-band nudge so a forgotten re-auth doesn't go unnoticed until it
+# dies mid-trade. Channel-agnostic: configure EITHER SMTP or Telegram env
+# vars (or both, or neither — it just logs if nothing is configured).
+ALERT_REMINDER_LEAD_MIN = 150   # send the reminder 2.5h before expiry
+
+_alert_state = {"reminder_sent_for": None, "expired_sent_for": None}
+
+
+def _send_alert(subject: str, message: str) -> None:
+    """Fire-and-forget notification. No-ops to console-only if no channel
+    is configured — safe to call unconditionally."""
+    print(f"[Alert] {subject}: {message}")
+
+    smtp_host = os.environ.get("ALERT_SMTP_HOST")
+    smtp_to   = os.environ.get("ALERT_EMAIL_TO")
+    if smtp_host and smtp_to:
+        try:
+            import smtplib
+            from email.mime.text import MIMEText
+            smtp_port = int(os.environ.get("ALERT_SMTP_PORT", "587"))
+            smtp_user = os.environ.get("ALERT_SMTP_USER", "")
+            smtp_pass = os.environ.get("ALERT_SMTP_PASS", "")
+            msg = MIMEText(message)
+            msg["Subject"] = subject
+            msg["From"]    = smtp_user
+            msg["To"]      = smtp_to
+            with smtplib.SMTP(smtp_host, smtp_port, timeout=10) as server:
+                server.starttls()
+                if smtp_user:
+                    server.login(smtp_user, smtp_pass)
+                server.sendmail(smtp_user, smtp_to.split(","), msg.as_string())
+        except Exception as e:
+            print(f"[Alert] SMTP send failed: {e}")
+
+    tg_token = os.environ.get("TELEGRAM_BOT_TOKEN")
+    tg_chat  = os.environ.get("TELEGRAM_CHAT_ID")
+    if tg_token and tg_chat:
+        try:
+            _http.post(
+                f"https://api.telegram.org/bot{tg_token}/sendMessage",
+                json={"chat_id": tg_chat, "text": f"{subject}\n{message}"},
+                timeout=10,
+            )
+        except Exception as e:
+            print(f"[Alert] Telegram send failed: {e}")
+
+
+def _check_token_expiry_and_alert() -> None:
+    """Runs periodically in the background. Fires a reminder ~2.5h before
+    expiry and an urgent alert once it actually lapses — each only once per
+    token (deduped by expires_at), not every cycle."""
+    expires_at = _upstox_token.get("expires_at", 0.0)
+    if not _upstox_token.get("access_token") or expires_at <= 0:
+        return
+
+    now = time.time()
+    mins_left = (expires_at - now) / 60
+
+    if mins_left <= 0:
+        if _alert_state["expired_sent_for"] != expires_at:
+            _send_alert(
+                "Samvex Dashboard — Upstox session expired",
+                "Live data has dropped to delayed Yahoo Finance. Re-authenticate: "
+                "https://samvex-api.onrender.com/auth/login",
+            )
+            _alert_state["expired_sent_for"] = expires_at
+        return
+
+    if mins_left <= ALERT_REMINDER_LEAD_MIN:
+        if _alert_state["reminder_sent_for"] != expires_at:
+            h, m = int(mins_left // 60), int(mins_left % 60)
+            _send_alert(
+                "Samvex Dashboard — Upstox session expiring soon",
+                f"Live data expires in {h}h {m}m. Re-authenticate before then to avoid "
+                f"dropping to delayed data mid-trade: https://samvex-api.onrender.com/auth/login",
+            )
+            _alert_state["reminder_sent_for"] = expires_at
+
+
+def _token_expiry_watch_loop() -> None:
+    while True:
+        try:
+            _check_token_expiry_and_alert()
+        except Exception as e:
+            print(f"[Alert] watch loop error: {e}")
+        time.sleep(600)   # check every 10 min
+
+
 # ── Startup: always pre-warm everything auth-independent ──────────
 # Load instrument maps, Nifty 500 list, and daily Yahoo batch in background
 # so the first screener request doesn't have to wait 30-60s.
@@ -631,6 +725,8 @@ else:
                 return
         print("[Token] All retry attempts failed — will require manual OAuth")
     threading.Thread(target=_retry_token_load, daemon=True).start()
+
+threading.Thread(target=_token_expiry_watch_loop, daemon=True).start()
 
 
 def _is_live():
@@ -3604,12 +3700,14 @@ def status():
         now.replace(hour=15, minute=30, second=0, microsecond=0)
         and now.weekday() < 5
     )
+    expires_in_min = max(0, int((_upstox_token["expires_at"] - time.time()) / 60)) if _is_live() else 0
     return jsonify({
-        "time":        now.strftime("%H:%M:%S IST"),
-        "market_open": is_open,
-        "date":        now.strftime("%d-%b-%Y"),
-        "is_live":     _is_live(),
-        "data_source": "upstox_live" if _is_live() else "yahoo_delayed",
+        "time":           now.strftime("%H:%M:%S IST"),
+        "market_open":    is_open,
+        "date":           now.strftime("%d-%b-%Y"),
+        "is_live":        _is_live(),
+        "data_source":    "upstox_live" if _is_live() else "yahoo_delayed",
+        "expires_in_min": expires_in_min,
     })
 
 @app.route("/api/chart/<symbol>")

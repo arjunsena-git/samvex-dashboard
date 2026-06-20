@@ -117,6 +117,17 @@
     .badge-live    { background: #1a2a4a; color: var(--accent); border: 1px solid var(--accent); }
     .badge-delayed { background: #2a1e00; color: var(--yellow);  border: 1px solid var(--yellow); }
 
+    .upstox-banner {
+      display: flex; align-items: center; justify-content: center; gap: 16px;
+      padding: 10px 20px; font-size: 13px; font-weight: 700;
+      text-align: center;
+    }
+    .upstox-banner.warning { background: #2a1e00; color: var(--yellow); border-bottom: 1px solid var(--yellow); }
+    .upstox-banner.critical { background: #3a1414; color: #ff8080; border-bottom: 1px solid var(--red); }
+    .upstox-banner a {
+      color: inherit; text-decoration: underline; white-space: nowrap; flex-shrink: 0;
+    }
+
     .theme-btn {
       background: var(--bg-card-2); border: 1px solid var(--border);
       color: var(--text); border-radius: 6px; padding: 5px 10px; cursor: pointer;
@@ -911,6 +922,12 @@
     <button class="theme-btn" onclick="toggleTheme()" title="Toggle theme">☀</button>
   </div>
 </header>
+
+<!-- ── Upstox session banner: countdown to expiry / already expired ──── -->
+<div id="upstox-banner" class="upstox-banner" style="display:none;">
+  <span id="upstox-banner-text"></span>
+  <a id="upstox-banner-btn" href="#" target="_blank">Re-authenticate Upstox &#8594;</a>
+</div>
 
 <!-- ── Main ─────────────────────────────────────────────────────── -->
 <main>
@@ -2623,7 +2640,40 @@
         srcLabel.textContent = "Data via Yahoo Finance (15-min delay)";
         srcLabel.style.color = "";
       }
+
+      _updateUpstoxBanner(data);
     } catch (_) {}
+  }
+
+  // ── Upstox session expiry banner ───────────────────────────────
+  // Upstox tokens expire daily (SEBI-mandated, can't be extended or
+  // auto-renewed) — this surfaces the countdown so a forgotten
+  // re-authentication doesn't silently drop to delayed data mid-trade.
+  const UPSTOX_WARN_THRESHOLD_MIN = 150;   // start warning 2.5h before expiry
+
+  function _updateUpstoxBanner(data) {
+    const banner = document.getElementById('upstox-banner');
+    const text   = document.getElementById('upstox-banner-text');
+    const btn    = document.getElementById('upstox-banner-btn');
+    btn.href = `${API}/auth/login`;
+
+    if (!data.is_live) {
+      banner.style.display = 'flex';
+      banner.className = 'upstox-banner critical';
+      text.textContent = '✕ Upstox session expired — showing delayed Yahoo Finance data, not live.';
+      return;
+    }
+
+    const mins = data.expires_in_min ?? 0;
+    if (mins <= UPSTOX_WARN_THRESHOLD_MIN) {
+      const h = Math.floor(mins / 60);
+      const m = mins % 60;
+      banner.style.display = 'flex';
+      banner.className = 'upstox-banner warning';
+      text.textContent = `⚠ Upstox live data expires in ${h}h ${m}m — re-authenticate soon to avoid dropping to delayed data mid-trade.`;
+    } else {
+      banner.style.display = 'none';
+    }
   }
 
   // ── Bullish ───────────────────────────────────────────────────
@@ -2938,7 +2988,7 @@
   // Fast market index + ticker refresh every 60s when live
   setInterval(async () => {
     if (_wasLive) {
-      await Promise.all([loadMarket(), loadTicker()]);
+      await Promise.all([loadMarket(), loadTicker(), loadStatus()]);
     }
   }, 60 * 1000);
 </script>
