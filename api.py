@@ -204,6 +204,8 @@ _PANEL_LABELS = {
     (4, "bearish"): "ORB — Opening Range Breakout (Bearish · Narrow OR · Multi-day Consolidation · Breakdown on Volume)",
     (5, "bullish"): "OI Options Buy — Fresh Long Buildup (Buy Call Candidates)",
     (5, "bearish"): "OI Options Buy — Fresh Short Buildup (Buy Put Candidates)",
+    (6, "bullish"): "Demand Zone — Institutional Order Block Retest (Bullish)",
+    (6, "bearish"): "Supply Zone — Institutional Order Block Retest (Bearish)",
 }
 
 def _signals_path(date_str: str) -> str:
@@ -976,6 +978,182 @@ def _screen_oi_options(direction: str) -> list:
                 "demand_zone":      round(day_low, 2),
                 "supply_zone":      round(day_high, 2),
                 "bos_time":         datetime.now(pytz.timezone("Asia/Kolkata")).strftime("%H:%M"),
+            })
+
+        except Exception:
+            continue
+
+    results.sort(key=lambda x: x["confidence_score"], reverse=True)
+    return [r for r in results if r["confidence_score"] >= 40][:5]
+
+
+# ── Demand / Supply Zone — institutional order-block retest ────────────────
+#
+# Concept: a "narrow base" daily candle (tight range — quiet accumulation/
+# distribution) immediately followed by a strong, high-volume "impulse"
+# candle moving away from it is read as an institutional order block — the
+# base's range is the zone. A zone is valid as long as price hasn't closed
+# back through it since the impulse (a close-through means it failed/got
+# absorbed). The setup: price has pulled back to retest a still-valid zone
+# (within DZ_PROXIMITY_PCT of it) — the same kind of level smart money
+# originally defended, so it has a real chance of holding and rallying again.
+DZ_BASE_MAX_RANGE_PCT = 2.0   # base candle's high-low range, as % of its close — defines a "narrow base"
+DZ_IMPULSE_MIN_PCT    = 4.0   # min % move away from the base on the very next daily candle
+DZ_IMPULSE_VOL_RATIO  = 1.8   # impulse candle's volume vs the avg volume of the days before the base
+DZ_ZONE_LOOKBACK_DAYS = 15    # how far back (trading days) to search for a qualifying base+impulse
+DZ_VOL_BASELINE_DAYS  = 5     # candles before the base used to compute the volume baseline
+DZ_PROXIMITY_PCT      = 1.0   # current price must be within this % of the zone level — the retest gate
+
+
+def _screen_demand_supply_zone(direction: str) -> list:
+    """Demand Zone (bullish) / Supply Zone (bearish) screener — see module comment above."""
+    universe    = _load_nifty500() or _get_fno_universe()
+    batch_daily = _get_daily_batch()
+    ist         = pytz.timezone("Asia/Kolkata")
+    bullish     = direction == "bullish"
+
+    live_quotes = None
+    if _is_live():
+        live_quotes = _cached("live_quotes", _fetch_live_quotes, ttl=LIVE_TTL)
+
+    results = []
+
+    for symbol in universe:
+        try:
+            daily = _get_ticker_df(batch_daily, symbol)
+            # +1 for today's in-progress row, +1 buffer so a base/impulse pair
+            # always has at least one volume-baseline candle before it
+            if daily is None or len(daily) < DZ_ZONE_LOOKBACK_DAYS + DZ_VOL_BASELINE_DAYS + 2:
+                continue
+
+            opens  = daily["Open"].astype(float).tolist()
+            highs  = daily["High"].astype(float).tolist()
+            lows   = daily["Low"].astype(float).tolist()
+            closes = daily["Close"].astype(float).tolist()
+            vols   = daily["Volume"].astype(float).tolist()
+            n      = len(closes)
+            today_idx = n - 1   # in-progress candle — never used as base or impulse
+
+            if live_quotes:
+                q  = live_quotes.get(symbol)
+                lp = float(q.get("last_price", 0) or 0) if q else 0
+                current_price = lp if lp > 0 else closes[today_idx]
+            else:
+                current_price = closes[today_idx]
+
+            if current_price < 100:
+                continue
+
+            zone_level  = None
+            zone_age    = None
+            impulse_pct = None
+            impulse_vr  = None
+
+            # Search backwards from the most recent completed candle so the
+            # freshest valid zone wins
+            earliest_base = max(DZ_VOL_BASELINE_DAYS, today_idx - 1 - DZ_ZONE_LOOKBACK_DAYS)
+            for i in range(today_idx - 2, earliest_base - 1, -1):
+                base_close = closes[i]
+                if base_close <= 0:
+                    continue
+                base_range_pct = (highs[i] - lows[i]) / base_close * 100
+                if base_range_pct > DZ_BASE_MAX_RANGE_PCT:
+                    continue
+
+                imp = i + 1
+                if bullish:
+                    move_pct = (closes[imp] - base_close) / base_close * 100
+                    is_directional = closes[imp] > opens[imp]
+                else:
+                    move_pct = (base_close - closes[imp]) / base_close * 100
+                    is_directional = closes[imp] < opens[imp]
+                if move_pct < DZ_IMPULSE_MIN_PCT or not is_directional:
+                    continue
+
+                baseline_vols = vols[max(0, i - DZ_VOL_BASELINE_DAYS):i]
+                if not baseline_vols:
+                    continue
+                avg_vol_before = sum(baseline_vols) / len(baseline_vols)
+                if avg_vol_before <= 0:
+                    continue
+                vol_ratio = vols[imp] / avg_vol_before
+                if vol_ratio < DZ_IMPULSE_VOL_RATIO:
+                    continue
+
+                candidate_zone = lows[i] if bullish else highs[i]
+
+                # Validity: no close since the impulse (up through yesterday)
+                # has broken back through the zone
+                broken = False
+                for j in range(imp + 1, today_idx):
+                    if bullish and closes[j] < candidate_zone:
+                        broken = True
+                        break
+                    if not bullish and closes[j] > candidate_zone:
+                        broken = True
+                        break
+                if broken:
+                    continue
+
+                zone_level  = candidate_zone
+                zone_age    = today_idx - i
+                impulse_pct = move_pct
+                impulse_vr  = vol_ratio
+                break
+
+            if zone_level is None or zone_level <= 0:
+                continue
+
+            # Retest gate: current price must be within DZ_PROXIMITY_PCT of the zone
+            zone_dist_pct = abs(current_price - zone_level) / zone_level * 100
+            if zone_dist_pct > DZ_PROXIMITY_PCT:
+                continue
+
+            entry = round(current_price, 2)
+            sl    = round(zone_level * 0.99, 2) if bullish else round(zone_level * 1.01, 2)
+            risk  = abs(entry - sl)
+            if risk <= 0:
+                continue
+            sign_ = 1 if bullish else -1
+            t1    = round(entry + sign_ * risk * 1.5, 2)
+            t2    = round(entry + sign_ * risk * 3.0, 2)
+
+            prev_close = closes[today_idx - 1]
+            gap_pct    = round((opens[today_idx] - prev_close) / prev_close * 100, 2) if prev_close > 0 and today_idx < len(opens) else 0.0
+
+            # Confidence 0-100: impulse strength (40) + volume confirmation
+            # (35) + zone freshness — more recent zones are more reliable (25)
+            impulse_s = min(impulse_pct / 10.0, 1.0) * 40
+            vol_s     = min((impulse_vr - DZ_IMPULSE_VOL_RATIO) / 2.0, 1.0) * 35
+            fresh_s   = max(0.0, (DZ_ZONE_LOOKBACK_DAYS - zone_age) / DZ_ZONE_LOOKBACK_DAYS) * 25
+            conf_score = round(impulse_s + vol_s + fresh_s)
+            conf_label = "STRONG" if conf_score >= 65 else "GOOD" if conf_score >= 40 else "WATCH"
+
+            results.append({
+                "symbol":           symbol.replace(".NS", ""),
+                "price":            entry,
+                "gap_pct":          gap_pct,
+                "day_high":         round(max(highs[today_idx], current_price), 2),
+                "day_low":          round(min(lows[today_idx], current_price), 2),
+                "pdh":              round(highs[today_idx - 1], 2),
+                "pdl":              round(lows[today_idx - 1], 2),
+                "key_level":        round(zone_level, 2),
+                "key_label":        "Demand Zone" if bullish else "Supply Zone",
+                "volume_ratio":     round(impulse_vr, 2),
+                "zone_age_days":    zone_age,
+                "setup":            "Demand Zone Retest" if bullish else "Supply Zone Retest",
+                "entry":            entry,
+                "sl":               sl,
+                "sl_pct":           round(risk / entry * 100, 2),
+                "sl_label":         "Below Demand Zone" if bullish else "Above Supply Zone",
+                "t1":               t1,
+                "t2":               t2,
+                "risk_reward":      1.5,
+                "confidence_score": conf_score,
+                "confidence_label": conf_label,
+                "demand_zone":      round(zone_level, 2) if bullish else round(lows[today_idx - 1], 2),
+                "supply_zone":      round(zone_level, 2) if not bullish else round(highs[today_idx - 1], 2),
+                "bos_time":         datetime.now(ist).strftime("%H:%M"),
             })
 
         except Exception:
@@ -2412,8 +2590,8 @@ def oauth_callback():
 
     # Clear screener cache so next load uses live data immediately
     for k in ("s1_bull", "s1_bear", "exh_short", "pdh_breakout_bull", "orb_bull", "orb_bear",
-              "oi_opt_bull", "oi_opt_bear", "live_quotes", "15m_batch", "5m_batch", "ticker",
-              "oi_buildup", "market"):
+              "oi_opt_bull", "oi_opt_bear", "zone_demand", "zone_supply", "live_quotes",
+              "15m_batch", "5m_batch", "ticker", "oi_buildup", "market"):
         _cache.pop(k, None)
 
     redirect_url = FRONTEND_URL if FRONTEND_URL else None
@@ -2456,8 +2634,8 @@ def set_token():
     _save_token(_upstox_token["access_token"], _upstox_token["expires_at"])
     # Invalidate screener cache so next request uses live data immediately
     for k in ("s1_bull", "s1_bear", "exh_short", "pdh_breakout_bull", "orb_bull", "orb_bear",
-              "oi_opt_bull", "oi_opt_bear", "live_quotes", "15m_batch", "5m_batch", "ticker",
-              "oi_buildup", "market"):
+              "oi_opt_bull", "oi_opt_bear", "zone_demand", "zone_supply", "live_quotes",
+              "15m_batch", "5m_batch", "ticker", "oi_buildup", "market"):
         _cache.pop(k, None)
     threading.Thread(target=_load_instrument_map, daemon=True).start()
     threading.Thread(target=_load_futures_map, daemon=True).start()
@@ -2580,6 +2758,20 @@ def api_oi_options_bull():
 def api_oi_options_bear():
     active = _cached("oi_opt_bear", _screen_oi_options, "bearish", ttl=OI_TTL)
     return jsonify(_merge_with_history(active, 5, "bearish"))
+
+@app.route("/api/zone/demand")
+def api_zone_demand():
+    if not _smc_ready():
+        return jsonify([])
+    active = _cached("zone_demand", _screen_demand_supply_zone, "bullish", ttl=SCREEN_TTL)
+    return jsonify(_merge_with_history(active, 6, "bullish"))
+
+@app.route("/api/zone/supply")
+def api_zone_supply():
+    if not _smc_ready():
+        return jsonify([])
+    active = _cached("zone_supply", _screen_demand_supply_zone, "bearish", ttl=SCREEN_TTL)
+    return jsonify(_merge_with_history(active, 6, "bearish"))
 
 @app.route("/api/setup1/sweep-watch/bullish")
 def api_sweep_watch_bull():
@@ -3576,6 +3768,7 @@ def insights_setup_explain():
         "pdh_breakout_bull": (3, "bullish"),
         "orb_bull": (4, "bullish"), "orb_bear": (4, "bearish"),
         "oi_opt_bull": (5, "bullish"), "oi_opt_bear": (5, "bearish"),
+        "zone_demand": (6, "bullish"), "zone_supply": (6, "bearish"),
     }
     if setup_key not in setup_map:
         return jsonify({"error": "invalid setup"}), 400
@@ -3591,6 +3784,8 @@ def insights_setup_explain():
         results = _screen_orb(direction)
     elif setup_key in ("oi_opt_bull", "oi_opt_bear"):
         results = _screen_oi_options(direction)
+    elif setup_key in ("zone_demand", "zone_supply"):
+        results = _screen_demand_supply_zone(direction)
     else:
         results = _screen_smc(direction)
     if not results:

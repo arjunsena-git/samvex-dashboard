@@ -1253,15 +1253,92 @@
 
   </div>
 
+  <!-- ── Demand / Supply Zone: institutional order-block retest ──── -->
+  <div class="section-divider" id="zone-divider" style="margin-top:24px;display:none;">
+    <div class="section-divider-line"></div>
+    <div class="section-divider-title">Demand / Supply Zone — Institutional Retest · Top 5 High-Conviction Signals Only (GOOD+ Score)</div>
+    <button class="section-collapse-btn" onclick="toggleSectionCollapse('zone-table-grid', this)">&#9662; Collapse</button>
+    <div class="section-divider-line"></div>
+  </div>
+  <div class="scanner-grid" id="zone-table-grid" style="display:none;">
+
+    <!-- Demand Zone (Bullish) -->
+    <div class="panel">
+      <div class="panel-header">
+        <div class="panel-title">
+          <span class="dot dot-green"></span>
+          Demand Zone &nbsp;<span style="font-size:11px;color:var(--text-muted);font-weight:400;">Narrow base + high-vol impulse up, now retesting</span>
+        </div>
+        <div style="display:flex;gap:6px;align-items:center;">
+          <a class="diag-link diagnose-link" target="_blank" rel="noopener">Diagnose ↗</a>
+          <button class="refresh-btn" onclick="loadDemandZone()">↺ Refresh</button>
+          <button class="expand-btn" onclick="expandPanel(this)" title="Full screen (Esc to close)">⤢ Expand</button>
+        </div>
+      </div>
+      <div class="criteria-row">
+        <span class="chip chip-orange">Narrow base candle ≤2% range</span>
+        <span class="chip chip-green">Impulse move ≥4% on ≥1.8×avg vol</span>
+        <span class="chip chip-blue">Zone unbroken since impulse</span>
+        <span class="chip chip-green">Price within 1% of zone (retest)</span>
+        <span class="chip chip-orange">Max 5 · GOOD+ only</span>
+      </div>
+      <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>Symbol</th><th>Price</th><th>Gap</th>
+          <th>PDH / Key Level</th><th>Volume</th><th>Score</th><th>Trade Plan</th>
+        </tr></thead>
+        <tbody id="zone-demand-body">
+          <tr><td colspan="7"><div class="empty-state"><div class="spinner"></div>Loading…</div></td></tr>
+        </tbody>
+      </table>
+      </div>
+    </div>
+
+    <!-- Supply Zone (Bearish) -->
+    <div class="panel">
+      <div class="panel-header">
+        <div class="panel-title">
+          <span class="dot dot-red"></span>
+          Supply Zone &nbsp;<span style="font-size:11px;color:var(--text-muted);font-weight:400;">Narrow base + high-vol impulse down, now retesting</span>
+        </div>
+        <div style="display:flex;gap:6px;align-items:center;">
+          <a class="diag-link diagnose-link" target="_blank" rel="noopener">Diagnose ↗</a>
+          <button class="refresh-btn" onclick="loadSupplyZone()">↺ Refresh</button>
+          <button class="expand-btn" onclick="expandPanel(this)" title="Full screen (Esc to close)">⤢ Expand</button>
+        </div>
+      </div>
+      <div class="criteria-row">
+        <span class="chip chip-orange">Narrow base candle ≤2% range</span>
+        <span class="chip chip-red">Impulse move ≥4% on ≥1.8×avg vol</span>
+        <span class="chip chip-blue">Zone unbroken since impulse</span>
+        <span class="chip chip-red">Price within 1% of zone (retest)</span>
+        <span class="chip chip-orange">Max 5 · GOOD+ only</span>
+      </div>
+      <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>Symbol</th><th>Price</th><th>Gap</th>
+          <th>PDL / Key Level</th><th>Volume</th><th>Score</th><th>Trade Plan</th>
+        </tr></thead>
+        <tbody id="zone-supply-body">
+          <tr><td colspan="7"><div class="empty-state"><div class="spinner"></div>Loading…</div></td></tr>
+        </tbody>
+      </table>
+      </div>
+    </div>
+
+  </div>
+
   <!-- ── OI Options Buy Screener (fresh buildup only) ──────────── -->
-  <div class="section-divider" id="oi-divider">
+  <div class="section-divider" id="oi-divider" style="margin-top:24px;display:none;">
     <div class="section-divider-line"></div>
     <div class="section-divider-title">OI Options Buy — Fresh Buildup Only · Top 5 High-Conviction Signals Only (GOOD+ Score)</div>
     <button class="section-collapse-btn" onclick="toggleSectionCollapse('oi-table-grid', this)">&#9662; Collapse</button>
     <div class="section-divider-line"></div>
   </div>
 
-  <div class="scanner-grid" id="oi-table-grid">
+  <div class="scanner-grid" id="oi-table-grid" style="display:none;">
 
     <!-- OI Bullish: fresh Long Buildup → Buy Call -->
     <div class="panel">
@@ -1712,6 +1789,8 @@
     { key: 'pdh-breakout', label: 'PDH Breakout', sub: 'Trend + Momentum', dot: 'dot-green', color: 'var(--green)', type: 'trade' },
     { key: 'orb-bull', label: 'ORB', sub: 'Bullish', dot: 'dot-green', color: 'var(--green)', type: 'trade' },
     { key: 'orb-bear', label: 'ORB', sub: 'Bearish', dot: 'dot-red',   color: 'var(--red)',   type: 'trade' },
+    { key: 'zone-demand', label: 'Demand Zone', sub: 'Bullish', dot: 'dot-green', color: 'var(--green)', type: 'trade' },
+    { key: 'zone-supply', label: 'Supply Zone', sub: 'Bearish', dot: 'dot-red',   color: 'var(--red)',   type: 'trade' },
     { key: 'oi-bull', label: 'OI Options', sub: 'Bullish · Buy Call', dot: 'dot-green', color: 'var(--green)', type: 'trade' },
     { key: 'oi-bear', label: 'OI Options', sub: 'Bearish · Buy Put',  dot: 'dot-red',   color: 'var(--red)',   type: 'trade' },
   ];
@@ -1727,7 +1806,7 @@
   // OI Buildup is now also available as sidebar panels in Live Panels view,
   // so the raw OI table below is hidden there too (it's only meaningful in
   // Full Table View, alongside the other raw scanner tables).
-  const _SCANNER_ELS = ['s1-divider','s1-table-grid','exh-divider','exh-table-grid','pdh-divider','pdh-table-grid','orb-divider','orb-table-grid','oi-divider','oi-table-grid'];
+  const _SCANNER_ELS = ['s1-divider','s1-table-grid','exh-divider','exh-table-grid','pdh-divider','pdh-table-grid','orb-divider','orb-table-grid','zone-divider','zone-table-grid','oi-divider','oi-table-grid'];
 
   function toggleChartMode() {
     if (_journalActive) _closeJournalView();
@@ -2074,6 +2153,8 @@
     "orb/bearish": "orb_bear",
     "oi-options/bullish": "oi_opt_bull",
     "oi-options/bearish": "oi_opt_bear",
+    "zone/demand": "zone_demand",
+    "zone/supply": "zone_supply",
   };
 
   async function _loadSetup(endpoint, tbodyId, direction, refLevelKey, countId, label) {
@@ -2130,6 +2211,14 @@
   async function loadOrbBearish() {
     return _loadSetup("orb/bearish", "orb-bear-body", "bearish", "pdl", null,
                       "ORB — Opening Range Breakout (Bearish)");
+  }
+  async function loadDemandZone() {
+    return _loadSetup("zone/demand", "zone-demand-body", "bullish", "pdh", null,
+                      "Demand Zone — Institutional Order Block Retest (Bullish)");
+  }
+  async function loadSupplyZone() {
+    return _loadSetup("zone/supply", "zone-supply-body", "bearish", "pdl", null,
+                      "Supply Zone — Institutional Order Block Retest (Bearish)");
   }
   // ── Global Indices (overnight / pre-market cues) ──────────────
   async function loadGlobalIndices() {
@@ -2438,7 +2527,7 @@
   // ── Auto-refresh every 5 min ──────────────────────────────────
   async function refreshAll() {
     await Promise.all([loadMarket(), loadStatus()]);
-    await Promise.all([loadS1Bullish(), loadS1Bearish(), loadExhaustionShort(), loadPdhBreakout(), loadOrbBullish(), loadOrbBearish()]);
+    await Promise.all([loadS1Bullish(), loadS1Bearish(), loadExhaustionShort(), loadPdhBreakout(), loadOrbBullish(), loadOrbBearish(), loadDemandZone(), loadSupplyZone()]);
     await Promise.all([loadTicker(), loadOiOptionsBullish(), loadOiOptionsBearish(), loadMarketBrief(), loadGlobalIndices()]);
     stampUpdated();
   }
@@ -2714,6 +2803,8 @@
           <option value="ORB Bearish">
           <option value="OI Options Buy Call">
           <option value="OI Options Buy Put">
+          <option value="Demand Zone Retest">
+          <option value="Supply Zone Retest">
           <option value="Manual / Discretionary">
         </datalist>
       </label>
