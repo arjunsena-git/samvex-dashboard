@@ -1330,6 +1330,85 @@
 
   </div>
 
+  <!-- ── Momentum Breakout: range open + clean PDH/PDL break ─────── -->
+  <div class="section-divider" id="mb-divider" style="margin-top:24px;display:none;">
+    <div class="section-divider-line"></div>
+    <div class="section-divider-title">Momentum Breakout — Range Open + Clean Break · Top 5 High-Conviction Signals Only (GOOD+ Score)</div>
+    <button class="section-collapse-btn" onclick="toggleSectionCollapse('mb-table-grid', this)">&#9662; Collapse</button>
+    <div class="section-divider-line"></div>
+  </div>
+  <div class="scanner-grid" id="mb-table-grid" style="display:none;">
+
+    <!-- Momentum Breakout Bullish -->
+    <div class="panel">
+      <div class="panel-header">
+        <div class="panel-title">
+          <span class="dot dot-green"></span>
+          Momentum Breakout &nbsp;<span style="font-size:11px;color:var(--text-muted);font-weight:400;">Opened in range → clean break above PDH</span>
+        </div>
+        <div style="display:flex;gap:6px;align-items:center;">
+          <a class="diag-link diagnose-link" target="_blank" rel="noopener">Diagnose ↗</a>
+          <button class="refresh-btn" onclick="loadMomentumBreakoutBullish()">↺ Refresh</button>
+          <button class="expand-btn" onclick="expandPanel(this)" title="Full screen (Esc to close)">⤢ Expand</button>
+        </div>
+      </div>
+      <div class="criteria-row">
+        <span class="chip chip-blue">Opened within PDL–PDH (no gap)</span>
+        <span class="chip chip-green">Close &gt; PDH on ≥1.5×avg vol</span>
+        <span class="chip chip-green">Next 5-min candle green &amp; &lt;0.5% range</span>
+        <span class="chip chip-green">Price within 1.5% of day high</span>
+        <span class="chip chip-blue">Nifty aligned</span>
+        <span class="chip chip-orange">Max 5 · GOOD+ only</span>
+      </div>
+      <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>Symbol</th><th>Price</th><th>Gap</th>
+          <th>PDH / Key Level</th><th>Volume</th><th>Score</th><th>Trade Plan</th>
+        </tr></thead>
+        <tbody id="mb-bull-body">
+          <tr><td colspan="7"><div class="empty-state"><div class="spinner"></div>Loading…</div></td></tr>
+        </tbody>
+      </table>
+      </div>
+    </div>
+
+    <!-- Momentum Breakout Bearish -->
+    <div class="panel">
+      <div class="panel-header">
+        <div class="panel-title">
+          <span class="dot dot-red"></span>
+          Momentum Breakout &nbsp;<span style="font-size:11px;color:var(--text-muted);font-weight:400;">Opened in range → clean break below PDL</span>
+        </div>
+        <div style="display:flex;gap:6px;align-items:center;">
+          <a class="diag-link diagnose-link" target="_blank" rel="noopener">Diagnose ↗</a>
+          <button class="refresh-btn" onclick="loadMomentumBreakoutBearish()">↺ Refresh</button>
+          <button class="expand-btn" onclick="expandPanel(this)" title="Full screen (Esc to close)">⤢ Expand</button>
+        </div>
+      </div>
+      <div class="criteria-row">
+        <span class="chip chip-blue">Opened within PDL–PDH (no gap)</span>
+        <span class="chip chip-red">Close &lt; PDL on ≥1.5×avg vol</span>
+        <span class="chip chip-red">Next 5-min candle red &amp; &lt;0.5% range</span>
+        <span class="chip chip-red">Price within 1.5% of day low</span>
+        <span class="chip chip-blue">Nifty aligned</span>
+        <span class="chip chip-orange">Max 5 · GOOD+ only</span>
+      </div>
+      <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>Symbol</th><th>Price</th><th>Gap</th>
+          <th>PDL / Key Level</th><th>Volume</th><th>Score</th><th>Trade Plan</th>
+        </tr></thead>
+        <tbody id="mb-bear-body">
+          <tr><td colspan="7"><div class="empty-state"><div class="spinner"></div>Loading…</div></td></tr>
+        </tbody>
+      </table>
+      </div>
+    </div>
+
+  </div>
+
   <!-- ── OI Options Buy Screener (fresh buildup only) ──────────── -->
   <div class="section-divider" id="oi-divider" style="margin-top:24px;display:none;">
     <div class="section-divider-line"></div>
@@ -1791,6 +1870,8 @@
     { key: 'orb-bear', label: 'ORB', sub: 'Bearish', dot: 'dot-red',   color: 'var(--red)',   type: 'trade' },
     { key: 'zone-demand', label: 'Demand Zone', sub: 'Bullish', dot: 'dot-green', color: 'var(--green)', type: 'trade' },
     { key: 'zone-supply', label: 'Supply Zone', sub: 'Bearish', dot: 'dot-red',   color: 'var(--red)',   type: 'trade' },
+    { key: 'mb-bull', label: 'Momentum Breakout', sub: 'Bullish', dot: 'dot-green', color: 'var(--green)', type: 'trade' },
+    { key: 'mb-bear', label: 'Momentum Breakout', sub: 'Bearish', dot: 'dot-red',   color: 'var(--red)',   type: 'trade' },
     { key: 'oi-bull', label: 'OI Options', sub: 'Bullish · Buy Call', dot: 'dot-green', color: 'var(--green)', type: 'trade' },
     { key: 'oi-bear', label: 'OI Options', sub: 'Bearish · Buy Put',  dot: 'dot-red',   color: 'var(--red)',   type: 'trade' },
   ];
@@ -1806,7 +1887,7 @@
   // OI Buildup is now also available as sidebar panels in Live Panels view,
   // so the raw OI table below is hidden there too (it's only meaningful in
   // Full Table View, alongside the other raw scanner tables).
-  const _SCANNER_ELS = ['s1-divider','s1-table-grid','exh-divider','exh-table-grid','pdh-divider','pdh-table-grid','orb-divider','orb-table-grid','zone-divider','zone-table-grid','oi-divider','oi-table-grid'];
+  const _SCANNER_ELS = ['s1-divider','s1-table-grid','exh-divider','exh-table-grid','pdh-divider','pdh-table-grid','orb-divider','orb-table-grid','zone-divider','zone-table-grid','mb-divider','mb-table-grid','oi-divider','oi-table-grid'];
 
   function toggleChartMode() {
     if (_journalActive) _closeJournalView();
@@ -2155,6 +2236,8 @@
     "oi-options/bearish": "oi_opt_bear",
     "zone/demand": "zone_demand",
     "zone/supply": "zone_supply",
+    "momentum-breakout/bullish": "mb_bull",
+    "momentum-breakout/bearish": "mb_bear",
   };
 
   async function _loadSetup(endpoint, tbodyId, direction, refLevelKey, countId, label) {
@@ -2219,6 +2302,14 @@
   async function loadSupplyZone() {
     return _loadSetup("zone/supply", "zone-supply-body", "bearish", "pdl", null,
                       "Supply Zone — Institutional Order Block Retest (Bearish)");
+  }
+  async function loadMomentumBreakoutBullish() {
+    return _loadSetup("momentum-breakout/bullish", "mb-bull-body", "bullish", "pdh", null,
+                      "Momentum Breakout — Range Open + Clean PDH Break (Bullish)");
+  }
+  async function loadMomentumBreakoutBearish() {
+    return _loadSetup("momentum-breakout/bearish", "mb-bear-body", "bearish", "pdl", null,
+                      "Momentum Breakout — Range Open + Clean PDL Break (Bearish)");
   }
   // ── Global Indices (overnight / pre-market cues) ──────────────
   async function loadGlobalIndices() {
@@ -2527,7 +2618,7 @@
   // ── Auto-refresh every 5 min ──────────────────────────────────
   async function refreshAll() {
     await Promise.all([loadMarket(), loadStatus()]);
-    await Promise.all([loadS1Bullish(), loadS1Bearish(), loadExhaustionShort(), loadPdhBreakout(), loadOrbBullish(), loadOrbBearish(), loadDemandZone(), loadSupplyZone()]);
+    await Promise.all([loadS1Bullish(), loadS1Bearish(), loadExhaustionShort(), loadPdhBreakout(), loadOrbBullish(), loadOrbBearish(), loadDemandZone(), loadSupplyZone(), loadMomentumBreakoutBullish(), loadMomentumBreakoutBearish()]);
     await Promise.all([loadTicker(), loadOiOptionsBullish(), loadOiOptionsBearish(), loadMarketBrief(), loadGlobalIndices()]);
     stampUpdated();
   }
@@ -2805,6 +2896,8 @@
           <option value="OI Options Buy Put">
           <option value="Demand Zone Retest">
           <option value="Supply Zone Retest">
+          <option value="Momentum Breakout Bullish">
+          <option value="Momentum Breakout Bearish">
           <option value="Manual / Discretionary">
         </datalist>
       </label>

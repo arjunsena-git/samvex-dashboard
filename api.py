@@ -206,6 +206,8 @@ _PANEL_LABELS = {
     (5, "bearish"): "OI Options Buy — Fresh Short Buildup (Buy Put Candidates)",
     (6, "bullish"): "Demand Zone — Institutional Order Block Retest (Bullish)",
     (6, "bearish"): "Supply Zone — Institutional Order Block Retest (Bearish)",
+    (7, "bullish"): "Momentum Breakout — Range Open + Clean PDH Break (Bullish)",
+    (7, "bearish"): "Momentum Breakout — Range Open + Clean PDL Break (Bearish)",
 }
 
 def _signals_path(date_str: str) -> str:
@@ -2393,6 +2395,203 @@ def _screen_orb(direction: str) -> list:
     return [r for r in results if r["confidence_score"] >= 40][:5]
 
 
+# ── Momentum Breakout — clean range-open break + tight confirmation ────────
+#
+# Concept: a stock that opened WITHIN yesterday's range (no gap either way)
+# and then breaks PDH/PDL on good volume is a clean, un-telegraphed breakout
+# (no overnight gap already pricing it in). The very next 5-min candle being
+# small and in the same direction (green after a PDH break, red after a PDL
+# break) shows the move being absorbed calmly rather than immediately
+# round-tripping — read as room for a real follow-through rally/fall.
+MB_VOL_RATIO          = 1.5   # breakout candle volume vs avg volume of bars so far today
+MB_CONFIRM_MAX_RANGE_PCT = 0.5   # the very next 5-min candle's range, as % of price, must be < 0.5%
+MB_FRESHNESS_BARS     = 6     # the breakout+confirm pair must be within the last 6 5-min bars (30 min)
+MB_NO_REVERSAL_PCT    = 1.5   # current price must stay within 1.5% of the day extreme
+
+
+def _screen_momentum_breakout(direction: str) -> list:
+    """Momentum Breakout screener — see module comment above."""
+    universe    = _load_nifty500() or _get_fno_universe()
+    batch_5m    = _get_5m_batch()
+    batch_daily = _get_daily_batch()
+    ist         = pytz.timezone("Asia/Kolkata")
+    today_date  = datetime.now(ist).date()
+    bullish     = direction == "bullish"
+
+    live_quotes = None
+    if _is_live():
+        live_quotes = _cached("live_quotes", _fetch_live_quotes, ttl=LIVE_TTL)
+
+    try:
+        market_data = _cached("market", _fetch_market,
+                              ttl=LIVE_TTL if _is_live() else CACHE_TTL)
+        nifty_chg   = float(market_data.get("NIFTY 50", {}).get("change_pct", 0) or 0)
+    except Exception:
+        nifty_chg = 0.0
+
+    results = []
+
+    for symbol in universe:
+        try:
+            intra5 = _get_ticker_df(batch_5m, symbol)
+            daily  = _get_ticker_df(batch_daily, symbol)
+            if intra5 is None or daily is None or len(daily) < 2:
+                continue
+
+            try:
+                if intra5.index.tz is not None:
+                    today_mask5 = intra5.index.tz_convert(ist).date == today_date
+                else:
+                    today_mask5 = [ts.date() == today_date for ts in intra5.index]
+                today_bars5 = intra5[today_mask5]
+            except Exception:
+                today_bars5 = intra5.iloc[:0]
+
+            # Need the open bar + at least 1 bar to break out + 1 bar to confirm
+            if len(today_bars5) < 3:
+                continue
+
+            pdh = float(daily["High"].iloc[-2])
+            pdl = float(daily["Low"].iloc[-2])
+            if pdh <= 0 or pdl <= 0:
+                continue
+
+            opens  = today_bars5["Open"].tolist()
+            highs  = today_bars5["High"].tolist()
+            lows   = today_bars5["Low"].tolist()
+            closes = today_bars5["Close"].tolist()
+            vols   = today_bars5["Volume"].tolist()
+            n_bars = len(closes)
+
+            # Opened within yesterday's range — no gap either way
+            if opens[0] > pdh or opens[0] < pdl:
+                continue
+
+            # Find the first bar (after at least 1 prior bar, so a volume
+            # baseline exists) whose close breaks PDH/PDL
+            breakout_bar = -1
+            for i in range(1, n_bars - 1):   # leave room for a confirm bar after it
+                broke = (closes[i] > pdh) if bullish else (closes[i] < pdl)
+                if broke:
+                    breakout_bar = i
+                    break
+            if breakout_bar < 0:
+                continue
+
+            # Volume confirmation on the breakout candle itself
+            avg_vol_before = sum(vols[:breakout_bar]) / breakout_bar
+            if avg_vol_before <= 0:
+                continue
+            vol_ratio = vols[breakout_bar] / avg_vol_before
+            if vol_ratio < MB_VOL_RATIO:
+                continue
+
+            # The very next 5-min candle must be small AND in the same direction
+            confirm = breakout_bar + 1
+            if confirm >= n_bars:
+                continue
+            confirm_close = closes[confirm]
+            confirm_open  = opens[confirm]
+            if confirm_close <= 0:
+                continue
+            confirm_range_pct = (highs[confirm] - lows[confirm]) / confirm_close * 100
+            if confirm_range_pct >= MB_CONFIRM_MAX_RANGE_PCT:
+                continue
+            if bullish and confirm_close <= confirm_open:
+                continue
+            if not bullish and confirm_close >= confirm_open:
+                continue
+
+            # Freshness: the breakout+confirm pair must be recent
+            if n_bars - 1 - confirm > MB_FRESHNESS_BARS:
+                continue
+
+            if live_quotes:
+                q  = live_quotes.get(symbol)
+                lp = float(q.get("last_price", 0) or 0) if q else 0
+                current_price = lp if lp > 0 else closes[-1]
+            else:
+                current_price = closes[-1]
+
+            if current_price < 100:
+                continue
+
+            day_high = max(highs)
+            day_low  = min(lows)
+
+            # No-reversal gate: no round-trip back through the breakout level
+            if bullish:
+                if current_price < day_high * (1 - MB_NO_REVERSAL_PCT / 100):
+                    continue
+                if nifty_chg < -1.0:
+                    continue
+            else:
+                if current_price > day_low * (1 + MB_NO_REVERSAL_PCT / 100):
+                    continue
+                if nifty_chg > 1.0:
+                    continue
+
+            prev_close = float(daily["Close"].iloc[-2])
+            gap_pct    = round((opens[0] - prev_close) / prev_close * 100, 2) if prev_close > 0 else 0.0
+
+            sl   = round(pdh * 0.997, 2) if bullish else round(pdl * 1.003, 2)
+            risk = abs(current_price - sl)
+            if risk <= 0:
+                continue
+            sign_ = 1 if bullish else -1
+            t1    = round(current_price + sign_ * risk * 1.5, 2)
+            t2    = round(current_price + sign_ * risk * 3.0, 2)
+
+            # Confidence 0-100: breakout volume (40) + proximity to day extreme
+            # (35) + how tight the confirmation candle was (25, tighter = more
+            # "calmly absorbed" = higher score)
+            vol_s     = min((vol_ratio - MB_VOL_RATIO) / 1.5, 1.0) * 40
+            prox_r    = (current_price / day_high) if bullish else (day_low / current_price)
+            prox_s    = max(prox_r - (1 - MB_NO_REVERSAL_PCT / 100), 0.0) / (MB_NO_REVERSAL_PCT / 100) * 35
+            confirm_s = max(MB_CONFIRM_MAX_RANGE_PCT - confirm_range_pct, 0.0) / MB_CONFIRM_MAX_RANGE_PCT * 25
+            conf_score = round(vol_s + prox_s + confirm_s)
+            conf_label = "STRONG" if conf_score >= 65 else "GOOD" if conf_score >= 40 else "WATCH"
+
+            try:
+                ts = today_bars5.index[breakout_bar]
+                ts = ts.astimezone(ist) if ts.tzinfo else pytz.utc.localize(ts).astimezone(ist)
+                bos_time = ts.strftime("%H:%M")
+            except Exception:
+                bos_time = datetime.now(ist).strftime("%H:%M")
+
+            results.append({
+                "symbol":           symbol.replace(".NS", ""),
+                "price":            round(current_price, 2),
+                "gap_pct":          gap_pct,
+                "day_high":         round(day_high, 2),
+                "day_low":          round(day_low, 2),
+                "pdh":              round(pdh, 2),
+                "pdl":              round(pdl, 2),
+                "key_level":        round(pdh if bullish else pdl, 2),
+                "key_label":        "PDH" if bullish else "PDL",
+                "volume_ratio":     round(vol_ratio, 2),
+                "setup":            "Momentum Breakout Bullish" if bullish else "Momentum Breakout Bearish",
+                "entry":            round(current_price, 2),
+                "sl":               sl,
+                "sl_pct":           round(risk / current_price * 100, 2),
+                "sl_label":         "Below PDH (breakout level)" if bullish else "Above PDL (breakdown level)",
+                "t1":               t1,
+                "t2":               t2,
+                "risk_reward":      1.5,
+                "confidence_score": conf_score,
+                "confidence_label": conf_label,
+                "demand_zone":      round(pdl, 2),
+                "supply_zone":      round(pdh, 2),
+                "bos_time":         bos_time,
+            })
+
+        except Exception:
+            continue
+
+    results.sort(key=lambda x: x["confidence_score"], reverse=True)
+    return [r for r in results if r["confidence_score"] >= 40][:5]
+
+
 # ── Market index data ──────────────────────────────────────────────
 _INDEX_YF = {"NIFTY 50": "^NSEI", "SENSEX": "^BSESN", "BANK NIFTY": "^NSEBANK"}
 _INDEX_KEY = {
@@ -2590,8 +2789,8 @@ def oauth_callback():
 
     # Clear screener cache so next load uses live data immediately
     for k in ("s1_bull", "s1_bear", "exh_short", "pdh_breakout_bull", "orb_bull", "orb_bear",
-              "oi_opt_bull", "oi_opt_bear", "zone_demand", "zone_supply", "live_quotes",
-              "15m_batch", "5m_batch", "ticker", "oi_buildup", "market"):
+              "oi_opt_bull", "oi_opt_bear", "zone_demand", "zone_supply", "mb_bull", "mb_bear",
+              "live_quotes", "15m_batch", "5m_batch", "ticker", "oi_buildup", "market"):
         _cache.pop(k, None)
 
     redirect_url = FRONTEND_URL if FRONTEND_URL else None
@@ -2634,8 +2833,8 @@ def set_token():
     _save_token(_upstox_token["access_token"], _upstox_token["expires_at"])
     # Invalidate screener cache so next request uses live data immediately
     for k in ("s1_bull", "s1_bear", "exh_short", "pdh_breakout_bull", "orb_bull", "orb_bear",
-              "oi_opt_bull", "oi_opt_bear", "zone_demand", "zone_supply", "live_quotes",
-              "15m_batch", "5m_batch", "ticker", "oi_buildup", "market"):
+              "oi_opt_bull", "oi_opt_bear", "zone_demand", "zone_supply", "mb_bull", "mb_bear",
+              "live_quotes", "15m_batch", "5m_batch", "ticker", "oi_buildup", "market"):
         _cache.pop(k, None)
     threading.Thread(target=_load_instrument_map, daemon=True).start()
     threading.Thread(target=_load_futures_map, daemon=True).start()
@@ -2673,6 +2872,11 @@ def _orb_ready() -> bool:
     screeners, it must NOT share _smc_ready()'s 9:45 gate, or a breakout that
     fires on the very first post-open candle sits undetected for ~20 min."""
     return datetime.now(pytz.timezone("Asia/Kolkata")).time() >= _dtime(9, 25)
+
+def _momentum_ready() -> bool:
+    """Momentum Breakout needs the open bar + a breakout bar + a confirm bar,
+    i.e. 3 completed 5-min bars — ready by ~9:30 AM IST."""
+    return datetime.now(pytz.timezone("Asia/Kolkata")).time() >= _dtime(9, 30)
 
 @app.route("/api/admin/revive-history", methods=["POST"])
 def admin_revive_history():
@@ -2748,6 +2952,20 @@ def api_orb_bear():
         return jsonify([])
     active = _cached("orb_bear", _screen_orb, "bearish", ttl=SCREEN_TTL)
     return jsonify(_merge_with_history(active, 4, "bearish"))
+
+@app.route("/api/momentum-breakout/bullish")
+def api_momentum_breakout_bull():
+    if not _momentum_ready():
+        return jsonify([])
+    active = _cached("mb_bull", _screen_momentum_breakout, "bullish", ttl=SCREEN_TTL)
+    return jsonify(_merge_with_history(active, 7, "bullish"))
+
+@app.route("/api/momentum-breakout/bearish")
+def api_momentum_breakout_bear():
+    if not _momentum_ready():
+        return jsonify([])
+    active = _cached("mb_bear", _screen_momentum_breakout, "bearish", ttl=SCREEN_TTL)
+    return jsonify(_merge_with_history(active, 7, "bearish"))
 
 @app.route("/api/oi-options/bullish")
 def api_oi_options_bull():
@@ -3769,6 +3987,7 @@ def insights_setup_explain():
         "orb_bull": (4, "bullish"), "orb_bear": (4, "bearish"),
         "oi_opt_bull": (5, "bullish"), "oi_opt_bear": (5, "bearish"),
         "zone_demand": (6, "bullish"), "zone_supply": (6, "bearish"),
+        "mb_bull": (7, "bullish"), "mb_bear": (7, "bearish"),
     }
     if setup_key not in setup_map:
         return jsonify({"error": "invalid setup"}), 400
@@ -3786,6 +4005,8 @@ def insights_setup_explain():
         results = _screen_oi_options(direction)
     elif setup_key in ("zone_demand", "zone_supply"):
         results = _screen_demand_supply_zone(direction)
+    elif setup_key in ("mb_bull", "mb_bear"):
+        results = _screen_momentum_breakout(direction)
     else:
         results = _screen_smc(direction)
     if not results:
