@@ -1277,7 +1277,7 @@
         </div>
       </div>
       <div class="criteria-row">
-        <span class="chip chip-green">Price ↑ + OI ↑ (Long Buildup)</span>
+        <span class="chip chip-green">Price ↑ ≥0.5% + OI ↑ ≥3% (Long Buildup)</span>
         <span class="chip chip-blue">Day futures turnover ≥ ₹50cr (liquidity)</span>
         <span class="chip chip-orange">Excludes Short Covering (unwinding, not fresh)</span>
         <span class="chip chip-orange">Max 5 · GOOD+ only</span>
@@ -1309,7 +1309,7 @@
         </div>
       </div>
       <div class="criteria-row">
-        <span class="chip chip-red">Price ↓ + OI ↑ (Short Buildup)</span>
+        <span class="chip chip-red">Price ↓ ≥0.5% + OI ↑ ≥3% (Short Buildup)</span>
         <span class="chip chip-blue">Day futures turnover ≥ ₹50cr (liquidity)</span>
         <span class="chip chip-orange">Excludes Long Unwinding (closing, not fresh)</span>
         <span class="chip chip-orange">Max 5 · GOOD+ only</span>
@@ -1618,6 +1618,11 @@
       const goneBadge = isInactive
         ? `<span class="gone-tag" style="display:block;">&#8629; Signal gone</span>`
         : "";
+      const oiChgBadge = s.oi_chg_pct != null
+        ? `<span style="font-size:9px;font-weight:700;color:var(--${s.oi_chg_pct >= 0 ? "green" : "red"});display:block;margin-top:4px;">
+             OI ${sign(s.oi_chg_pct)}${s.oi_chg_pct}%
+           </span>`
+        : "";
 
       return divider + `<tr class="${isInactive ? "signal-inactive" : ""}">
         <td>
@@ -1634,7 +1639,7 @@
           ₹${Number(refLevel).toLocaleString("en-IN")}
           ${keyLevelStr}
         </td>
-        <td>${volBar(s.volume_ratio)}</td>
+        <td>${volBar(s.volume_ratio)}${oiChgBadge}</td>
         ${scoreCell(s)}
         ${tradePlanCell(s, direction)}
       </tr>`;
@@ -1859,6 +1864,7 @@
       <div class="detail-stat-grid">
         <div class="detail-stat"><span class="lbl">${s.key_label || 'Key Level'}</span><span class="val">${fmt(s.key_level)}</span></div>
         <div class="detail-stat"><span class="lbl">Volume</span><span class="val">${s.volume_ratio}&times;</span></div>
+        ${s.oi_chg_pct != null ? `<div class="detail-stat"><span class="lbl">OI Chg</span><span class="val" style="color:${s.oi_chg_pct >= 0 ? 'var(--green)' : 'var(--red)'}">${sign(s.oi_chg_pct)}${s.oi_chg_pct}%</span></div>` : ''}
         <div class="detail-stat"><span class="lbl">Score</span><span class="val">${s.confidence_score ?? ''} ${s.confidence_label || ''}</span></div>
         <div class="detail-stat"><span class="lbl">R:R</span><span class="val">${s.risk_reward ?? ''}</span></div>
         <div class="detail-stat"><span class="lbl">Entry</span><span class="val">${fmt(s.entry)}</span></div>
