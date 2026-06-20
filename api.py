@@ -202,6 +202,8 @@ _PANEL_LABELS = {
     (3, "bullish"): "PDH Breakout — Trend + Momentum (Close > PDH · Price > 200 EMA(15m) · RSI(14) ≥ 60 · Vol ≥ 10L)",
     (4, "bullish"): "ORB — Opening Range Breakout (Bullish · Narrow OR · Multi-day Consolidation · Breakout on Volume)",
     (4, "bearish"): "ORB — Opening Range Breakout (Bearish · Narrow OR · Multi-day Consolidation · Breakdown on Volume)",
+    (5, "bullish"): "OI Options Buy — Fresh Long Buildup (Buy Call Candidates)",
+    (5, "bearish"): "OI Options Buy — Fresh Short Buildup (Buy Put Candidates)",
 }
 
 def _signals_path(date_str: str) -> str:
@@ -860,6 +862,127 @@ def _compute_oi_signals():
         out[key].sort(key=lambda x: abs(x["oi_chg_pct"]), reverse=True)
 
     return out
+
+
+# ── OI Options Buy Screener — fresh buildup only ────────────────────
+#
+# For buying Calls/Puts specifically, fresh directional conviction matters
+# more than unwinding: Long Buildup (price up + OI up) and Short Buildup
+# (price down + OI up) are NEW positions being added — the strongest signal.
+# Short Covering / Long Unwinding are existing positions being closed, an
+# exhaustion-flavored signal that's a worse fit for buying options (decaying
+# momentum into an unwind) — deliberately excluded here, unlike the raw OI
+# Buildup classification above which still tags all four buckets.
+OI_OPT_PRICE_CHG_MIN = 0.5     # min price change % — tighter than the raw classifier's 0.2%
+OI_OPT_OI_CHG_MIN    = 3.0     # min OI buildup % — tighter than the raw classifier's 1.0%
+OI_OPT_MIN_TURNOVER  = 50_00_00_000   # ₹50 crore min day turnover on the futures contract —
+                                       # proxy for the stock's options chain also being liquid
+OI_OPT_BUILDUP_MAX   = 10.0    # OI buildup % that maxes the confidence score
+OI_OPT_PRICE_MAX     = 5.0     # price move % that maxes the confidence score
+
+
+def _screen_oi_options(direction: str) -> list:
+    """OI-based stock-options-buying screener. Returns Buy-Call candidates
+    (bullish, fresh Long Buildup) or Buy-Put candidates (bearish, fresh Short
+    Buildup). Entry/SL/targets are quoted on the underlying futures price —
+    options buyers size risk off the underlying breaking a level, not the
+    option premium itself, since we don't have a live options-chain feed for
+    strike-specific greeks. Exact strike/premium selection is left to the
+    trader's broker; this only ranks which underlyings to look at."""
+    if not _is_live():
+        return []
+
+    bullish = direction == "bullish"
+    fmap    = _load_futures_map()
+    quotes  = _fetch_futures_quotes()
+    if not quotes:
+        return []
+
+    results = []
+    for sym, q in quotes.items():
+        try:
+            last_price = float(q.get("last_price") or 0)
+            prev_close = float(q.get("prev_close_price") or 0)
+            oi         = float(q.get("oi") or 0)
+            oi_day_low = float(q.get("oi_day_low") or 0)
+            volume     = int(q.get("volume") or 0)
+            lot_size   = fmap.get(sym, {}).get("lot_size", 1)
+            ohlc       = q.get("ohlc") or {}
+            day_high   = float(ohlc.get("high", 0) or 0)
+            day_low    = float(ohlc.get("low", 0) or 0)
+
+            if last_price <= 0 or prev_close <= 0 or oi <= 0 or oi_day_low <= 0:
+                continue
+            if day_high <= 0 or day_low <= 0:
+                continue
+
+            price_chg  = (last_price - prev_close) / prev_close * 100
+            oi_buildup = (oi - oi_day_low) / oi_day_low * 100
+
+            # Fresh buildup only — Long Buildup for bullish, Short Buildup for bearish
+            if bullish:
+                if price_chg < OI_OPT_PRICE_CHG_MIN or oi_buildup < OI_OPT_OI_CHG_MIN:
+                    continue
+            else:
+                if price_chg > -OI_OPT_PRICE_CHG_MIN or oi_buildup < OI_OPT_OI_CHG_MIN:
+                    continue
+
+            # Liquidity gate: today's futures turnover must be substantial
+            turnover = volume * lot_size * last_price
+            if turnover < OI_OPT_MIN_TURNOVER:
+                continue
+
+            entry = round(last_price, 2)
+            sl    = round(day_low * 0.997, 2) if bullish else round(day_high * 1.003, 2)
+            risk  = abs(entry - sl)
+            if risk <= 0:
+                continue
+            sign_ = 1 if bullish else -1
+            t1    = round(entry + sign_ * risk * 1.5, 2)
+            t2    = round(entry + sign_ * risk * 3.0, 2)
+
+            # Confidence 0-100: OI buildup strength (40) + price move strength
+            # (35) + liquidity headroom above the turnover floor (25)
+            oi_s    = min(oi_buildup / OI_OPT_BUILDUP_MAX, 1.0) * 40
+            price_s = min(abs(price_chg) / OI_OPT_PRICE_MAX, 1.0) * 35
+            liq_s   = min(turnover / (OI_OPT_MIN_TURNOVER * 3), 1.0) * 25
+            conf_score = round(oi_s + price_s + liq_s)
+            conf_label = "STRONG" if conf_score >= 65 else "GOOD" if conf_score >= 40 else "WATCH"
+
+            results.append({
+                "symbol":           sym,
+                "price":            entry,
+                "gap_pct":          round(price_chg, 2),
+                "oi_chg_pct":       round(oi_buildup, 2),
+                "day_high":         round(day_high, 2),
+                "day_low":          round(day_low, 2),
+                "pdh":              round(day_high, 2),
+                "pdl":              round(day_low, 2),
+                "key_level":        round(day_low if bullish else day_high, 2),
+                "key_label":        "Day Low" if bullish else "Day High",
+                "volume_ratio":     round(turnover / OI_OPT_MIN_TURNOVER, 2),
+                "turnover_cr":      round(turnover / 1e7, 1),
+                "lot_size":         lot_size,
+                "setup":            "Buy Call (CE) — OI Long Buildup" if bullish else "Buy Put (PE) — OI Short Buildup",
+                "entry":            entry,
+                "sl":               sl,
+                "sl_pct":           round(risk / entry * 100, 2),
+                "sl_label":         "Underlying SL — below day low" if bullish else "Underlying SL — above day high",
+                "t1":               t1,
+                "t2":               t2,
+                "risk_reward":      1.5,
+                "confidence_score": conf_score,
+                "confidence_label": conf_label,
+                "demand_zone":      round(day_low, 2),
+                "supply_zone":      round(day_high, 2),
+                "bos_time":         datetime.now(pytz.timezone("Asia/Kolkata")).strftime("%H:%M"),
+            })
+
+        except Exception:
+            continue
+
+    results.sort(key=lambda x: x["confidence_score"], reverse=True)
+    return [r for r in results if r["confidence_score"] >= 40][:5]
 
 
 def _fetch_live_quotes():
@@ -2289,7 +2412,8 @@ def oauth_callback():
 
     # Clear screener cache so next load uses live data immediately
     for k in ("s1_bull", "s1_bear", "exh_short", "pdh_breakout_bull", "orb_bull", "orb_bear",
-              "live_quotes", "15m_batch", "5m_batch", "ticker", "oi_buildup", "market"):
+              "oi_opt_bull", "oi_opt_bear", "live_quotes", "15m_batch", "5m_batch", "ticker",
+              "oi_buildup", "market"):
         _cache.pop(k, None)
 
     redirect_url = FRONTEND_URL if FRONTEND_URL else None
@@ -2332,7 +2456,8 @@ def set_token():
     _save_token(_upstox_token["access_token"], _upstox_token["expires_at"])
     # Invalidate screener cache so next request uses live data immediately
     for k in ("s1_bull", "s1_bear", "exh_short", "pdh_breakout_bull", "orb_bull", "orb_bear",
-              "live_quotes", "15m_batch", "5m_batch", "ticker", "oi_buildup", "market"):
+              "oi_opt_bull", "oi_opt_bear", "live_quotes", "15m_batch", "5m_batch", "ticker",
+              "oi_buildup", "market"):
         _cache.pop(k, None)
     threading.Thread(target=_load_instrument_map, daemon=True).start()
     threading.Thread(target=_load_futures_map, daemon=True).start()
@@ -2445,6 +2570,16 @@ def api_orb_bear():
         return jsonify([])
     active = _cached("orb_bear", _screen_orb, "bearish", ttl=SCREEN_TTL)
     return jsonify(_merge_with_history(active, 4, "bearish"))
+
+@app.route("/api/oi-options/bullish")
+def api_oi_options_bull():
+    active = _cached("oi_opt_bull", _screen_oi_options, "bullish", ttl=OI_TTL)
+    return jsonify(_merge_with_history(active, 5, "bullish"))
+
+@app.route("/api/oi-options/bearish")
+def api_oi_options_bear():
+    active = _cached("oi_opt_bear", _screen_oi_options, "bearish", ttl=OI_TTL)
+    return jsonify(_merge_with_history(active, 5, "bearish"))
 
 @app.route("/api/setup1/sweep-watch/bullish")
 def api_sweep_watch_bull():
@@ -3440,6 +3575,7 @@ def insights_setup_explain():
         "exh_short": (2, "bearish"),
         "pdh_breakout_bull": (3, "bullish"),
         "orb_bull": (4, "bullish"), "orb_bear": (4, "bearish"),
+        "oi_opt_bull": (5, "bullish"), "oi_opt_bear": (5, "bearish"),
     }
     if setup_key not in setup_map:
         return jsonify({"error": "invalid setup"}), 400
@@ -3453,6 +3589,8 @@ def insights_setup_explain():
         results = _screen_pdh_trend()
     elif setup_key in ("orb_bull", "orb_bear"):
         results = _screen_orb(direction)
+    elif setup_key in ("oi_opt_bull", "oi_opt_bear"):
+        results = _screen_oi_options(direction)
     else:
         results = _screen_smc(direction)
     if not results:

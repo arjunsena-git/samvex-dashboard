@@ -1253,75 +1253,75 @@
 
   </div>
 
-  <!-- ── OI Buildup Scanner ───────────────────────────────────── -->
+  <!-- ── OI Options Buy Screener (fresh buildup only) ──────────── -->
   <div class="section-divider" id="oi-divider">
     <div class="section-divider-line"></div>
-    <div class="section-divider-title">OI Buildup Scanner — Near-Month Futures</div>
+    <div class="section-divider-title">OI Options Buy — Fresh Buildup Only · Top 5 High-Conviction Signals Only (GOOD+ Score)</div>
     <button class="section-collapse-btn" onclick="toggleSectionCollapse('oi-table-grid', this)">&#9662; Collapse</button>
     <div class="section-divider-line"></div>
   </div>
 
   <div class="scanner-grid" id="oi-table-grid">
 
-    <!-- Bullish OI Signals -->
+    <!-- OI Bullish: fresh Long Buildup → Buy Call -->
     <div class="panel">
       <div class="panel-header">
         <div class="panel-title">
           <span class="dot dot-green"></span>
-          Bullish OI Signals
+          OI Bullish &nbsp;<span style="font-size:11px;color:var(--text-muted);font-weight:400;">Fresh Long Buildup → Buy Call</span>
         </div>
         <div style="display:flex;gap:6px;align-items:center;">
-          <span class="chip chip-green" style="font-size:9px;padding:2px 6px;">Long Buildup</span>
-          <span class="chip chip-blue"  style="font-size:9px;padding:2px 6px;">Short Covering</span>
-          <button class="refresh-btn" onclick="loadOI()">↺</button>
+          <a class="diag-link diagnose-link" target="_blank" rel="noopener">Diagnose ↗</a>
+          <button class="refresh-btn" onclick="loadOiOptionsBullish()">↺ Refresh</button>
           <button class="expand-btn" onclick="expandPanel(this)" title="Full screen (Esc to close)">⤢ Expand</button>
         </div>
       </div>
+      <div class="criteria-row">
+        <span class="chip chip-green">Price ↑ + OI ↑ (Long Buildup)</span>
+        <span class="chip chip-blue">Day futures turnover ≥ ₹50cr (liquidity)</span>
+        <span class="chip chip-orange">Excludes Short Covering (unwinding, not fresh)</span>
+        <span class="chip chip-orange">Max 5 · GOOD+ only</span>
+      </div>
       <div class="table-wrap">
       <table>
-        <thead>
-          <tr>
-            <th>Symbol</th>
-            <th>LTP (Fut)</th>
-            <th>Price Chg</th>
-            <th>OI Chg</th>
-            <th>Signal</th>
-          </tr>
-        </thead>
+        <thead><tr>
+          <th>Symbol</th><th>Price</th><th>Day Chg</th>
+          <th>Day Low / Key Level</th><th>Volume</th><th>Score</th><th>Trade Plan</th>
+        </tr></thead>
         <tbody id="oi-bullish-body">
-          <tr><td colspan="5"><div class="empty-state"><div class="spinner"></div>Loading…</div></td></tr>
+          <tr><td colspan="7"><div class="empty-state"><div class="spinner"></div>Loading…</div></td></tr>
         </tbody>
       </table>
       </div>
     </div>
 
-    <!-- Bearish OI Signals -->
+    <!-- OI Bearish: fresh Short Buildup → Buy Put -->
     <div class="panel">
       <div class="panel-header">
         <div class="panel-title">
           <span class="dot dot-red"></span>
-          Bearish OI Signals
+          OI Bearish &nbsp;<span style="font-size:11px;color:var(--text-muted);font-weight:400;">Fresh Short Buildup → Buy Put</span>
         </div>
         <div style="display:flex;gap:6px;align-items:center;">
-          <span class="chip chip-red"    style="font-size:9px;padding:2px 6px;">Short Buildup</span>
-          <span class="chip chip-orange" style="font-size:9px;padding:2px 6px;">Long Unwinding</span>
-          <button class="refresh-btn" onclick="loadOI()">↺</button>
+          <a class="diag-link diagnose-link" target="_blank" rel="noopener">Diagnose ↗</a>
+          <button class="refresh-btn" onclick="loadOiOptionsBearish()">↺ Refresh</button>
           <button class="expand-btn" onclick="expandPanel(this)" title="Full screen (Esc to close)">⤢ Expand</button>
         </div>
       </div>
+      <div class="criteria-row">
+        <span class="chip chip-red">Price ↓ + OI ↑ (Short Buildup)</span>
+        <span class="chip chip-blue">Day futures turnover ≥ ₹50cr (liquidity)</span>
+        <span class="chip chip-orange">Excludes Long Unwinding (closing, not fresh)</span>
+        <span class="chip chip-orange">Max 5 · GOOD+ only</span>
+      </div>
       <div class="table-wrap">
       <table>
-        <thead>
-          <tr>
-            <th>Symbol</th>
-            <th>LTP (Fut)</th>
-            <th>Price Chg</th>
-            <th>OI Chg</th>
-            <th>Signal</th>
-          </tr>
-        </thead>
+        <thead><tr>
+          <th>Symbol</th><th>Price</th><th>Day Chg</th>
+          <th>Day High / Key Level</th><th>Volume</th><th>Score</th><th>Trade Plan</th>
+        </tr></thead>
         <tbody id="oi-bearish-body">
-          <tr><td colspan="5"><div class="empty-state"><div class="spinner"></div>Loading…</div></td></tr>
+          <tr><td colspan="7"><div class="empty-state"><div class="spinner"></div>Loading…</div></td></tr>
         </tbody>
       </table>
       </div>
@@ -1707,16 +1707,11 @@
     { key: 'pdh-breakout', label: 'PDH Breakout', sub: 'Trend + Momentum', dot: 'dot-green', color: 'var(--green)', type: 'trade' },
     { key: 'orb-bull', label: 'ORB', sub: 'Bullish', dot: 'dot-green', color: 'var(--green)', type: 'trade' },
     { key: 'orb-bear', label: 'ORB', sub: 'Bearish', dot: 'dot-red',   color: 'var(--red)',   type: 'trade' },
-    { key: 'oi-bull', label: 'OI Buildup', sub: 'Bullish', dot: 'dot-green', color: 'var(--green)', type: 'oi' },
-    { key: 'oi-bear', label: 'OI Buildup', sub: 'Bearish', dot: 'dot-red',   color: 'var(--red)',   type: 'oi' },
+    { key: 'oi-bull', label: 'OI Options', sub: 'Bullish · Buy Call', dot: 'dot-green', color: 'var(--green)', type: 'trade' },
+    { key: 'oi-bear', label: 'OI Options', sub: 'Bearish · Buy Put',  dot: 'dot-red',   color: 'var(--red)',   type: 'trade' },
   ];
 
-  // OI panels use a separate store (not _panelData) since their rows aren't
-  // trade setups — they'd pollute downloadAllCSV()'s trade-setup CSV columns.
-  const _oiPanelData = {};   // key → { rows, notLive }
-
   function _panelRows(cfg) {
-    if (cfg.type === 'oi') return _oiPanelData[cfg.key]?.rows || [];
     return _panelData[cfg.key]?.rows || [];
   }
 
@@ -1801,10 +1796,7 @@
     // out with a "Signal gone" tag, instead of disappearing without a trace.
     const list = document.getElementById('stock-name-list');
     if (stocks.length === 0) {
-      const emptyMsg = (cfg.type === 'oi' && _oiPanelData[panelKey]?.notLive)
-        ? 'OI data requires live Upstox connection'
-        : 'No active signals in this panel';
-      list.innerHTML = `<div class="stock-name-empty">${emptyMsg}</div>`;
+      list.innerHTML = `<div class="stock-name-empty">No active signals in this panel</div>`;
     } else {
       const color = isBull ? 'var(--green)' : 'var(--red)';
       list.innerHTML = stocks.map(s => {
@@ -1847,11 +1839,6 @@
     const content = document.getElementById('stock-detail-content');
     content.style.display = 'flex';
 
-    if (cfg.type === 'oi') {
-      _renderOIDetail(content, s);
-      return;
-    }
-
     const isBull  = panelKey.includes('bull');
     const color   = isBull ? 'var(--green)' : 'var(--red)';
     const detected = s.detected_at
@@ -1891,39 +1878,6 @@
       document.getElementById('detail-chart-container'),
       document.getElementById('detail-chart-legend'),
       _detailChartHolder, 320);
-  }
-
-  // OI rows aren't directional trade setups (no entry/SL/targets), so the
-  // detail pane shows LTP/price-chg/OI-chg/signal instead, with a plain
-  // price chart (no trade-level lines) for context.
-  function _renderOIDetail(content, s) {
-    const pDir  = s.price_chg_pct >= 0 ? 'green' : 'red';
-    const oiDir = s.oi_chg_pct   >= 0 ? 'green' : 'red';
-    const pSign = s.price_chg_pct >= 0 ? '+' : '';
-    const oSign = s.oi_chg_pct   >= 0 ? '+' : '';
-
-    content.innerHTML = `
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px;">
-        <div>
-          <a href="https://www.tradingview.com/chart/?symbol=NSE:${s.symbol}" target="_blank" rel="noopener"
-             style="font-size:19px;font-weight:800;color:var(--text);text-decoration:none;">${s.symbol}</a>
-          <div style="font-size:11px;color:var(--text-muted);margin-top:3px;">Near-month futures OI</div>
-        </div>
-        <div style="text-align:right;">
-          <div style="font-size:19px;font-weight:800;color:var(--text)">${fmt(s.last_price)}</div>
-          <div style="font-size:11px;color:var(--${pDir})">${pSign}${s.price_chg_pct}%</div>
-        </div>
-      </div>
-      <div class="detail-stat-grid">
-        <div class="detail-stat"><span class="lbl">Signal</span><span class="val">${OI_PILLS[s.activity] || s.activity}</span></div>
-        <div class="detail-stat"><span class="lbl">Price Chg</span><span class="val" style="color:var(--${pDir})">${pSign}${s.price_chg_pct}%</span></div>
-        <div class="detail-stat"><span class="lbl">OI Chg</span><span class="val" style="color:var(--${oiDir})">${oSign}${s.oi_chg_pct}%</span></div>
-      </div>
-      <div id="detail-chart-container" style="flex:1;min-height:320px;"></div>
-      <div class="chart-legend" id="detail-chart-legend" style="border-top:none;padding:10px 0 0;"></div>`;
-
-    _fetchAndRenderChartInto(s.symbol, {}, document.getElementById('detail-chart-container'),
-      document.getElementById('detail-chart-legend'), _detailChartHolder, 320);
   }
 
   function _refreshChartPanel(panelKey) {
@@ -2112,6 +2066,8 @@
     "pdh-breakout/bullish": "pdh_breakout_bull",
     "orb/bullish": "orb_bull",
     "orb/bearish": "orb_bear",
+    "oi-options/bullish": "oi_opt_bull",
+    "oi-options/bearish": "oi_opt_bear",
   };
 
   async function _loadSetup(endpoint, tbodyId, direction, refLevelKey, countId, label) {
@@ -2456,82 +2412,14 @@
     } catch (_) {}
   }
 
-  // ── OI Buildup ────────────────────────────────────────────────
-  const OI_PILLS = {
-    "long_buildup":   `<span class="pill pill-green">Long Buildup</span>`,
-    "short_buildup":  `<span class="pill pill-red">Short Buildup</span>`,
-    "short_covering": `<span class="pill pill-blue">Short Covering</span>`,
-    "long_unwinding": `<span class="pill pill-orange">Long Unwinding</span>`,
-  };
-
-  function renderOIRows(data, tbodyId) {
-    const el = document.getElementById(tbodyId);
-    if (!data || data.length === 0) {
-      el.innerHTML = `<tr><td colspan="5">
-        <div class="empty-state">No significant OI activity detected.</div>
-      </td></tr>`;
-      return;
-    }
-    el.innerHTML = data.slice(0, 10).map(s => {
-      const pDir  = s.price_chg_pct >= 0 ? "green" : "red";
-      const oiDir = s.oi_chg_pct   >= 0 ? "green" : "red";
-      const pSign = s.price_chg_pct >= 0 ? "+" : "";
-      const oSign = s.oi_chg_pct   >= 0 ? "+" : "";
-      return `<tr>
-        <td><a class="sym" href="https://www.tradingview.com/chart/?symbol=NSE:${s.symbol}" target="_blank" rel="noopener noreferrer">${s.symbol}</a></td>
-        <td class="price">${fmt(s.last_price)}</td>
-        <td><span class="pill pill-${pDir}">${pSign}${s.price_chg_pct}%</span></td>
-        <td style="font-weight:700;color:var(--${oiDir})">${oSign}${s.oi_chg_pct}%</td>
-        <td>${OI_PILLS[s.activity] || s.activity}</td>
-      </tr>`;
-    }).join("");
+  // ── OI Options Buy Screener (fresh buildup only) ───────────────
+  async function loadOiOptionsBullish() {
+    return _loadSetup("oi-options/bullish", "oi-bullish-body", "bullish", "pdl", null,
+                      "OI Options Buy — Fresh Long Buildup (Buy Call Candidates)");
   }
-
-  async function loadOI() {
-    const notLiveMsg = `<tr><td colspan="5"><div class="empty-state">
-      OI data requires live Upstox connection.<br>
-      <small>Click &#9889; Connect Upstox in the header to enable real-time OI tracking.</small>
-    </div></td></tr>`;
-    const loadingMsg = `<tr><td colspan="5"><div class="empty-state"><div class="spinner"></div>Scanning OI…</div></td></tr>`;
-    document.getElementById("oi-bullish-body").innerHTML = loadingMsg;
-    document.getElementById("oi-bearish-body").innerHTML = loadingMsg;
-    try {
-      const res  = await fetch(`${API}/api/oi-buildup`);
-      const data = await res.json();
-
-      if (!data.is_live) {
-        document.getElementById("oi-bullish-body").innerHTML = notLiveMsg;
-        document.getElementById("oi-bearish-body").innerHTML = notLiveMsg;
-        _oiPanelData['oi-bull'] = { rows: [], notLive: true };
-        _oiPanelData['oi-bear'] = { rows: [], notLive: true };
-        _refreshChartPanel('oi-bull');
-        _refreshChartPanel('oi-bear');
-        return;
-      }
-
-      // Bullish: Long Buildup (strong) + Short Covering (weak), sorted by |OI chg|
-      const bullish = [...(data.long_buildup || []), ...(data.short_covering || [])]
-        .sort((a, b) => Math.abs(b.oi_chg_pct) - Math.abs(a.oi_chg_pct));
-      // Bearish: Short Buildup (strong) + Long Unwinding (weak), sorted by |OI chg|
-      const bearish = [...(data.short_buildup || []), ...(data.long_unwinding || [])]
-        .sort((a, b) => Math.abs(b.oi_chg_pct) - Math.abs(a.oi_chg_pct));
-
-      renderOIRows(bullish, "oi-bullish-body");
-      renderOIRows(bearish, "oi-bearish-body");
-
-      _oiPanelData['oi-bull'] = { rows: bullish, notLive: false };
-      _oiPanelData['oi-bear'] = { rows: bearish, notLive: false };
-      _refreshChartPanel('oi-bull');
-      _refreshChartPanel('oi-bear');
-    } catch (_) {
-      const err = `<tr><td colspan="5"><div class="empty-state">OI data unavailable</div></td></tr>`;
-      document.getElementById("oi-bullish-body").innerHTML = err;
-      document.getElementById("oi-bearish-body").innerHTML = err;
-      _oiPanelData['oi-bull'] = { rows: [], notLive: false };
-      _oiPanelData['oi-bear'] = { rows: [], notLive: false };
-      _refreshChartPanel('oi-bull');
-      _refreshChartPanel('oi-bear');
-    }
+  async function loadOiOptionsBearish() {
+    return _loadSetup("oi-options/bearish", "oi-bearish-body", "bearish", "pdh", null,
+                      "OI Options Buy — Fresh Short Buildup (Buy Put Candidates)");
   }
 
   // ── Last updated ──────────────────────────────────────────────
@@ -2545,7 +2433,7 @@
   async function refreshAll() {
     await Promise.all([loadMarket(), loadStatus()]);
     await Promise.all([loadS1Bullish(), loadS1Bearish(), loadExhaustionShort(), loadPdhBreakout(), loadOrbBullish(), loadOrbBearish()]);
-    await Promise.all([loadTicker(), loadOI(), loadMarketBrief(), loadGlobalIndices()]);
+    await Promise.all([loadTicker(), loadOiOptionsBullish(), loadOiOptionsBearish(), loadMarketBrief(), loadGlobalIndices()]);
     stampUpdated();
   }
 
@@ -2818,6 +2706,8 @@
           <option value="PDH Breakout">
           <option value="ORB Bullish">
           <option value="ORB Bearish">
+          <option value="OI Options Buy Call">
+          <option value="OI Options Buy Put">
           <option value="Manual / Discretionary">
         </datalist>
       </label>
