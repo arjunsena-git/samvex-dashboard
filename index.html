@@ -1508,6 +1508,10 @@
       </div>
       <div class="criteria-row">
         <span class="chip chip-green">Price ↑ ≥0.5% + OI ↑ ≥3% (Long Buildup)</span>
+        <span class="chip chip-green">Strong Sector (sector index ≥+0.3%)</span>
+        <span class="chip chip-green">Relative Volume &gt; 2×</span>
+        <span class="chip chip-green">Price above VWAP</span>
+        <span class="chip chip-green">First 15-min range broken &amp; held</span>
         <span class="chip chip-blue">Day futures turnover ≥ ₹50cr (liquidity)</span>
         <span class="chip chip-orange">Excludes Short Covering (unwinding, not fresh)</span>
         <span class="chip chip-orange">Max 5 · GOOD+ only</span>
@@ -1540,6 +1544,10 @@
       </div>
       <div class="criteria-row">
         <span class="chip chip-red">Price ↓ ≥0.5% + OI ↑ ≥3% (Short Buildup)</span>
+        <span class="chip chip-red">Weak Sector (sector index ≤-0.3%)</span>
+        <span class="chip chip-red">Relative Volume &gt; 2×</span>
+        <span class="chip chip-red">Price below VWAP</span>
+        <span class="chip chip-red">First 15-min range broken &amp; held</span>
         <span class="chip chip-blue">Day futures turnover ≥ ₹50cr (liquidity)</span>
         <span class="chip chip-orange">Excludes Long Unwinding (closing, not fresh)</span>
         <span class="chip chip-orange">Max 5 · GOOD+ only</span>
@@ -1852,11 +1860,17 @@
              OI ${sign(s.oi_chg_pct)}${s.oi_chg_pct}%
            </span>`
         : "";
+      const sectorBadge = s.sector != null
+        ? `<span style="font-size:9px;color:var(--text-muted);display:block;margin-top:2px;">
+             ${s.sector} <span style="color:var(--${s.sector_chg_pct >= 0 ? "green" : "red"});font-weight:700;">${sign(s.sector_chg_pct)}${s.sector_chg_pct}%</span>
+           </span>`
+        : "";
 
       return divider + `<tr class="${isInactive ? "signal-inactive" : ""}">
         <td>
           <a class="sym" href="https://www.tradingview.com/chart/?symbol=NSE:${s.symbol}" target="_blank" rel="noopener noreferrer">${s.symbol}</a>
           ${setupBadge}
+          ${sectorBadge}
           ${detectedBadge}
           ${goneBadge}
           ${chartBtn}
@@ -2100,6 +2114,8 @@
         <div class="detail-stat"><span class="lbl">${s.key_label || 'Key Level'}</span><span class="val">${fmt(s.key_level)}</span></div>
         <div class="detail-stat"><span class="lbl">Volume</span><span class="val">${s.volume_ratio}&times;</span></div>
         ${s.oi_chg_pct != null ? `<div class="detail-stat"><span class="lbl">OI Chg</span><span class="val" style="color:${s.oi_chg_pct >= 0 ? 'var(--green)' : 'var(--red)'}">${sign(s.oi_chg_pct)}${s.oi_chg_pct}%</span></div>` : ''}
+        ${s.sector != null ? `<div class="detail-stat"><span class="lbl">Sector (${s.sector})</span><span class="val" style="color:${s.sector_chg_pct >= 0 ? 'var(--green)' : 'var(--red)'}">${sign(s.sector_chg_pct)}${s.sector_chg_pct}%</span></div>` : ''}
+        ${s.vwap != null ? `<div class="detail-stat"><span class="lbl">VWAP</span><span class="val">${fmt(s.vwap)}</span></div>` : ''}
         <div class="detail-stat"><span class="lbl">Score</span><span class="val">${s.confidence_score ?? ''} ${s.confidence_label || ''}</span></div>
         <div class="detail-stat"><span class="lbl">R:R</span><span class="val">${s.risk_reward ?? ''}</span></div>
         <div class="detail-stat"><span class="lbl">Entry</span><span class="val">${fmt(s.entry)}</span></div>

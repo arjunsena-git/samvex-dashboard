@@ -870,6 +870,103 @@ def _compute_oi_signals():
     return out
 
 
+# ── Sector classification + sector-index strength ──────────────────
+# Used by the OI Options screener's "Strong Sector" gate. Stock -> sector
+# comes from NSE's own sectoral index constituent CSVs (same fetch pattern
+# as the Nifty 500 list above); sector strength comes from that sector
+# index's own daily % change on Yahoo Finance. Two sectors — Healthcare and
+# Oil & Gas — have no reliable Yahoo daily history for their index (only a
+# single snapshot row, no usable prev-close); stocks in those sectors are
+# excluded from the gate entirely rather than silently skipped or passed.
+_SECTOR_CSV_SLUGS = {
+    "IT":                 "niftyitlist",
+    "Bank":               "niftybanklist",
+    "Auto":               "niftyautolist",
+    "Pharma":             "niftypharmalist",
+    "FMCG":               "niftyfmcglist",
+    "Metal":              "niftymetallist",
+    "Realty":             "niftyrealtylist",
+    "Energy":             "niftyenergylist",
+    "PSU Bank":           "niftypsubanklist",
+    "Private Bank":       "nifty_privatebanklist",
+    "Financial Services": "niftyfinancelist",
+    "Media":              "niftymedialist",
+    "Infra":              "niftyinfralist",
+}
+# More specific sub-sectors take priority over the generic "Bank" bucket
+# when a stock appears in more than one constituent list (e.g. a private
+# bank is also in the generic Bank list)
+_SECTOR_PRIORITY = ["Private Bank", "PSU Bank", "IT", "Auto", "Pharma", "FMCG",
+                    "Metal", "Realty", "Energy", "Financial Services", "Media",
+                    "Infra", "Bank"]
+_SECTOR_INDEX_YF = {
+    "IT": "^CNXIT", "Bank": "^NSEBANK", "Auto": "^CNXAUTO", "Pharma": "^CNXPHARMA",
+    "FMCG": "^CNXFMCG", "Metal": "^CNXMETAL", "Realty": "^CNXREALTY",
+    "Energy": "^CNXENERGY", "PSU Bank": "^CNXPSUBANK",
+    "Private Bank": "NIFTY_PVT_BANK.NS", "Financial Services": "NIFTY_FIN_SERVICE.NS",
+    "Media": "^CNXMEDIA", "Infra": "^CNXINFRA",
+}
+_sector_map_cache: dict = {"map": {}, "date": ""}
+
+def _load_sector_map() -> dict:
+    """Symbol (no .NS) -> sector name, from NSE's sectoral index constituent
+    CSVs. Cached per trading day."""
+    ist   = pytz.timezone("Asia/Kolkata")
+    today = datetime.now(ist).strftime("%Y-%m-%d")
+    if _sector_map_cache["map"] and _sector_map_cache["date"] == today:
+        return _sector_map_cache["map"]
+
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                      "AppleWebKit/537.36 (KHTML, like Gecko) "
+                      "Chrome/120.0.0.0 Safari/537.36",
+        "Accept":          "text/csv,text/plain,*/*",
+        "Accept-Language": "en-US,en;q=0.9",
+    }
+    sector_map = {}
+    # Iterate lowest -> highest priority so higher-priority sectors are
+    # written last and win when a symbol is in more than one list
+    for sector in reversed(_SECTOR_PRIORITY):
+        slug = _SECTOR_CSV_SLUGS.get(sector)
+        if not slug:
+            continue
+        try:
+            url = f"https://nsearchives.nseindia.com/content/indices/ind_{slug}.csv"
+            r   = _http.get(url, timeout=15, headers=headers)
+            r.raise_for_status()
+            df  = pd.read_csv(io.StringIO(r.text))
+            col = next((c for c in df.columns if "symbol" in c.lower()), None)
+            if not col:
+                continue
+            for s in df[col].dropna():
+                sym = str(s).strip().upper()
+                if sym and sym not in ("SYMBOL", "NAN"):
+                    sector_map[sym] = sector
+        except Exception as e:
+            print(f"[Sector] {sector} list fetch error: {e}")
+
+    if sector_map:
+        _sector_map_cache["map"]  = sector_map
+        _sector_map_cache["date"] = today
+    return _sector_map_cache["map"]
+
+
+def _fetch_sector_strength() -> dict:
+    """Sector name -> today's % change of its sectoral index (delayed,
+    Yahoo Finance). This is the 'Strong Sector' leg of the OI Options gate."""
+    out = {}
+    for sector, sym in _SECTOR_INDEX_YF.items():
+        try:
+            d = yf.Ticker(sym).history(period="1mo", interval="1d")
+            if len(d) >= 2:
+                prev = float(d["Close"].iloc[-2])
+                curr = float(d["Close"].iloc[-1])
+                out[sector] = round((curr - prev) / prev * 100, 2) if prev > 0 else 0.0
+        except Exception:
+            pass
+    return out
+
+
 # ── OI Options Buy Screener — fresh buildup only ────────────────────
 #
 # For buying Calls/Puts specifically, fresh directional conviction matters
@@ -879,30 +976,47 @@ def _compute_oi_signals():
 # exhaustion-flavored signal that's a worse fit for buying options (decaying
 # momentum into an unwind) — deliberately excluded here, unlike the raw OI
 # Buildup classification above which still tags all four buckets.
+#
+# On top of OI buildup, this also requires the other four legs of a
+# "high-probability" intraday options-buying setup: a Strong Sector tailwind,
+# the underlying's own relative volume > 2x, price aligned with VWAP, and a
+# First 15-Minute opening-range breakout — all five must line up together.
 OI_OPT_PRICE_CHG_MIN = 0.5     # min price change % — tighter than the raw classifier's 0.2%
 OI_OPT_OI_CHG_MIN    = 3.0     # min OI buildup % — tighter than the raw classifier's 1.0%
 OI_OPT_MIN_TURNOVER  = 50_00_00_000   # ₹50 crore min day turnover on the futures contract —
                                        # proxy for the stock's options chain also being liquid
 OI_OPT_BUILDUP_MAX   = 10.0    # OI buildup % that maxes the confidence score
-OI_OPT_PRICE_MAX     = 5.0     # price move % that maxes the confidence score
+OI_OPT_SECTOR_MIN_PCT = 0.3    # min sector-index % change (same direction as the stock) — "Strong Sector"
+OI_OPT_REL_VOL_MIN    = 2.0    # underlying stock's own paced volume vs prev day — the "> 2x" leg
+OI_OPT_REL_VOL_MAX    = 6.0    # relative volume that maxes the confidence score
 
 
 def _screen_oi_options(direction: str) -> list:
     """OI-based stock-options-buying screener. Returns Buy-Call candidates
     (bullish, fresh Long Buildup) or Buy-Put candidates (bearish, fresh Short
-    Buildup). Entry/SL/targets are quoted on the underlying futures price —
-    options buyers size risk off the underlying breaking a level, not the
-    option premium itself, since we don't have a live options-chain feed for
-    strike-specific greeks. Exact strike/premium selection is left to the
-    trader's broker; this only ranks which underlyings to look at."""
+    Buildup) that ALSO clear a Strong Sector + Relative Volume + VWAP +
+    First 15-Minute Breakout check on the underlying stock. Entry/SL/targets
+    are quoted on the underlying futures price — options buyers size risk
+    off the underlying breaking a level, not the option premium itself,
+    since we don't have a live options-chain feed for strike-specific
+    greeks. Exact strike/premium selection is left to the trader's broker;
+    this only ranks which underlyings to look at."""
     if not _is_live():
         return []
 
-    bullish = direction == "bullish"
-    fmap    = _load_futures_map()
-    quotes  = _fetch_futures_quotes()
+    bullish     = direction == "bullish"
+    fmap        = _load_futures_map()
+    quotes      = _fetch_futures_quotes()
     if not quotes:
         return []
+
+    sector_map      = _load_sector_map()
+    sector_strength = _cached("sector_strength", _fetch_sector_strength, ttl=SCREEN_TTL)
+    batch_daily     = _get_daily_batch()
+    batch_15m       = _get_15m_batch()
+    batch_5m        = _get_5m_batch()
+    ist        = pytz.timezone("Asia/Kolkata")
+    today_date = datetime.now(ist).date()
 
     results = []
     for sym, q in quotes.items():
@@ -925,7 +1039,7 @@ def _screen_oi_options(direction: str) -> list:
             price_chg  = (last_price - prev_close) / prev_close * 100
             oi_buildup = (oi - oi_day_low) / oi_day_low * 100
 
-            # Fresh buildup only — Long Buildup for bullish, Short Buildup for bearish
+            # Leg 1: fresh buildup only — Long Buildup for bullish, Short Buildup for bearish
             if bullish:
                 if price_chg < OI_OPT_PRICE_CHG_MIN or oi_buildup < OI_OPT_OI_CHG_MIN:
                     continue
@@ -938,6 +1052,88 @@ def _screen_oi_options(direction: str) -> list:
             if turnover < OI_OPT_MIN_TURNOVER:
                 continue
 
+            # Leg 2: Strong Sector — exclude entirely if we can't classify
+            # the stock or don't have a reliable strength reading for its sector
+            sector = sector_map.get(sym)
+            if not sector or sector not in sector_strength:
+                continue
+            sector_chg = sector_strength[sector]
+            if bullish and sector_chg < OI_OPT_SECTOR_MIN_PCT:
+                continue
+            if not bullish and sector_chg > -OI_OPT_SECTOR_MIN_PCT:
+                continue
+
+            # Underlying stock's own intraday data (separate from the futures
+            # quote above) for legs 3-5: relative volume, VWAP, opening-range breakout
+            daily  = _get_ticker_df(batch_daily, f"{sym}.NS")
+            intra15 = _get_ticker_df(batch_15m, f"{sym}.NS")
+            intra5  = _get_ticker_df(batch_5m, f"{sym}.NS")
+            if daily is None or intra15 is None or intra5 is None or len(daily) < 2:
+                continue
+
+            try:
+                if intra15.index.tz is not None:
+                    mask15 = intra15.index.tz_convert(ist).date == today_date
+                else:
+                    mask15 = [ts.date() == today_date for ts in intra15.index]
+                today_bars15 = intra15[mask15]
+            except Exception:
+                today_bars15 = intra15.iloc[:0]
+            try:
+                if intra5.index.tz is not None:
+                    mask5 = intra5.index.tz_convert(ist).date == today_date
+                else:
+                    mask5 = [ts.date() == today_date for ts in intra5.index]
+                today_bars5 = intra5[mask5]
+            except Exception:
+                today_bars5 = intra5.iloc[:0]
+
+            if len(today_bars15) < 1 or len(today_bars5) < 1:
+                continue
+
+            # Leg 3: Relative Volume > 2x — underlying's own paced volume vs prev day
+            prev_vol = float(daily["Volume"].iloc[-2])
+            if prev_vol <= 0:
+                continue
+            day_vol_so_far = float(today_bars15["Volume"].sum())
+            elapsed_min    = max(15.0, len(today_bars15) * 15.0)
+            paced_vol      = (day_vol_so_far / elapsed_min) * 375.0
+            rel_vol_ratio  = paced_vol / prev_vol
+            if rel_vol_ratio < OI_OPT_REL_VOL_MIN:
+                continue
+
+            spot_price = float(today_bars5["Close"].iloc[-1])
+            if spot_price <= 0:
+                continue
+
+            # Leg 4: VWAP Alignment — spot price on the right side of today's VWAP
+            highs5  = today_bars5["High"].astype(float).tolist()
+            lows5   = today_bars5["Low"].astype(float).tolist()
+            closes5 = today_bars5["Close"].astype(float).tolist()
+            vols5   = today_bars5["Volume"].astype(float).tolist()
+            vwap_den = sum(vols5)
+            if vwap_den <= 0:
+                continue
+            vwap_num = sum(((highs5[i] + lows5[i] + closes5[i]) / 3) * vols5[i] for i in range(len(closes5)))
+            vwap = vwap_num / vwap_den
+            if bullish and spot_price <= vwap:
+                continue
+            if not bullish and spot_price >= vwap:
+                continue
+
+            # Leg 5: First 15-Minute Breakout — broke the opening 15-min
+            # range and is still on the breakout side of it right now
+            or_high15 = float(today_bars15["High"].iloc[0])
+            or_low15  = float(today_bars15["Low"].iloc[0])
+            day_high15 = float(today_bars15["High"].max())
+            day_low15  = float(today_bars15["Low"].min())
+            if bullish:
+                if day_high15 <= or_high15 or spot_price <= or_high15:
+                    continue
+            else:
+                if day_low15 >= or_low15 or spot_price >= or_low15:
+                    continue
+
             entry = round(last_price, 2)
             sl    = round(day_low * 0.997, 2) if bullish else round(day_high * 1.003, 2)
             risk  = abs(entry - sl)
@@ -947,12 +1143,18 @@ def _screen_oi_options(direction: str) -> list:
             t1    = round(entry + sign_ * risk * 1.5, 2)
             t2    = round(entry + sign_ * risk * 3.0, 2)
 
-            # Confidence 0-100: OI buildup strength (40) + price move strength
-            # (35) + liquidity headroom above the turnover floor (25)
-            oi_s    = min(oi_buildup / OI_OPT_BUILDUP_MAX, 1.0) * 40
-            price_s = min(abs(price_chg) / OI_OPT_PRICE_MAX, 1.0) * 35
-            liq_s   = min(turnover / (OI_OPT_MIN_TURNOVER * 3), 1.0) * 25
-            conf_score = round(oi_s + price_s + liq_s)
+            # Confidence 0-100, evenly weighted across the formula's 5 legs:
+            # OI buildup (20) + relative volume (20) + VWAP distance (20) +
+            # sector strength (20) + opening-range breakout distance (20)
+            oi_s     = min(oi_buildup / OI_OPT_BUILDUP_MAX, 1.0) * 20
+            relvol_s = min((rel_vol_ratio - OI_OPT_REL_VOL_MIN) / (OI_OPT_REL_VOL_MAX - OI_OPT_REL_VOL_MIN), 1.0) * 20
+            vwap_dist_pct = abs(spot_price - vwap) / vwap * 100 if vwap > 0 else 0
+            vwap_s   = min(vwap_dist_pct / 1.0, 1.0) * 20
+            sector_s = min(abs(sector_chg) / 1.0, 1.0) * 20
+            or_dist_pct = (abs(spot_price - or_high15) / or_high15 * 100 if bullish
+                           else abs(or_low15 - spot_price) / or_low15 * 100)
+            or_s     = min(or_dist_pct / 1.0, 1.0) * 20
+            conf_score = round(oi_s + relvol_s + vwap_s + sector_s + or_s)
             conf_label = "STRONG" if conf_score >= 65 else "GOOD" if conf_score >= 40 else "WATCH"
 
             results.append({
@@ -960,13 +1162,16 @@ def _screen_oi_options(direction: str) -> list:
                 "price":            entry,
                 "gap_pct":          round(price_chg, 2),
                 "oi_chg_pct":       round(oi_buildup, 2),
+                "sector":           sector,
+                "sector_chg_pct":   sector_chg,
+                "vwap":             round(vwap, 2),
                 "day_high":         round(day_high, 2),
                 "day_low":          round(day_low, 2),
                 "pdh":              round(day_high, 2),
                 "pdl":              round(day_low, 2),
                 "key_level":        round(day_low if bullish else day_high, 2),
                 "key_label":        "Day Low" if bullish else "Day High",
-                "volume_ratio":     round(turnover / OI_OPT_MIN_TURNOVER, 2),
+                "volume_ratio":     round(rel_vol_ratio, 2),
                 "turnover_cr":      round(turnover / 1e7, 1),
                 "lot_size":         lot_size,
                 "setup":            "Buy Call (CE) — OI Long Buildup" if bullish else "Buy Put (PE) — OI Short Buildup",
@@ -981,7 +1186,7 @@ def _screen_oi_options(direction: str) -> list:
                 "confidence_label": conf_label,
                 "demand_zone":      round(day_low, 2),
                 "supply_zone":      round(day_high, 2),
-                "bos_time":         datetime.now(pytz.timezone("Asia/Kolkata")).strftime("%H:%M"),
+                "bos_time":         datetime.now(ist).strftime("%H:%M"),
             })
 
         except Exception:
