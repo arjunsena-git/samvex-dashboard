@@ -1373,12 +1373,12 @@
       </div>
     </div>
 
-    <!-- Momentum Breakout Bearish -->
+    <!-- Momentum Breakdown Bearish -->
     <div class="panel">
       <div class="panel-header">
         <div class="panel-title">
           <span class="dot dot-red"></span>
-          Momentum Breakout &nbsp;<span style="font-size:11px;color:var(--text-muted);font-weight:400;">Opened in range → clean break below PDL</span>
+          Momentum Breakdown &nbsp;<span style="font-size:11px;color:var(--text-muted);font-weight:400;">Opened in range → clean break below PDL</span>
         </div>
         <div style="display:flex;gap:6px;align-items:center;">
           <a class="diag-link diagnose-link" target="_blank" rel="noopener">Diagnose ↗</a>
@@ -1871,7 +1871,7 @@
     { key: 'zone-demand', label: 'Demand Zone', sub: 'Bullish', dot: 'dot-green', color: 'var(--green)', type: 'trade' },
     { key: 'zone-supply', label: 'Supply Zone', sub: 'Bearish', dot: 'dot-red',   color: 'var(--red)',   type: 'trade' },
     { key: 'mb-bull', label: 'Momentum Breakout', sub: 'Bullish', dot: 'dot-green', color: 'var(--green)', type: 'trade' },
-    { key: 'mb-bear', label: 'Momentum Breakout', sub: 'Bearish', dot: 'dot-red',   color: 'var(--red)',   type: 'trade' },
+    { key: 'mb-bear', label: 'Momentum Breakdown', sub: 'Bearish', dot: 'dot-red',   color: 'var(--red)',   type: 'trade' },
     { key: 'oi-bull', label: 'OI Options', sub: 'Bullish · Buy Call', dot: 'dot-green', color: 'var(--green)', type: 'trade' },
     { key: 'oi-bear', label: 'OI Options', sub: 'Bearish · Buy Put',  dot: 'dot-red',   color: 'var(--red)',   type: 'trade' },
   ];
@@ -2309,7 +2309,7 @@
   }
   async function loadMomentumBreakoutBearish() {
     return _loadSetup("momentum-breakout/bearish", "mb-bear-body", "bearish", "pdl", null,
-                      "Momentum Breakout — Range Open + Clean PDL Break (Bearish)");
+                      "Momentum Breakdown — Range Open + Clean PDL Break (Bearish)");
   }
   // ── Global Indices (overnight / pre-market cues) ──────────────
   async function loadGlobalIndices() {
@@ -2897,7 +2897,7 @@
           <option value="Demand Zone Retest">
           <option value="Supply Zone Retest">
           <option value="Momentum Breakout Bullish">
-          <option value="Momentum Breakout Bearish">
+          <option value="Momentum Breakdown Bearish">
           <option value="Manual / Discretionary">
         </datalist>
       </label>

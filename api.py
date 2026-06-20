@@ -207,7 +207,7 @@ _PANEL_LABELS = {
     (6, "bullish"): "Demand Zone — Institutional Order Block Retest (Bullish)",
     (6, "bearish"): "Supply Zone — Institutional Order Block Retest (Bearish)",
     (7, "bullish"): "Momentum Breakout — Range Open + Clean PDH Break (Bullish)",
-    (7, "bearish"): "Momentum Breakout — Range Open + Clean PDL Break (Bearish)",
+    (7, "bearish"): "Momentum Breakdown — Range Open + Clean PDL Break (Bearish)",
 }
 
 def _signals_path(date_str: str) -> str:
@@ -2570,7 +2570,7 @@ def _screen_momentum_breakout(direction: str) -> list:
                 "key_level":        round(pdh if bullish else pdl, 2),
                 "key_label":        "PDH" if bullish else "PDL",
                 "volume_ratio":     round(vol_ratio, 2),
-                "setup":            "Momentum Breakout Bullish" if bullish else "Momentum Breakout Bearish",
+                "setup":            "Momentum Breakout Bullish" if bullish else "Momentum Breakdown Bearish",
                 "entry":            round(current_price, 2),
                 "sl":               sl,
                 "sl_pct":           round(risk / current_price * 100, 2),
