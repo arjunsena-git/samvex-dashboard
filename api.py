@@ -3611,6 +3611,55 @@ def signals_backfill_csv():
     )
 
 
+@app.route("/api/signals/all-today.csv")
+def signals_all_today_csv():
+    """Every signal captured today across all 8 setups/16 panels — both
+    still-active and inactive ('Signal gone') ones — sourced from the
+    server-side _smc_history store (Redis-persisted, survives restarts and
+    browser refreshes), not from whatever happens to be loaded in the
+    requesting browser tab. This is what 'Download All Signals' should
+    mean: the full day's capture, not just what's currently on screen."""
+    ist       = pytz.timezone("Asia/Kolkata")
+    today_str = datetime.now(ist).strftime("%Y-%m-%d")
+    headers = ["Panel","Symbol","Setup","Active","Detected At (IST)","Price","Gap%","PDH","PDL",
+               "Key Level","Key Label","Vol Ratio","Score","Label",
+               "Demand Zone","Supply Zone","Entry","SL","SL%","T1","T2","R:R"]
+    rows = [
+        "# Samvex LLP — All Signals Captured Today (Active + Inactive)",
+        f"# Date: {today_str}  |  Generated: {datetime.now(ist).strftime('%H:%M IST')}",
+        "",
+        ",".join(headers),
+    ]
+    total = 0
+    for (setup, direction), label in _PANEL_LABELS.items():
+        key      = (setup, direction, today_str)
+        history  = _smc_history.get(key, {})
+        signals  = sorted(history.values(), key=lambda s: s.get("detected_at") or "", reverse=True)
+        for s in signals:
+            total += 1
+            rows.append(",".join(str(x) for x in [
+                f'"{label}"',
+                s.get("symbol", ""), s.get("setup", ""),
+                "Yes" if s.get("is_active") else "No",
+                s.get("detected_at", ""),
+                s.get("price", ""), s.get("gap_pct", ""),
+                s.get("pdh", ""), s.get("pdl", ""),
+                s.get("key_level", ""), s.get("key_label", ""),
+                s.get("volume_ratio", ""),
+                s.get("confidence_score", ""), s.get("confidence_label", ""),
+                s.get("demand_zone", ""), s.get("supply_zone", ""),
+                s.get("entry", ""), s.get("sl", ""), s.get("sl_pct", ""),
+                s.get("t1", ""), s.get("t2", ""), s.get("risk_reward", ""),
+            ]))
+    if total == 0:
+        rows.append("# No signals captured yet today")
+    return Response(
+        "\n".join(rows),
+        mimetype="text/csv",
+        headers={"Content-Disposition": f"attachment; filename=samvex_all_signals_{today_str}.csv"},
+    )
+
+
 @app.route("/api/signals/today")
 def signals_today_json():
     """Today's signals. Reads from _signal_store if populated; falls back to live

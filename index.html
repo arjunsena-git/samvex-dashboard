@@ -965,7 +965,10 @@
   <div class="csv-toolbar" style="gap:8px;flex-wrap:wrap;">
     <button id="chart-mode-btn" class="chart-mode-toggle active" onclick="toggleChartMode()">&#9776; Full Table View</button>
     <button id="journal-btn" class="chart-mode-toggle" onclick="toggleJournalView()">&#128209; Trade Journal</button>
-    <button class="csv-btn" onclick="downloadAllCSV()">↓ Download Visible Signals</button>
+    <a id="download-all-btn" class="csv-btn" style="text-decoration:none;display:inline-flex;align-items:center;"
+       title="Every signal captured today across all panels, active and inactive">
+      ↓ Download All Signals (Today)
+    </a>
   </div>
 
   <!-- ── Live Panels view (default landing view) ───────────────────── -->
@@ -1679,6 +1682,7 @@
     ? "http://localhost:5050"
     : "https://samvex-api.onrender.com";
   document.querySelectorAll('.diagnose-link').forEach(el => el.href = API + '/debug/screen');
+  document.getElementById('download-all-btn').href = API + '/api/signals/all-today.csv';
 
   // ── Fetch with retry (handles Render cold-start wake-up) ────────
   // Render free tier takes 30-60s to wake up after idle. We retry 3 times
@@ -1909,53 +1913,20 @@
     if (_panelKey) _refreshChartPanel(_panelKey);
   }
 
-  // ── CSV download (all panels, registry-based) ─────────────────
-  // Each panel registers itself via _registerPanel() when data loads.
-  // downloadAllCSV() iterates panels in registration order, so future
-  // panels are included automatically — no changes needed here.
+  // ── Panel registry ──────────────────────────────────────────────
+  // Each panel registers itself via _registerPanel() when data loads, so
+  // _panelRows() (used by the Live Panels sidebar/name-list) always has the
+  // latest rows for every panel. The "Download All Signals" button is a
+  // plain server-side link now (see download-all-btn above) — it reads from
+  // the backend's persistent _smc_history store instead of this client-side
+  // cache, so it covers the full day across all panels regardless of which
+  // ones happen to be loaded in this browser tab.
   const _panelData    = {};   // key → {label, rows}
   const _panelOrder   = [];   // insertion-ordered keys
 
   function _registerPanel(key, label, rows) {
     if (!_panelOrder.includes(key)) _panelOrder.push(key);
     _panelData[key] = { label, rows };
-  }
-
-  const CSV_HEADERS = ["Symbol","Setup","Detected At (IST)","Price","Gap%","PDH","PDL","Key Level","Key Label","Vol Ratio","Demand Zone","Supply Zone","Entry","SL","SL%","T1","T2","R:R"];
-
-  function _rowToCSV(r) {
-    return [r.symbol, r.setup, r.detected_at ?? "", r.price, r.gap_pct, r.pdh, r.pdl,
-            r.key_level, r.key_label, r.volume_ratio,
-            r.demand_zone ?? "", r.supply_zone ?? "",
-            r.entry, r.sl, r.sl_pct, r.t1, r.t2, r.risk_reward].join(",");
-  }
-
-  function downloadAllCSV() {
-    const loaded = _panelOrder.filter(k => _panelData[k]?.rows?.length > 0);
-    if (loaded.length === 0) {
-      alert("No signals loaded yet — wait for the panels to finish scanning.");
-      return;
-    }
-    const ist  = new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" });
-    const date = new Date().toISOString().slice(0, 10);
-    const lines = [`# Samvex Trading Signals — ${ist} IST`, ""];
-    _panelOrder.forEach(key => {
-      const panel = _panelData[key];
-      lines.push(`## ${panel.label}`);
-      if (!panel.rows || panel.rows.length === 0) {
-        lines.push("# No signals");
-      } else {
-        lines.push(CSV_HEADERS.join(","));
-        panel.rows.forEach(r => lines.push(_rowToCSV(r)));
-      }
-      lines.push("");
-    });
-    const blob = new Blob([lines.join("\n")], { type: "text/csv" });
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = `samvex_signals_${date}.csv`;
-    a.click();
-    URL.revokeObjectURL(a.href);
   }
 
   // ── Live Panels — permanent sidebar + name list + detail pane ──
@@ -2331,8 +2302,6 @@
   }
 
   // ── Setup loaders ────────────────────────────────────────────
-  // label is stored in the registry so downloadAllCSV() can use it as a heading.
-  // Any future panel added here is automatically included in the download.
   const _INSIGHT_KEY_MAP = {
     "setup1/bullish":     "s1_bull",
     "setup1/bearish":     "s1_bear",
