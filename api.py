@@ -1728,7 +1728,7 @@ def _screen_smc(direction: str) -> list:
             paced_vol     = (day_vol / elapsed_min) * 375.0
             vol_ratio     = paced_vol / prev_vol
 
-            if vol_ratio < 1.9:
+            if vol_ratio < 2.0:
                 continue
 
             # No-reversal gate: must be within 2% of day extreme
