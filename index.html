@@ -205,6 +205,15 @@
       padding: 4px 10px; cursor: pointer; font-size: 12px;
     }
     .refresh-btn:hover { color: var(--text); border-color: var(--accent); }
+    th[data-field] { cursor: pointer; user-select: none; }
+    th[data-field]:hover { color: var(--accent); }
+    .sort-arrow { font-size: 9px; color: var(--accent); }
+    .live-sort-select {
+      background: var(--bg-card-2); border: 1px solid var(--border);
+      color: var(--text-muted); border-radius: 6px; font-size: 11px;
+      padding: 4px 8px; cursor: pointer;
+    }
+    .live-sort-select:hover { color: var(--text); border-color: var(--accent); }
     .csv-btn {
       background: var(--bg-card-2); border: 1px solid var(--border);
       color: var(--text-muted); border-radius: 6px;
@@ -1037,8 +1046,8 @@
       <div class="table-wrap">
       <table>
         <thead><tr>
-          <th>Symbol</th><th>Price</th><th>Gap</th>
-          <th>PDH / Key Level</th><th>Volume</th><th>Score</th><th>Trade Plan</th>
+          <th data-field="symbol" onclick="sortPanel(event,'symbol')">Symbol</th><th data-field="price" onclick="sortPanel(event,'price')">Price</th><th data-field="gap" onclick="sortPanel(event,'gap')">Gap</th>
+          <th data-field="reflevel" onclick="sortPanel(event,'reflevel')">PDH / Key Level</th><th data-field="vol" onclick="sortPanel(event,'vol')">Volume</th><th data-field="score" onclick="sortPanel(event,'score')">Score</th><th>Trade Plan</th>
         </tr></thead>
         <tbody id="exh-short-body">
           <tr><td colspan="7"><div class="empty-state"><div class="spinner"></div>Loading…</div></td></tr>
@@ -1080,8 +1089,8 @@
       <div class="table-wrap">
       <table>
         <thead><tr>
-          <th>Symbol</th><th>Price</th><th>Gap</th>
-          <th>PDH / Key Level</th><th>Volume</th><th>Score</th><th>Trade Plan</th>
+          <th data-field="symbol" onclick="sortPanel(event,'symbol')">Symbol</th><th data-field="price" onclick="sortPanel(event,'price')">Price</th><th data-field="gap" onclick="sortPanel(event,'gap')">Gap</th>
+          <th data-field="reflevel" onclick="sortPanel(event,'reflevel')">PDH / Key Level</th><th data-field="vol" onclick="sortPanel(event,'vol')">Volume</th><th data-field="score" onclick="sortPanel(event,'score')">Score</th><th>Trade Plan</th>
         </tr></thead>
         <tbody id="pdh-breakout-body">
           <tr><td colspan="7"><div class="empty-state"><div class="spinner"></div>Loading…</div></td></tr>
@@ -1125,8 +1134,8 @@
       <div class="table-wrap">
       <table>
         <thead><tr>
-          <th>Symbol</th><th>Price</th><th>Gap</th>
-          <th>OR High / Key Level</th><th>Volume</th><th>Score</th><th>Trade Plan</th>
+          <th data-field="symbol" onclick="sortPanel(event,'symbol')">Symbol</th><th data-field="price" onclick="sortPanel(event,'price')">Price</th><th data-field="gap" onclick="sortPanel(event,'gap')">Gap</th>
+          <th data-field="reflevel" onclick="sortPanel(event,'reflevel')">OR High / Key Level</th><th data-field="vol" onclick="sortPanel(event,'vol')">Volume</th><th data-field="score" onclick="sortPanel(event,'score')">Score</th><th>Trade Plan</th>
         </tr></thead>
         <tbody id="orb-bull-body">
           <tr><td colspan="7"><div class="empty-state"><div class="spinner"></div>Loading…</div></td></tr>
@@ -1159,8 +1168,8 @@
       <div class="table-wrap">
       <table>
         <thead><tr>
-          <th>Symbol</th><th>Price</th><th>Gap</th>
-          <th>OR Low / Key Level</th><th>Volume</th><th>Score</th><th>Trade Plan</th>
+          <th data-field="symbol" onclick="sortPanel(event,'symbol')">Symbol</th><th data-field="price" onclick="sortPanel(event,'price')">Price</th><th data-field="gap" onclick="sortPanel(event,'gap')">Gap</th>
+          <th data-field="reflevel" onclick="sortPanel(event,'reflevel')">OR Low / Key Level</th><th data-field="vol" onclick="sortPanel(event,'vol')">Volume</th><th data-field="score" onclick="sortPanel(event,'score')">Score</th><th>Trade Plan</th>
         </tr></thead>
         <tbody id="orb-bear-body">
           <tr><td colspan="7"><div class="empty-state"><div class="spinner"></div>Loading…</div></td></tr>
@@ -1202,8 +1211,8 @@
       <div class="table-wrap">
       <table>
         <thead><tr>
-          <th>Symbol</th><th>Price</th><th>Gap</th>
-          <th>PDH / Key Level</th><th>Volume</th><th>Score</th><th>Trade Plan</th>
+          <th data-field="symbol" onclick="sortPanel(event,'symbol')">Symbol</th><th data-field="price" onclick="sortPanel(event,'price')">Price</th><th data-field="gap" onclick="sortPanel(event,'gap')">Gap</th>
+          <th data-field="reflevel" onclick="sortPanel(event,'reflevel')">PDH / Key Level</th><th data-field="vol" onclick="sortPanel(event,'vol')">Volume</th><th data-field="score" onclick="sortPanel(event,'score')">Score</th><th>Trade Plan</th>
         </tr></thead>
         <tbody id="zone-demand-body">
           <tr><td colspan="7"><div class="empty-state"><div class="spinner"></div>Loading…</div></td></tr>
@@ -1234,8 +1243,8 @@
       <div class="table-wrap">
       <table>
         <thead><tr>
-          <th>Symbol</th><th>Price</th><th>Gap</th>
-          <th>PDL / Key Level</th><th>Volume</th><th>Score</th><th>Trade Plan</th>
+          <th data-field="symbol" onclick="sortPanel(event,'symbol')">Symbol</th><th data-field="price" onclick="sortPanel(event,'price')">Price</th><th data-field="gap" onclick="sortPanel(event,'gap')">Gap</th>
+          <th data-field="reflevel" onclick="sortPanel(event,'reflevel')">PDL / Key Level</th><th data-field="vol" onclick="sortPanel(event,'vol')">Volume</th><th data-field="score" onclick="sortPanel(event,'score')">Score</th><th>Trade Plan</th>
         </tr></thead>
         <tbody id="zone-supply-body">
           <tr><td colspan="7"><div class="empty-state"><div class="spinner"></div>Loading…</div></td></tr>
@@ -1278,8 +1287,8 @@
       <div class="table-wrap">
       <table>
         <thead><tr>
-          <th>Symbol</th><th>Price</th><th>Gap</th>
-          <th>PDH / Key Level</th><th>Volume</th><th>Score</th><th>Trade Plan</th>
+          <th data-field="symbol" onclick="sortPanel(event,'symbol')">Symbol</th><th data-field="price" onclick="sortPanel(event,'price')">Price</th><th data-field="gap" onclick="sortPanel(event,'gap')">Gap</th>
+          <th data-field="reflevel" onclick="sortPanel(event,'reflevel')">PDH / Key Level</th><th data-field="vol" onclick="sortPanel(event,'vol')">Volume</th><th data-field="score" onclick="sortPanel(event,'score')">Score</th><th>Trade Plan</th>
         </tr></thead>
         <tbody id="mb-bull-body">
           <tr><td colspan="7"><div class="empty-state"><div class="spinner"></div>Loading…</div></td></tr>
@@ -1311,8 +1320,8 @@
       <div class="table-wrap">
       <table>
         <thead><tr>
-          <th>Symbol</th><th>Price</th><th>Gap</th>
-          <th>PDL / Key Level</th><th>Volume</th><th>Score</th><th>Trade Plan</th>
+          <th data-field="symbol" onclick="sortPanel(event,'symbol')">Symbol</th><th data-field="price" onclick="sortPanel(event,'price')">Price</th><th data-field="gap" onclick="sortPanel(event,'gap')">Gap</th>
+          <th data-field="reflevel" onclick="sortPanel(event,'reflevel')">PDL / Key Level</th><th data-field="vol" onclick="sortPanel(event,'vol')">Volume</th><th data-field="score" onclick="sortPanel(event,'score')">Score</th><th>Trade Plan</th>
         </tr></thead>
         <tbody id="mb-bear-body">
           <tr><td colspan="7"><div class="empty-state"><div class="spinner"></div>Loading…</div></td></tr>
@@ -1355,8 +1364,8 @@
       <div class="table-wrap">
       <table>
         <thead><tr>
-          <th>Symbol</th><th>Price</th><th>Gap</th>
-          <th>PDL / Key Level</th><th>Volume</th><th>Score</th><th>Trade Plan</th>
+          <th data-field="symbol" onclick="sortPanel(event,'symbol')">Symbol</th><th data-field="price" onclick="sortPanel(event,'price')">Price</th><th data-field="gap" onclick="sortPanel(event,'gap')">Gap</th>
+          <th data-field="reflevel" onclick="sortPanel(event,'reflevel')">PDL / Key Level</th><th data-field="vol" onclick="sortPanel(event,'vol')">Volume</th><th data-field="score" onclick="sortPanel(event,'score')">Score</th><th>Trade Plan</th>
         </tr></thead>
         <tbody id="trap-bull-body">
           <tr><td colspan="7"><div class="empty-state"><div class="spinner"></div>Loading…</div></td></tr>
@@ -1388,8 +1397,8 @@
       <div class="table-wrap">
       <table>
         <thead><tr>
-          <th>Symbol</th><th>Price</th><th>Gap</th>
-          <th>PDH / Key Level</th><th>Volume</th><th>Score</th><th>Trade Plan</th>
+          <th data-field="symbol" onclick="sortPanel(event,'symbol')">Symbol</th><th data-field="price" onclick="sortPanel(event,'price')">Price</th><th data-field="gap" onclick="sortPanel(event,'gap')">Gap</th>
+          <th data-field="reflevel" onclick="sortPanel(event,'reflevel')">PDH / Key Level</th><th data-field="vol" onclick="sortPanel(event,'vol')">Volume</th><th data-field="score" onclick="sortPanel(event,'score')">Score</th><th>Trade Plan</th>
         </tr></thead>
         <tbody id="trap-bear-body">
           <tr><td colspan="7"><div class="empty-state"><div class="spinner"></div>Loading…</div></td></tr>
@@ -1435,8 +1444,8 @@
       <div class="table-wrap">
       <table>
         <thead><tr>
-          <th>Symbol</th><th>Price</th><th>Day Chg</th>
-          <th>Day Low / Key Level</th><th>Volume</th><th>Score</th><th>Trade Plan</th>
+          <th data-field="symbol" onclick="sortPanel(event,'symbol')">Symbol</th><th data-field="price" onclick="sortPanel(event,'price')">Price</th><th data-field="gap" onclick="sortPanel(event,'gap')">Day Chg</th>
+          <th data-field="reflevel" onclick="sortPanel(event,'reflevel')">Day Low / Key Level</th><th data-field="vol" onclick="sortPanel(event,'vol')">Volume</th><th data-field="score" onclick="sortPanel(event,'score')">Score</th><th>Trade Plan</th>
         </tr></thead>
         <tbody id="oi-bullish-body">
           <tr><td colspan="7"><div class="empty-state"><div class="spinner"></div>Loading…</div></td></tr>
@@ -1470,8 +1479,8 @@
       <div class="table-wrap">
       <table>
         <thead><tr>
-          <th>Symbol</th><th>Price</th><th>Day Chg</th>
-          <th>Day High / Key Level</th><th>Volume</th><th>Score</th><th>Trade Plan</th>
+          <th data-field="symbol" onclick="sortPanel(event,'symbol')">Symbol</th><th data-field="price" onclick="sortPanel(event,'price')">Price</th><th data-field="gap" onclick="sortPanel(event,'gap')">Day Chg</th>
+          <th data-field="reflevel" onclick="sortPanel(event,'reflevel')">Day High / Key Level</th><th data-field="vol" onclick="sortPanel(event,'vol')">Volume</th><th data-field="score" onclick="sortPanel(event,'score')">Score</th><th>Trade Plan</th>
         </tr></thead>
         <tbody id="oi-bearish-body">
           <tr><td colspan="7"><div class="empty-state"><div class="spinner"></div>Loading…</div></td></tr>
@@ -1772,7 +1781,9 @@
            </span>`
         : "";
 
-      return divider + `<tr class="${isInactive ? "signal-inactive" : ""}">
+      return divider + `<tr class="${isInactive ? "signal-inactive" : ""}"
+        data-symbol="${s.symbol}" data-price="${s.price}" data-gap="${s.gap_pct}"
+        data-reflevel="${refLevel}" data-vol="${s.volume_ratio ?? ""}" data-score="${s.confidence_score ?? ""}">
         <td>
           <a class="sym" href="https://www.tradingview.com/chart/?symbol=NSE:${s.symbol}" target="_blank" rel="noopener noreferrer">${s.symbol}</a>
           ${setupBadge}
@@ -1796,6 +1807,45 @@
 
     // Keep chart grid in sync if chart mode is active
     if (_panelKey) _refreshChartPanel(_panelKey);
+
+    // Re-apply this table's active sort (if any) — a fresh render from the
+    // next data refresh otherwise resets back to detection-time order.
+    const sortState = _sortState[tbodyId];
+    if (sortState) _applySort(el, sortState.field, sortState.dir, false);
+  }
+
+  // ── Full Table View — click-to-sort column headers ──────────────
+  const _sortState = {};   // tbodyId → {field, dir}
+
+  function sortPanel(ev, field) {
+    const th    = ev.currentTarget;
+    const table = th.closest('table');
+    const tbody = table.querySelector('tbody');
+    const cur   = _sortState[tbody.id];
+    const dir   = (cur && cur.field === field) ? -cur.dir : 1;
+    _sortState[tbody.id] = { field, dir };
+    _applySort(tbody, field, dir, true);
+  }
+
+  function _applySort(tbody, field, dir, updateArrow) {
+    const rows = Array.from(tbody.querySelectorAll('tr[data-symbol]'));
+    if (!rows.length) return;
+    tbody.querySelectorAll('tr.history-divider').forEach(d => d.remove());
+    rows.sort((a, b) => {
+      const av = a.dataset[field], bv = b.dataset[field];
+      const an = parseFloat(av), bn = parseFloat(bv);
+      const cmp = (!isNaN(an) && !isNaN(bn)) ? (an - bn) : String(av).localeCompare(String(bv));
+      return cmp * dir;
+    });
+    rows.forEach(r => tbody.appendChild(r));
+    if (updateArrow) {
+      const table = tbody.closest('table');
+      table.querySelectorAll('th[data-field]').forEach(t => {
+        t.querySelectorAll('.sort-arrow').forEach(a => a.remove());
+      });
+      const th = table.querySelector(`th[data-field="${field}"]`);
+      if (th) th.insertAdjacentHTML('beforeend', `<span class="sort-arrow">${dir === 1 ? ' ▲' : ' ▼'}</span>`);
+    }
   }
 
   // ── Panel registry ──────────────────────────────────────────────
@@ -1892,6 +1942,15 @@
     });
   }
 
+  // ── Live Panels — sort dropdown ──────────────────────────────────
+  const _liveSortState = {};   // panelKey → "field_dir" (e.g. "confidence_score_desc")
+
+  function _setLiveSort(panelKey, value) {
+    if (value) _liveSortState[panelKey] = value;
+    else delete _liveSortState[panelKey];
+    _selectChartPanel(panelKey, true);
+  }
+
   // panelKey: which scanner panel to show. preserveSelection: true when called
   // from a background data refresh — keeps the currently open stock detail
   // open (if it's still in the active list) instead of resetting to the bare list.
@@ -1903,14 +1962,34 @@
       b.classList.toggle('active', b.dataset.key === panelKey));
 
     const cfg    = _PANEL_CONFIGS.find(c => c.key === panelKey);
-    const stocks = _panelRows(cfg);
-    const activeStocks = stocks.filter(s => s.is_active !== false);
+    let stocks   = _panelRows(cfg);
     const isBull = panelKey.includes('bull');
+
+    const sortKey = _liveSortState[panelKey] || '';
+    if (sortKey) {
+      const splitAt = sortKey.lastIndexOf('_');
+      const field   = sortKey.slice(0, splitAt);
+      const dir     = sortKey.slice(splitAt + 1) === 'asc' ? 1 : -1;
+      stocks = [...stocks].sort((a, b) => {
+        if (field === 'symbol') return String(a.symbol).localeCompare(String(b.symbol)) * dir;
+        return ((a[field] ?? 0) - (b[field] ?? 0)) * dir;
+      });
+    }
+    const activeStocks = stocks.filter(s => s.is_active !== false);
 
     const hdr = document.getElementById('chart-main-hdr');
     hdr.innerHTML = `
       <span class="dot ${cfg.dot}"></span>
       <span class="chart-main-title">${cfg.label} &nbsp;<span style="color:${cfg.color}">${cfg.sub}</span></span>
+      <select class="live-sort-select" onchange="_setLiveSort('${panelKey}', this.value)" style="margin-left:12px;">
+        <option value="" ${!sortKey ? 'selected' : ''}>Sort: Detected (newest)</option>
+        <option value="confidence_score_desc" ${sortKey === 'confidence_score_desc' ? 'selected' : ''}>Score (high → low)</option>
+        <option value="confidence_score_asc" ${sortKey === 'confidence_score_asc' ? 'selected' : ''}>Score (low → high)</option>
+        <option value="gap_pct_desc" ${sortKey === 'gap_pct_desc' ? 'selected' : ''}>Gap % (high → low)</option>
+        <option value="gap_pct_asc" ${sortKey === 'gap_pct_asc' ? 'selected' : ''}>Gap % (low → high)</option>
+        <option value="volume_ratio_desc" ${sortKey === 'volume_ratio_desc' ? 'selected' : ''}>Volume (high → low)</option>
+        <option value="symbol_asc" ${sortKey === 'symbol_asc' ? 'selected' : ''}>Symbol (A → Z)</option>
+      </select>
       <span style="margin-left:auto;font-size:11px;color:var(--text-muted);font-weight:600">
         ${activeStocks.length} active signal${activeStocks.length !== 1 ? 's' : ''}
       </span>`;
