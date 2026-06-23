@@ -205,12 +205,6 @@
       padding: 4px 10px; cursor: pointer; font-size: 12px;
     }
     .refresh-btn:hover { color: var(--text); border-color: var(--accent); }
-    .diag-link {
-      background: var(--bg-card-2); border: 1px solid var(--border);
-      color: var(--accent); border-radius: 6px; text-decoration: none;
-      padding: 4px 10px; font-size: 12px; cursor: pointer;
-    }
-    .diag-link:hover { border-color: var(--accent); opacity: .85; }
     .csv-btn {
       background: var(--bg-card-2); border: 1px solid var(--border);
       color: var(--text-muted); border-radius: 6px;
@@ -945,11 +939,6 @@
       <div class="sub" id="top-loser-val">Loading…</div>
     </div>
     <div class="summary-card">
-      <div class="label">Trend Signals</div>
-      <div class="value" id="s1-count" style="color:var(--green)">—</div>
-      <div class="sub">Setup 1 · PDH breakouts &amp; PDL breakdowns</div>
-    </div>
-    <div class="summary-card">
       <div class="label">Exhaustion Shorts</div>
       <div class="value" id="exh-count" style="color:var(--red)">—</div>
       <div class="sub">Profit booking after a huge rally · 9:15–2:00 PM</div>
@@ -1014,88 +1003,6 @@
     </div>
   </div>
 
-  <!-- ── Setup 1: SMC Liquidity Sweep → BOS ──────────────────────── -->
-  <!-- Hidden by default — Live Panels is the default view; toggle to Full Table View to see these. -->
-  <div class="section-divider" id="s1-divider" style="display:none;">
-    <div class="section-divider-line"></div>
-    <div class="section-divider-title">Setup 1 — SMC Liquidity Sweep → BOS · Top 5 High-Conviction Signals Only (GOOD+ Score)</div>
-    <button class="section-collapse-btn" onclick="toggleSectionCollapse('s1-table-grid', this)">&#9662; Collapse</button>
-    <div class="section-divider-line"></div>
-  </div>
-  <div class="scanner-grid" id="s1-table-grid" style="display:none;">
-
-    <!-- Setup 1 Bullish: Sweep PDL → BOS above PDH -->
-    <div class="panel">
-      <div class="panel-header">
-        <div class="panel-title">
-          <span class="dot dot-green"></span>
-          Liq. Sweep → BOS &nbsp;<span style="font-size:11px;color:var(--text-muted);font-weight:400;">Sweep PDL → Break PDH</span>
-        </div>
-        <div style="display:flex;gap:6px;align-items:center;">
-          <a class="diag-link diagnose-link" target="_blank" rel="noopener">Diagnose ↗</a>
-          <button class="refresh-btn" onclick="loadS1Bullish()">↺ Refresh</button>
-          <button class="expand-btn" onclick="expandPanel(this)" title="Full screen (Esc to close)">⤢ Expand</button>
-        </div>
-      </div>
-      <div class="criteria-row">
-        <span class="chip chip-orange">Day Low &lt; PDL (sweep)</span>
-        <span class="chip chip-green">Close &gt; PDH (BOS)</span>
-        <span class="chip chip-green">BOS candle vol ≥1.5×avg</span>
-        <span class="chip chip-green">Price within 2% of day high</span>
-        <span class="chip chip-blue">Vol ≥1.2×</span>
-        <span class="chip chip-blue">Nifty aligned</span>
-        <span class="chip chip-orange">Max 5 · GOOD+ only</span>
-      </div>
-      <div class="table-wrap">
-      <table>
-        <thead><tr>
-          <th>Symbol</th><th>Price</th><th>Gap</th>
-          <th>PDH / Key Level</th><th>Volume</th><th>Score</th><th>Trade Plan</th>
-        </tr></thead>
-        <tbody id="s1-bull-body">
-          <tr><td colspan="7"><div class="empty-state"><div class="spinner"></div>Loading…</div></td></tr>
-        </tbody>
-      </table>
-      </div>
-    </div>
-
-    <!-- Setup 1 Bearish: Sweep PDH → BOS below PDL -->
-    <div class="panel">
-      <div class="panel-header">
-        <div class="panel-title">
-          <span class="dot dot-red"></span>
-          Liq. Sweep → BOS &nbsp;<span style="font-size:11px;color:var(--text-muted);font-weight:400;">Sweep PDH → Break PDL</span>
-        </div>
-        <div style="display:flex;gap:6px;align-items:center;">
-          <a class="diag-link diagnose-link" target="_blank" rel="noopener">Diagnose ↗</a>
-          <button class="refresh-btn" onclick="loadS1Bearish()">↺ Refresh</button>
-          <button class="expand-btn" onclick="expandPanel(this)" title="Full screen (Esc to close)">⤢ Expand</button>
-        </div>
-      </div>
-      <div class="criteria-row">
-        <span class="chip chip-orange">Day High &gt; PDH (sweep)</span>
-        <span class="chip chip-red">Close &lt; PDL (BOS)</span>
-        <span class="chip chip-red">BOS candle vol ≥1.5×avg</span>
-        <span class="chip chip-red">Price within 2% of day low</span>
-        <span class="chip chip-blue">Vol ≥1.2×</span>
-        <span class="chip chip-blue">Nifty aligned</span>
-        <span class="chip chip-orange">Max 5 · GOOD+ only</span>
-      </div>
-      <div class="table-wrap">
-      <table>
-        <thead><tr>
-          <th>Symbol</th><th>Price</th><th>Gap</th>
-          <th>PDL / Key Level</th><th>Volume</th><th>Score</th><th>Trade Plan</th>
-        </tr></thead>
-        <tbody id="s1-bear-body">
-          <tr><td colspan="7"><div class="empty-state"><div class="spinner"></div>Loading…</div></td></tr>
-        </tbody>
-      </table>
-      </div>
-    </div>
-
-  </div>
-
   <!-- ── Exhaustion Short: Profit Booking After Rally ─────────────── -->
   <div class="section-divider" id="exh-divider" style="margin-top:24px;display:none;">
     <div class="section-divider-line"></div>
@@ -1113,7 +1020,6 @@
           Exhaustion Short &nbsp;<span style="font-size:11px;color:var(--text-muted);font-weight:400;">Huge rally + pullback from day high → red candle</span>
         </div>
         <div style="display:flex;gap:6px;align-items:center;">
-          <a class="diag-link diagnose-link" target="_blank" rel="noopener">Diagnose ↗</a>
           <button class="refresh-btn" onclick="loadExhaustionShort()">↺ Refresh</button>
           <button class="expand-btn" onclick="expandPanel(this)" title="Full screen (Esc to close)">⤢ Expand</button>
         </div>
@@ -1160,7 +1066,6 @@
           PDH Breakout &nbsp;<span style="font-size:11px;color:var(--text-muted);font-weight:400;">Close &gt; PDH · trend + momentum confirmed</span>
         </div>
         <div style="display:flex;gap:6px;align-items:center;">
-          <a class="diag-link diagnose-link" target="_blank" rel="noopener">Diagnose ↗</a>
           <button class="refresh-btn" onclick="loadPdhBreakout()">↺ Refresh</button>
           <button class="expand-btn" onclick="expandPanel(this)" title="Full screen (Esc to close)">⤢ Expand</button>
         </div>
@@ -1204,7 +1109,6 @@
           ORB &nbsp;<span style="font-size:11px;color:var(--text-muted);font-weight:400;">Narrow open → consolidate → breakout up</span>
         </div>
         <div style="display:flex;gap:6px;align-items:center;">
-          <a class="diag-link diagnose-link" target="_blank" rel="noopener">Diagnose ↗</a>
           <button class="refresh-btn" onclick="loadOrbBullish()">↺ Refresh</button>
           <button class="expand-btn" onclick="expandPanel(this)" title="Full screen (Esc to close)">⤢ Expand</button>
         </div>
@@ -1239,7 +1143,6 @@
           ORB &nbsp;<span style="font-size:11px;color:var(--text-muted);font-weight:400;">Narrow open → consolidate → breakdown</span>
         </div>
         <div style="display:flex;gap:6px;align-items:center;">
-          <a class="diag-link diagnose-link" target="_blank" rel="noopener">Diagnose ↗</a>
           <button class="refresh-btn" onclick="loadOrbBearish()">↺ Refresh</button>
           <button class="expand-btn" onclick="expandPanel(this)" title="Full screen (Esc to close)">⤢ Expand</button>
         </div>
@@ -1285,7 +1188,6 @@
           Demand Zone &nbsp;<span style="font-size:11px;color:var(--text-muted);font-weight:400;">Narrow base + high-vol impulse up, now retesting</span>
         </div>
         <div style="display:flex;gap:6px;align-items:center;">
-          <a class="diag-link diagnose-link" target="_blank" rel="noopener">Diagnose ↗</a>
           <button class="refresh-btn" onclick="loadDemandZone()">↺ Refresh</button>
           <button class="expand-btn" onclick="expandPanel(this)" title="Full screen (Esc to close)">⤢ Expand</button>
         </div>
@@ -1318,7 +1220,6 @@
           Supply Zone &nbsp;<span style="font-size:11px;color:var(--text-muted);font-weight:400;">Narrow base + high-vol impulse down, now retesting</span>
         </div>
         <div style="display:flex;gap:6px;align-items:center;">
-          <a class="diag-link diagnose-link" target="_blank" rel="noopener">Diagnose ↗</a>
           <button class="refresh-btn" onclick="loadSupplyZone()">↺ Refresh</button>
           <button class="expand-btn" onclick="expandPanel(this)" title="Full screen (Esc to close)">⤢ Expand</button>
         </div>
@@ -1362,7 +1263,6 @@
           Momentum Breakout &nbsp;<span style="font-size:11px;color:var(--text-muted);font-weight:400;">Opened in range → clean break above PDH</span>
         </div>
         <div style="display:flex;gap:6px;align-items:center;">
-          <a class="diag-link diagnose-link" target="_blank" rel="noopener">Diagnose ↗</a>
           <button class="refresh-btn" onclick="loadMomentumBreakoutBullish()">↺ Refresh</button>
           <button class="expand-btn" onclick="expandPanel(this)" title="Full screen (Esc to close)">⤢ Expand</button>
         </div>
@@ -1396,7 +1296,6 @@
           Momentum Breakdown &nbsp;<span style="font-size:11px;color:var(--text-muted);font-weight:400;">Opened in range → clean break below PDL</span>
         </div>
         <div style="display:flex;gap:6px;align-items:center;">
-          <a class="diag-link diagnose-link" target="_blank" rel="noopener">Diagnose ↗</a>
           <button class="refresh-btn" onclick="loadMomentumBreakoutBearish()">↺ Refresh</button>
           <button class="expand-btn" onclick="expandPanel(this)" title="Full screen (Esc to close)">⤢ Expand</button>
         </div>
@@ -1441,7 +1340,6 @@
           Bear Trap &nbsp;<span style="font-size:11px;color:var(--text-muted);font-weight:400;">Failed PDL breakdown → buyers take control</span>
         </div>
         <div style="display:flex;gap:6px;align-items:center;">
-          <a class="diag-link diagnose-link" target="_blank" rel="noopener">Diagnose ↗</a>
           <button class="refresh-btn" onclick="loadBearTrap()">↺ Refresh</button>
           <button class="expand-btn" onclick="expandPanel(this)" title="Full screen (Esc to close)">⤢ Expand</button>
         </div>
@@ -1475,7 +1373,6 @@
           Bull Trap &nbsp;<span style="font-size:11px;color:var(--text-muted);font-weight:400;">Failed PDH breakout → sellers take control</span>
         </div>
         <div style="display:flex;gap:6px;align-items:center;">
-          <a class="diag-link diagnose-link" target="_blank" rel="noopener">Diagnose ↗</a>
           <button class="refresh-btn" onclick="loadBullTrap()">↺ Refresh</button>
           <button class="expand-btn" onclick="expandPanel(this)" title="Full screen (Esc to close)">⤢ Expand</button>
         </div>
@@ -1521,7 +1418,6 @@
           OI Bullish &nbsp;<span style="font-size:11px;color:var(--text-muted);font-weight:400;">Fresh Long Buildup → Buy Call</span>
         </div>
         <div style="display:flex;gap:6px;align-items:center;">
-          <a class="diag-link diagnose-link" target="_blank" rel="noopener">Diagnose ↗</a>
           <button class="refresh-btn" onclick="loadOiOptionsBullish()">↺ Refresh</button>
           <button class="expand-btn" onclick="expandPanel(this)" title="Full screen (Esc to close)">⤢ Expand</button>
         </div>
@@ -1557,7 +1453,6 @@
           OI Bearish &nbsp;<span style="font-size:11px;color:var(--text-muted);font-weight:400;">Fresh Short Buildup → Buy Put</span>
         </div>
         <div style="display:flex;gap:6px;align-items:center;">
-          <a class="diag-link diagnose-link" target="_blank" rel="noopener">Diagnose ↗</a>
           <button class="refresh-btn" onclick="loadOiOptionsBearish()">↺ Refresh</button>
           <button class="expand-btn" onclick="expandPanel(this)" title="Full screen (Esc to close)">⤢ Expand</button>
         </div>
@@ -1681,7 +1576,6 @@
   const API = (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1")
     ? "http://localhost:5050"
     : "https://samvex-api.onrender.com";
-  document.querySelectorAll('.diagnose-link').forEach(el => el.href = API + '/debug/screen');
   document.getElementById('download-all-btn').href = API + '/api/signals/all-today.csv';
 
   // ── Fetch with retry (handles Render cold-start wake-up) ────────
@@ -1820,20 +1714,11 @@
       el.innerHTML = `<tr><td colspan="7"><div class="empty-state">
         ${preMarket
           ? `<span style="color:var(--yellow);font-size:13px;font-weight:700;">Waiting for market…</span>`
-          : `No SMC signals yet — screener needs enough intraday structure (≥ 9:45 AM).`}
+          : `No signals yet — screener needs enough intraday structure to form.`}
         <span style="color:var(--text-muted);font-size:11px;display:block;margin-top:6px;">
           ${preMarket
-            ? "SMC screener activates at 9:45 AM IST when the first 2 bars have formed"
-            : "Screener refreshes every 5 min · signals appear when Liq. Sweep→BOS conditions are met"}
-        </span>
-        <span style="display:block;margin-top:8px;">
-          <a href="${API}/debug/screen" target="_blank" rel="noopener"
-             style="color:var(--accent);font-size:11px;text-decoration:underline;">
-            Diagnose why &rarr;
-          </a>
-          <span style="color:var(--text-muted);font-size:10px;margin-left:6px;">
-            (shows filter breakdown for all Nifty 500 stocks)
-          </span>
+            ? "Screener activates after the first few bars have formed post-open"
+            : "Screener refreshes every 5 min · signals appear when this panel's criteria are met"}
         </span>
       </div></td></tr>`;
       return;
@@ -1933,12 +1818,10 @@
   // Default landing view. The toggle button switches to the old full
   // table view (all columns) for power users who want the raw data.
   let _chartModeActive   = true;
-  let _activeChartPanel  = 's1-bull';
+  let _activeChartPanel  = 'exh-short';
   let _activeStockSymbol = null;
 
   const _PANEL_CONFIGS = [
-    { key: 's1-bull', label: 'Liq. Sweep → BOS', sub: 'Bullish', dot: 'dot-green', color: 'var(--green)', type: 'trade' },
-    { key: 's1-bear', label: 'Liq. Sweep → BOS', sub: 'Bearish', dot: 'dot-red',   color: 'var(--red)',   type: 'trade' },
     { key: 'exh-short', label: 'Exhaustion Short', sub: 'Profit Booking', dot: 'dot-red', color: 'var(--red)', type: 'trade' },
     { key: 'pdh-breakout', label: 'PDH Breakout', sub: 'Trend + Momentum', dot: 'dot-green', color: 'var(--green)', type: 'trade' },
     { key: 'orb-bull', label: 'ORB', sub: 'Bullish', dot: 'dot-green', color: 'var(--green)', type: 'trade' },
@@ -1964,7 +1847,7 @@
   // OI Buildup is now also available as sidebar panels in Live Panels view,
   // so the raw OI table below is hidden there too (it's only meaningful in
   // Full Table View, alongside the other raw scanner tables).
-  const _SCANNER_ELS = ['s1-divider','s1-table-grid','exh-divider','exh-table-grid','pdh-divider','pdh-table-grid','orb-divider','orb-table-grid','zone-divider','zone-table-grid','mb-divider','mb-table-grid','trap-divider','trap-table-grid','oi-divider','oi-table-grid'];
+  const _SCANNER_ELS = ['exh-divider','exh-table-grid','pdh-divider','pdh-table-grid','orb-divider','orb-table-grid','zone-divider','zone-table-grid','mb-divider','mb-table-grid','trap-divider','trap-table-grid','oi-divider','oi-table-grid'];
 
   function toggleChartMode() {
     if (_journalActive) _closeJournalView();
@@ -2303,8 +2186,6 @@
 
   // ── Setup loaders ────────────────────────────────────────────
   const _INSIGHT_KEY_MAP = {
-    "setup1/bullish":     "s1_bull",
-    "setup1/bearish":     "s1_bear",
     "exhaustion/short":   "exh_short",
     "pdh-breakout/bullish": "pdh_breakout_bull",
     "orb/bullish": "orb_bull",
@@ -2342,29 +2223,23 @@
     }
   }
 
-  async function loadS1Bullish() {
-    const data = await _loadSetup("setup1/bullish", "s1-bull-body", "bullish", "pdh", "s1-count",
-                                  "Setup 1 — Liq. Sweep → BOS (Bullish · Sweep PDL → Break PDH)");
-    if (data.length) {
-      document.getElementById("top-gainer-sym").textContent = data[0].symbol;
-      document.getElementById("top-gainer-val").textContent = `+${data[0].gap_pct.toFixed(2)}%  ₹${data[0].price}`;
-    }
-  }
-  async function loadS1Bearish() {
-    const data = await _loadSetup("setup1/bearish", "s1-bear-body", "bearish", "pdl", null,
-                                  "Setup 1 — Liq. Sweep → BOS (Bearish · Sweep PDH → Break PDL)");
+  async function loadExhaustionShort() {
+    const data = await _loadSetup("exhaustion/short", "exh-short-body", "bearish", "pdh", "exh-count",
+                      "Exhaustion Short — Profit Booking After Rally");
     if (data.length) {
       document.getElementById("top-loser-sym").textContent = data[0].symbol;
       document.getElementById("top-loser-val").textContent = `${data[0].gap_pct.toFixed(2)}%  ₹${data[0].price}`;
     }
-  }
-  async function loadExhaustionShort() {
-    return _loadSetup("exhaustion/short", "exh-short-body", "bearish", "pdh", "exh-count",
-                      "Exhaustion Short — Profit Booking After Rally");
+    return data;
   }
   async function loadPdhBreakout() {
-    return _loadSetup("pdh-breakout/bullish", "pdh-breakout-body", "bullish", "pdh", "pdh-count",
+    const data = await _loadSetup("pdh-breakout/bullish", "pdh-breakout-body", "bullish", "pdh", "pdh-count",
                       "PDH Breakout — Trend + Momentum");
+    if (data.length) {
+      document.getElementById("top-gainer-sym").textContent = data[0].symbol;
+      document.getElementById("top-gainer-val").textContent = `+${data[0].gap_pct.toFixed(2)}%  ₹${data[0].price}`;
+    }
+    return data;
   }
   async function loadOrbBullish() {
     return _loadSetup("orb/bullish", "orb-bull-body", "bullish", "pdh", null,
@@ -2738,7 +2613,7 @@
   // ── Auto-refresh every 5 min ──────────────────────────────────
   async function refreshAll() {
     await Promise.all([loadMarket(), loadStatus()]);
-    await Promise.all([loadS1Bullish(), loadS1Bearish(), loadExhaustionShort(), loadPdhBreakout(), loadOrbBullish(), loadOrbBearish(), loadDemandZone(), loadSupplyZone(), loadMomentumBreakoutBullish(), loadMomentumBreakoutBearish(), loadBearTrap(), loadBullTrap()]);
+    await Promise.all([loadExhaustionShort(), loadPdhBreakout(), loadOrbBullish(), loadOrbBearish(), loadDemandZone(), loadSupplyZone(), loadMomentumBreakoutBullish(), loadMomentumBreakoutBearish(), loadBearTrap(), loadBullTrap()]);
     await Promise.all([loadTicker(), loadOiOptionsBullish(), loadOiOptionsBearish(), loadMarketBrief(), loadGlobalIndices()]);
     stampUpdated();
   }
@@ -3004,10 +2879,8 @@
         <select id="jf-direction"><option>Long</option><option>Short</option></select>
       </label>
       <label>Setup / Strategy
-        <input id="jf-setup" type="text" list="jf-setup-options" placeholder="e.g. Liq. Sweep → BOS">
+        <input id="jf-setup" type="text" list="jf-setup-options" placeholder="e.g. Exhaustion Short">
         <datalist id="jf-setup-options">
-          <option value="Liq. Sweep → BOS Bullish">
-          <option value="Liq. Sweep → BOS Bearish">
           <option value="Exhaustion Short">
           <option value="PDH Breakout">
           <option value="ORB Bullish">

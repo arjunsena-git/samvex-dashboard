@@ -3,7 +3,8 @@ Samvex LLP — Daily Signal Performance Analyser (GitHub Actions edition)
 =======================================================================
 Runs at 4:30 PM IST weekdays via GitHub Actions.
 Covers all signal panels:
-  Setup1 Bull/Bear, Exhaustion Short, PDH Breakout, ORB Bull/Bear.
+  Exhaustion Short, PDH Breakout, ORB Bull/Bear, OI Options, Demand/Supply
+  Zone, Momentum Breakout/Breakdown, Trap Reversal.
 
 Env vars required:
   NOTION_API_KEY   Notion personal access token
@@ -298,9 +299,6 @@ def post_to_notion(report, code_change_note=""):
 # and escalates to a second knob (freshness) instead of going silent once a
 # panel's primary knob is maxed out.
 PANEL_TUNERS = {
-    1: {"name": "Setup 1 (Liquidity Sweep → BOS)",
-        "ratio_const": "SETUP1_VOL_RATIO",  "ratio_bounds": (0.9, 3.0), "ratio_step": 0.1,
-        "fresh_const": "SETUP1_FRESH_BARS", "fresh_bounds": (3, 10),   "fresh_step": 1},
     2: {"name": "Exhaustion Short",
         "ratio_const": "EXH_VOL_RATIO", "ratio_bounds": (0.9, 3.0), "ratio_step": 0.1},
     3: {"name": "PDH Breakout",
