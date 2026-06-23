@@ -3198,9 +3198,15 @@ def _fetch_global_indices():
             if len(d) >= 2:
                 prev = float(d["Close"].iloc[-2])
                 curr = float(d["Close"].iloc[-1])
+                # Yahoo occasionally returns a NaN close for a missing/partial
+                # day — math.isnan() check prevents a literal NaN token from
+                # going out in the JSON response, which isn't valid per the
+                # JSON spec and breaks the browser's res.json() parse
+                if math.isnan(prev) or math.isnan(curr) or prev <= 0:
+                    continue
                 result[name] = {
                     "price":      round(curr, 2),
-                    "change_pct": round((curr - prev) / prev * 100, 2) if prev > 0 else 0.0,
+                    "change_pct": round((curr - prev) / prev * 100, 2),
                 }
         except Exception:
             pass
