@@ -28,32 +28,21 @@ NOTION_IMPR_PAGE = "381c1120a5e5812d9f36c10005d13644"
 LOG_DIR          = Path("/tmp/samvex-logs")
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 
-# All 6 signal panels: (endpoint, direction, display label)
-PANELS = [
-    ("/api/setup1/bullish",      "bullish", "Liq. Sweep BOS Bullish"),
-    ("/api/setup1/bearish",      "bearish", "Liq. Sweep BOS Bearish"),
-    ("/api/exhaustion/short",    "bearish", "Exhaustion Short"),
-    ("/api/pdh-breakout/bullish","bullish", "PDH Breakout"),
-    ("/api/orb/bullish",         "bullish", "ORB Bullish"),
-    ("/api/orb/bearish",         "bearish", "ORB Bearish"),
-]
-
 # ── Fetch all signals ───────────────────────────────────────────────────────
 def fetch_all_signals():
-    all_sigs = []
-    for endpoint, direction, label in PANELS:
-        try:
-            r = requests.get(API_BASE + endpoint, timeout=30)
-            r.raise_for_status()
-            sigs = r.json() if isinstance(r.json(), list) else []
-            for s in sigs:
-                s["_direction"] = direction
-                s["_panel"]     = label
-            all_sigs.extend(sigs)
-            print(f"[Fetch] {label}: {len(sigs)} signals")
-        except Exception as e:
-            print(f"[Fetch] {endpoint} failed: {e}")
-    return all_sigs
+    """Pulls the full day's capture across all 16 panels (active + inactive)
+    from the server-side _smc_history store — NOT the live per-panel endpoints,
+    which only ever return whatever's currently active on the dashboard."""
+    try:
+        r = requests.get(API_BASE + "/api/signals/all-today.json", timeout=30)
+        r.raise_for_status()
+        data = r.json()
+        sigs = data.get("signals", [])
+        print(f"[Fetch] all-today.json: {len(sigs)} signals across all panels")
+        return sigs
+    except Exception as e:
+        print(f"[Fetch] /api/signals/all-today.json failed: {e}")
+        return []
 
 # ── Fetch 1-min bars ────────────────────────────────────────────────────────
 _bars_cache = {}

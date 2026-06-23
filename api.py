@@ -3660,6 +3660,28 @@ def signals_all_today_csv():
     )
 
 
+@app.route("/api/signals/all-today.json")
+def signals_all_today_json():
+    """JSON twin of /api/signals/all-today.csv — every signal captured today
+    across all 16 panels, active and inactive, sourced from _smc_history.
+    Used by the GitHub Actions daily analysis script, which previously hit
+    the live per-panel endpoints (only currently-active signals, 6/16 panels)
+    and badly undercounted the day's actual signal volume."""
+    ist       = pytz.timezone("Asia/Kolkata")
+    today_str = datetime.now(ist).strftime("%Y-%m-%d")
+    out = []
+    for (setup, direction), label in _PANEL_LABELS.items():
+        key     = (setup, direction, today_str)
+        history = _smc_history.get(key, {})
+        for s in history.values():
+            row = dict(s)
+            row["_panel"]     = label
+            row["_direction"] = direction
+            out.append(row)
+    out.sort(key=lambda s: s.get("detected_at") or "", reverse=True)
+    return jsonify({"date": today_str, "total": len(out), "signals": out})
+
+
 @app.route("/api/signals/today")
 def signals_today_json():
     """Today's signals. Reads from _signal_store if populated; falls back to live
