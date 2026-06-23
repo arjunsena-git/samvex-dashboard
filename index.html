@@ -214,6 +214,13 @@
       padding: 4px 8px; cursor: pointer;
     }
     .live-sort-select:hover { color: var(--text); border-color: var(--accent); }
+    .section-divider[draggable="true"] { cursor: grab; }
+    .section-divider.dragging { opacity: .4; }
+    .section-divider.drag-over { outline: 2px dashed var(--accent); outline-offset: 2px; }
+    .group-drag-handle { color: var(--text-muted); font-size: 13px; margin-right: 8px; cursor: grab; }
+    .chart-sidebar-group[draggable="true"] { cursor: grab; }
+    .chart-sidebar-group.dragging { opacity: .4; }
+    .chart-sidebar-group.drag-over { outline: 2px dashed var(--accent); outline-offset: 2px; }
     .csv-btn {
       background: var(--bg-card-2); border: 1px solid var(--border);
       color: var(--text-muted); border-radius: 6px;
@@ -716,6 +723,7 @@
       border-left-color: var(--accent); color: var(--accent);
     }
     .chart-sidebar-label { flex: 1; line-height: 1.4; }
+    .chart-sidebar-group { display: block; }
     .chart-sidebar-count {
       font-size: 10px; font-weight: 700;
       background: var(--bg-card-2); border: 1px solid var(--border);
@@ -784,7 +792,7 @@
       .chart-fullpage { flex-direction: column; }
       .chart-sidebar { width: 100%; position: static; display: flex; flex-wrap: wrap; }
       .chart-sidebar-hdr { width: 100%; }
-      .chart-sidebar-btn { flex: 1; min-width: 140px; }
+      .chart-sidebar-group { flex: 1; min-width: 140px; }
       .chart-main-area { padding-left: 0; padding-top: 14px; }
       .live-panel-body { flex-direction: column; height: auto; }
       .stock-name-list { width: 100%; max-height: 220px; }
@@ -1899,6 +1907,97 @@
   // Full Table View, alongside the other raw scanner tables).
   const _SCANNER_ELS = ['exh-divider','exh-table-grid','pdh-divider','pdh-table-grid','orb-divider','orb-table-grid','zone-divider','zone-table-grid','mb-divider','mb-table-grid','trap-divider','trap-table-grid','oi-divider','oi-table-grid'];
 
+  // ── Whole-panel drag-to-reorder ──────────────────────────────────
+  // A "group" is one named setup (e.g. PDH Breakout, ORB) as a single
+  // draggable unit — bullish + bearish move together, since the trading
+  // team thinks of them as one set, not two independent panels.
+  const _SETUP_GROUPS = [
+    { id: 'exh',  panelKeys: ['exh-short'],              sectionEls: ['exh-divider','exh-table-grid'] },
+    { id: 'pdh',  panelKeys: ['pdh-breakout'],            sectionEls: ['pdh-divider','pdh-table-grid'] },
+    { id: 'orb',  panelKeys: ['orb-bull','orb-bear'],     sectionEls: ['orb-divider','orb-table-grid'] },
+    { id: 'zone', panelKeys: ['zone-demand','zone-supply'], sectionEls: ['zone-divider','zone-table-grid'] },
+    { id: 'mb',   panelKeys: ['mb-bull','mb-bear'],       sectionEls: ['mb-divider','mb-table-grid'] },
+    { id: 'trap', panelKeys: ['trap-bull','trap-bear'],   sectionEls: ['trap-divider','trap-table-grid'] },
+    { id: 'oi',   panelKeys: ['oi-bull','oi-bear'],       sectionEls: ['oi-divider','oi-table-grid'] },
+  ];
+  const _GROUP_ORDER_KEY = 'samvex_panel_group_order';
+
+  function _loadGroupOrder() {
+    const defaultOrder = _SETUP_GROUPS.map(g => g.id);
+    try {
+      const saved = JSON.parse(localStorage.getItem(_GROUP_ORDER_KEY) || 'null');
+      if (Array.isArray(saved) && saved.length === defaultOrder.length &&
+          defaultOrder.every(id => saved.includes(id))) {
+        return saved;
+      }
+    } catch (_) {}
+    return defaultOrder;
+  }
+
+  function _saveGroupOrder(order) {
+    localStorage.setItem(_GROUP_ORDER_KEY, JSON.stringify(order));
+  }
+
+  function _moveGroupBefore(order, sourceId, targetId) {
+    if (sourceId === targetId) return order;
+    const next = order.filter(id => id !== sourceId);
+    const idx  = next.indexOf(targetId);
+    next.splice(idx, 0, sourceId);
+    return next;
+  }
+
+  // Re-sequences the (already-rendered) divider+grid DOM pairs for every
+  // group into the given order, leaving every other element on the page
+  // untouched. Repeated insertBefore(el, marker) calls in the desired
+  // order always leave the elements in that order immediately before the
+  // marker, regardless of where they started — see inline note below.
+  function _applyFullTableOrder(order) {
+    const firstGroup = _SETUP_GROUPS[0];
+    const anchorEl   = document.getElementById(firstGroup.sectionEls[0]);
+    if (!anchorEl) return;
+    const parent = anchorEl.parentNode;
+    let marker = document.getElementById('panel-order-marker');
+    if (!marker) {
+      marker = document.createElement('div');
+      marker.id = 'panel-order-marker';
+      marker.style.display = 'none';
+      parent.insertBefore(marker, anchorEl);
+    }
+    order.forEach(groupId => {
+      const grp = _SETUP_GROUPS.find(g => g.id === groupId);
+      if (!grp) return;
+      grp.sectionEls.forEach(elId => {
+        const el = document.getElementById(elId);
+        if (el) parent.insertBefore(el, marker);
+      });
+    });
+  }
+
+  function _onGroupDrop(sourceId, targetId) {
+    const order = _moveGroupBefore(_loadGroupOrder(), sourceId, targetId);
+    _saveGroupOrder(order);
+    _applyFullTableOrder(order);
+    _buildChartSidebar();
+  }
+
+  function _wireGroupDragHandlers(el, groupId) {
+    el.draggable = true;
+    el.dataset.groupId = groupId;
+    el.addEventListener('dragstart', e => {
+      e.dataTransfer.setData('text/plain', groupId);
+      el.classList.add('dragging');
+    });
+    el.addEventListener('dragend', () => el.classList.remove('dragging'));
+    el.addEventListener('dragover', e => { e.preventDefault(); el.classList.add('drag-over'); });
+    el.addEventListener('dragleave', () => el.classList.remove('drag-over'));
+    el.addEventListener('drop', e => {
+      e.preventDefault();
+      el.classList.remove('drag-over');
+      const sourceId = e.dataTransfer.getData('text/plain');
+      if (sourceId) _onGroupDrop(sourceId, groupId);
+    });
+  }
+
   function toggleChartMode() {
     if (_journalActive) _closeJournalView();
     _chartModeActive = !_chartModeActive;
@@ -1923,22 +2022,36 @@
   }
 
   function _buildChartSidebar() {
-    const list = document.getElementById('chart-sidebar-list');
+    const list  = document.getElementById('chart-sidebar-list');
     list.innerHTML = '';
-    _PANEL_CONFIGS.forEach(cfg => {
-      const count = _activeCount(cfg);
-      const btn   = document.createElement('div');
-      btn.className   = 'chart-sidebar-btn' + (cfg.key === _activeChartPanel ? ' active' : '');
-      btn.dataset.key = cfg.key;
-      btn.onclick     = () => _selectChartPanel(cfg.key);
-      btn.innerHTML   = `
-        <span class="dot ${cfg.dot}"></span>
-        <span class="chart-sidebar-label">
-          ${cfg.label}<br>
-          <span style="font-size:10px;color:var(--text-muted);font-weight:400">${cfg.sub}</span>
-        </span>
-        <span class="chart-sidebar-count">${count}</span>`;
-      list.appendChild(btn);
+    const order = _loadGroupOrder();
+    order.forEach(groupId => {
+      const grp = _SETUP_GROUPS.find(g => g.id === groupId);
+      if (!grp) return;
+      const wrap = document.createElement('div');
+      wrap.className = 'chart-sidebar-group';
+      _wireGroupDragHandlers(wrap, groupId);
+
+      grp.panelKeys.forEach((key, i) => {
+        const cfg = _PANEL_CONFIGS.find(c => c.key === key);
+        if (!cfg) return;
+        const count = _activeCount(cfg);
+        const btn   = document.createElement('div');
+        btn.className   = 'chart-sidebar-btn' + (cfg.key === _activeChartPanel ? ' active' : '');
+        btn.dataset.key = cfg.key;
+        btn.onclick     = () => _selectChartPanel(cfg.key);
+        const handle = i === 0 ? `<span class="group-drag-handle" title="Drag to reorder this whole set">&#10678;</span>` : '';
+        btn.innerHTML   = `
+          ${handle}
+          <span class="dot ${cfg.dot}"></span>
+          <span class="chart-sidebar-label">
+            ${cfg.label}<br>
+            <span style="font-size:10px;color:var(--text-muted);font-weight:400">${cfg.sub}</span>
+          </span>
+          <span class="chart-sidebar-count">${count}</span>`;
+        wrap.appendChild(btn);
+      });
+      list.appendChild(wrap);
     });
   }
 
@@ -2899,6 +3012,15 @@
   }
 
   // ── Boot ──────────────────────────────────────────────────────
+  // Apply the team's saved whole-panel drag order (if any) to the Full
+  // Table View sections, and wire each section's divider as the drag
+  // handle for its group, before anything else renders.
+  _applyFullTableOrder(_loadGroupOrder());
+  _SETUP_GROUPS.forEach(g => {
+    const divider = document.getElementById(g.sectionEls[0]);
+    if (divider) _wireGroupDragHandlers(divider, g.id);
+  });
+
   // Live Panels is the default view — build it immediately so the sidebar
   // and stock list appear right away; _refreshChartPanel() fills in real
   // data as each panel's fetch completes.
