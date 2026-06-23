@@ -139,6 +139,7 @@ def build_report(signals, results):
         detail.append({
             "symbol":      sig.get("symbol", ""),
             "panel":       sig.get("_panel", ""),
+            "setup_num":   sig.get("_setup_num"),
             "direction":   sig["_direction"],
             "is_active":   sig.get("is_active", False),
             "detected_at": sig.get("detected_at", ""),
@@ -288,109 +289,158 @@ def post_to_notion(report, code_change_note=""):
         print(f"[Notion] Page body written ({len(report['detail'])} signal rows)")
     return page_id
 
-# ── Auto code improvement ───────────────────────────────────────────────────
-def apply_code_improvement(report):
-    w   = report["win_rate_pct"]
-    exp = report["expired_rate_pct"]
-    bos = report["avg_bos_delay_min"]
-    val = report["valid_signals"]
-    tot = report["total_signals"]
+# ── Per-panel auto code improvement ─────────────────────────────────────────
+# Each of the 8 setups owns its own named volume/freshness constant in api.py.
+# Tuning win-rate off a single shared knob (the old behaviour) meant every
+# improvement always touched Setup 1's filter regardless of which panel was
+# actually underperforming, and saturated permanently once that one knob hit
+# its ceiling. This tunes the SPECIFIC panel that is actually weak/strong,
+# and escalates to a second knob (freshness) instead of going silent once a
+# panel's primary knob is maxed out.
+PANEL_TUNERS = {
+    1: {"name": "Setup 1 (Liquidity Sweep → BOS)",
+        "ratio_const": "SETUP1_VOL_RATIO",  "ratio_bounds": (0.9, 3.0), "ratio_step": 0.1,
+        "fresh_const": "SETUP1_FRESH_BARS", "fresh_bounds": (3, 10),   "fresh_step": 1},
+    2: {"name": "Exhaustion Short",
+        "ratio_const": "EXH_VOL_RATIO", "ratio_bounds": (0.9, 3.0), "ratio_step": 0.1},
+    3: {"name": "PDH Breakout",
+        "ratio_const": "PDH_VOL_MIN",   "ratio_bounds": (500_000, 3_000_000), "ratio_step": 100_000, "ratio_int": True,
+        "fresh_const": "_PDH_FRESH",    "fresh_bounds": (2, 8),               "fresh_step": 1},
+    4: {"name": "ORB",
+        "ratio_const": "ORB_VOL_RATIO",      "ratio_bounds": (0.9, 3.0), "ratio_step": 0.1,
+        "fresh_const": "ORB_FRESHNESS_BARS", "fresh_bounds": (3, 12),    "fresh_step": 1},
+    5: {"name": "OI Options",
+        "ratio_const": "OI_OPT_REL_VOL_MIN", "ratio_bounds": (1.0, 4.0), "ratio_step": 0.2},
+    6: {"name": "Demand/Supply Zone",
+        "ratio_const": "DZ_IMPULSE_VOL_RATIO", "ratio_bounds": (0.9, 3.0), "ratio_step": 0.1},
+    7: {"name": "Momentum Breakout/Breakdown",
+        "ratio_const": "MB_VOL_RATIO",         "ratio_bounds": (0.9, 3.0), "ratio_step": 0.1,
+        "fresh_const": "MB_FRESHNESS_BARS",    "fresh_bounds": (3, 12),    "fresh_step": 1},
+    8: {"name": "Trap Reversal",
+        "ratio_const": "TRAP_VOL_RATIO",       "ratio_bounds": (0.9, 3.0), "ratio_step": 0.1,
+        "fresh_const": "TRAP_FRESHNESS_BARS",  "fresh_bounds": (3, 12),    "fresh_step": 1},
+}
 
+WIN_RATE_LOW_THRESHOLD  = 25
+WIN_RATE_HIGH_THRESHOLD = 65
+MIN_VALID_FOR_TUNING    = 3
+
+def panel_stats(detail):
+    groups = {}
+    for d in detail:
+        groups.setdefault(d.get("setup_num"), []).append(d)
+    stats = {}
+    for setup_num, items in groups.items():
+        valid   = [d for d in items if d["outcome"] not in ("invalid", "no_data")]
+        wins    = [d for d in valid if d["outcome"] in ("T1_hit", "T2_hit")]
+        losses  = [d for d in valid if d["outcome"] == "SL_hit"]
+        expired = [d for d in valid if d["outcome"] == "expired"]
+        stats[setup_num] = {
+            "valid":        len(valid),
+            "wins":         len(wins),
+            "losses":       len(losses),
+            "expired":      len(expired),
+            "win_rate":     round(len(wins) / len(valid) * 100, 1) if valid else 0,
+            "expired_rate": round(len(expired) / len(valid) * 100, 1) if valid else 0,
+        }
+    return stats
+
+def _read_const(content, name):
+    m = re.search(rf'\b{name}\s*=\s*([\d_]+(?:\.\d+)?)', content)
+    return (m, m.group(1).replace("_", "")) if m else (None, None)
+
+def _write_const(content, m, new_value, as_int_underscore=False):
+    if as_int_underscore:
+        new_str = f"{int(new_value):,}".replace(",", "_")
+    else:
+        new_str = str(new_value)
+    return content[:m.start(1)] + new_str + content[m.end(1):]
+
+def apply_code_improvement(report):
+    tot = report["total_signals"]
     api_path = Path("api.py")
     if not api_path.exists():
         print("[AutoImpr] api.py not found in working directory")
         return None, "api.py not found"
-
-    content = api_path.read_text()
-
     if tot == 0:
         return None, "No signals today — no code change basis"
 
-    # RULE B: too many expired + late BOS → shrink freshness window
-    if exp > 65 and bos > 60:
-        m = re.search(r'_FRESH\s*=\s*(\d+)', content)
-        if not m:
-            return None, "RULE B: _FRESH not found"
-        old = int(m.group(1)); new = max(3, old - 1)
-        content = re.sub(r'(_FRESH\s*=\s*)\d+', f'\\g<1>{new}', content, count=1)
-        msg = f"perf: decrease _FRESH {old}→{new} — expired_rate={exp}%, avg_delay={bos}min [auto-{TODAY_STR}]"
-        api_path.write_text(content)
-        narrative = (
-            f"🤖 Auto-improvement applied — RULE B (High Expired Rate + Late BOS)\n"
-            f"Trigger: {exp}% of signals expired and avg BOS delay was {bos} min after open.\n"
-            f"Problem: Signals are firing too late in the day — BOS events are being detected "
-            f"well after the optimal entry window, leaving signals with little time to play out.\n"
-            f"Change: Decreased _FRESH {old}→{new} in api.py. This tightens the BOS detection "
-            f"window, only accepting BOS events closer to the initial sweep — earlier, cleaner entries.\n"
-            f"Commit: {{commit_placeholder}}"
-        )
-        return msg, narrative
+    content = api_path.read_text()
+    stats   = panel_stats(report["detail"])
+    changes = []   # list of narrative lines
+    msgs    = []   # list of one-liner commit summary fragments
 
-    # RULE C: poor win rate → raise vol_ratio filter (stricter signals)
-    if w < 25 and val >= 3:
-        m = re.search(r'(if vol_ratio < )(\d+\.\d+)', content)
-        if not m:
-            return None, "RULE C: vol_ratio threshold not found"
-        old = float(m.group(2)); new = round(min(2.0, old + 0.1), 1)
-        content = content[:m.start(2)] + str(new) + content[m.end(2):]
-        msg = f"perf: raise vol_ratio {old}→{new} — win_rate={w}% [auto-{TODAY_STR}]"
-        api_path.write_text(content)
-        narrative = (
-            f"🤖 Auto-improvement applied — RULE C (Poor Win Rate)\n"
-            f"Trigger: Win rate {w}% is below the 25% threshold across {val} valid signals.\n"
-            f"Problem: Too many low-quality signals are being generated. With {report['losses']} SL hits "
-            f"and only {report['wins']} wins, setups lack sufficient volume confirmation — "
-            f"the moves aren't backed by real institutional interest.\n"
-            f"Change: Raised vol_ratio threshold {old}→{new} in api.py (_screen_smc). "
-            f"From tomorrow, a signal only fires if volume is at least {new}× the 20-day average "
-            f"(was {old}×). Tighter filter = fewer but higher-conviction setups.\n"
-            f"Commit: {{commit_placeholder}}"
-        )
-        return msg, narrative
+    for setup_num, tuner in PANEL_TUNERS.items():
+        st = stats.get(setup_num)
+        if not st or st["valid"] < MIN_VALID_FOR_TUNING:
+            continue
+        w = st["win_rate"]
 
-    # RULE D: great win rate → lower vol_ratio (allow more signals)
-    if w >= 65 and val >= 3:
-        m = re.search(r'(if vol_ratio < )(\d+\.\d+)', content)
-        if not m:
-            return None, "RULE D: vol_ratio threshold not found"
-        old = float(m.group(2)); new = round(max(0.9, old - 0.1), 1)
-        content = content[:m.start(2)] + str(new) + content[m.end(2):]
-        msg = f"perf: lower vol_ratio {old}→{new} — strong day win_rate={w}% [auto-{TODAY_STR}]"
-        api_path.write_text(content)
-        narrative = (
-            f"🤖 Auto-improvement applied — RULE D (Strong Win Rate — Loosen Filter)\n"
-            f"Trigger: Win rate {w}% exceeds 65% across {val} valid signals — strong day.\n"
-            f"Problem (positive): Current vol_ratio filter of {old}× is working well but may be "
-            f"too restrictive, filtering out valid setups that could add more wins.\n"
-            f"Change: Lowered vol_ratio threshold {old}→{new} in api.py (_screen_smc). "
-            f"Slightly more signals will be admitted tomorrow — capturing more opportunities "
-            f"while the strategy is clearly working.\n"
-            f"Commit: {{commit_placeholder}}"
-        )
-        return msg, narrative
+        if w < WIN_RATE_LOW_THRESHOLD:
+            direction, verb = 1, "Tightened"
+        elif w >= WIN_RATE_HIGH_THRESHOLD:
+            direction, verb = -1, "Loosened"
+        else:
+            continue
 
-    # RULE E: very late BOS → expand freshness window
-    if bos > 90:
-        m = re.search(r'_FRESH\s*=\s*(\d+)', content)
+        lo, hi = tuner["ratio_bounds"]
+        step   = tuner["ratio_step"] * direction
+        m, raw_old = _read_const(content, tuner["ratio_const"])
         if not m:
-            return None, "RULE E: _FRESH not found"
-        old = int(m.group(1)); new = min(10, old + 1)
-        content = re.sub(r'(_FRESH\s*=\s*)\d+', f'\\g<1>{new}', content, count=1)
-        msg = f"perf: increase _FRESH {old}→{new} — avg BOS delay {bos}min [auto-{TODAY_STR}]"
-        api_path.write_text(content)
-        narrative = (
-            f"🤖 Auto-improvement applied — RULE E (Very Late BOS Detection)\n"
-            f"Trigger: Avg BOS delay was {bos} min after open — signals firing very late.\n"
-            f"Problem: BOS events are consistently happening long after the 9:15 open, "
-            f"meaning liquidity sweeps are taking longer to resolve into directional breaks. "
-            f"A tighter _FRESH window would miss these valid but delayed setups.\n"
-            f"Change: Increased _FRESH {old}→{new} in api.py. This expands how far back "
-            f"the system looks for a qualifying BOS event, accommodating slower-developing setups.\n"
-            f"Commit: {{commit_placeholder}}"
-        )
-        return msg, narrative
+            changes.append(f"{tuner['name']}: ratio constant {tuner['ratio_const']} not found — skipped")
+            continue
+        old = float(raw_old)
+        new = round(old + step, 2)
+        new = max(lo, min(hi, new))
 
-    return None, f"No rule triggered (win_rate={w}%, expired={exp}%, bos={bos}min)"
+        if new == old and "fresh_const" in tuner and direction == 1:
+            # Primary knob already saturated and panel is still underperforming —
+            # escalate to the freshness knob instead of doing nothing.
+            flo, fhi = tuner["fresh_bounds"]
+            fm, fraw_old = _read_const(content, tuner["fresh_const"])
+            if fm:
+                fold = int(float(fraw_old))
+                fnew = max(flo, fold - tuner["fresh_step"])
+                if fnew != fold:
+                    content = _write_const(content, fm, fnew)
+                    changes.append(
+                        f"{tuner['name']}: win rate {w}% over {st['valid']} signals, but "
+                        f"{tuner['ratio_const']} was already at its ceiling ({old}). "
+                        f"Tightened {tuner['fresh_const']} {fold}→{fnew} instead — only the most "
+                        f"recently-formed setups will qualify, cutting late/stale low-conviction entries."
+                    )
+                    msgs.append(f"{tuner['fresh_const']} {fold}→{fnew}")
+            continue
+
+        if new == old:
+            continue  # already at floor and loosening further isn't possible
+
+        content = _write_const(content, m, new, as_int_underscore=tuner.get("ratio_int", False))
+        as_pct = f"{int(new):,}" if tuner.get("ratio_int") else new
+        as_pct_old = f"{int(old):,}" if tuner.get("ratio_int") else old
+        changes.append(
+            f"{tuner['name']}: win rate {w}% over {st['valid']} valid signals "
+            f"({st['wins']}W/{st['losses']}L/{st['expired']}E). {verb} {tuner['ratio_const']} "
+            f"{as_pct_old}→{as_pct}."
+        )
+        msgs.append(f"{tuner['ratio_const']} {as_pct_old}→{as_pct}")
+
+    if not changes:
+        overall = report["win_rate_pct"]
+        return None, (f"No panel had ≥{MIN_VALID_FOR_TUNING} valid signals with a win rate outside "
+                       f"{WIN_RATE_LOW_THRESHOLD}-{WIN_RATE_HIGH_THRESHOLD}% (overall win_rate={overall}%)")
+
+    api_path.write_text(content)
+    msg = f"perf: per-panel tune — {'; '.join(msgs)} [auto-{TODAY_STR}]"
+    narrative = (
+        "🤖 Auto-improvement applied — per-panel tuning\n"
+        + "\n".join(f"• {c}" for c in changes)
+        + "\nGoal: each panel's volume/freshness gate moves independently based on its OWN "
+          "win rate, not the aggregate across all 16 panels, so a strong panel isn't loosened "
+          "because a weak one dragged the average down (and vice versa).\n"
+        + "Commit: {commit_placeholder}"
+    )
+    return msg, narrative
 
 def git_commit_push(commit_msg):
     try:

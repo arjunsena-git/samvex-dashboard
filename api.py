@@ -1654,6 +1654,10 @@ def _detect_swings(highs: list, lows: list, lookback: int = 2):
     return sh, sl
 
 
+SETUP1_VOL_RATIO  = 2.0   # paced volume vs prev-day volume — named so the
+                          # GitHub Actions auto-improvement script can tune it
+SETUP1_FRESH_BARS = 7     # BOS must have formed within the last N 15-min bars
+
 def _screen_smc(direction: str) -> list:
     """SMC/ICT screener — see module comment block above for full logic."""
     universe    = _load_nifty500() or _get_fno_universe()
@@ -1728,7 +1732,7 @@ def _screen_smc(direction: str) -> list:
             paced_vol     = (day_vol / elapsed_min) * 375.0
             vol_ratio     = paced_vol / prev_vol
 
-            if vol_ratio < 2.0:
+            if vol_ratio < SETUP1_VOL_RATIO:
                 continue
 
             # No-reversal gate: must be within 2% of day extreme
@@ -1748,11 +1752,9 @@ def _screen_smc(direction: str) -> list:
 
             signal = None
 
-            # BOS must have formed within the last 6 bars (90 min).
-            # Extended from 3 (45 min) → 6 (90 min) so early-morning setups
-            # aren't invisible by the time traders check the dashboard.
+            # BOS must have formed within the last SETUP1_FRESH_BARS bars.
             # Freshness tier (FRESH/VALID/AGING) flags staleness instead.
-            _FRESH = 7
+            _FRESH = SETUP1_FRESH_BARS
 
             def _bar_time(bar_idx):
                 try:
@@ -3677,6 +3679,7 @@ def signals_all_today_json():
             row = dict(s)
             row["_panel"]     = label
             row["_direction"] = direction
+            row["_setup_num"] = setup
             out.append(row)
     out.sort(key=lambda s: s.get("detected_at") or "", reverse=True)
     return jsonify({"date": today_str, "total": len(out), "signals": out})
