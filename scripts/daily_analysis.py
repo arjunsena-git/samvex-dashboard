@@ -271,6 +271,16 @@ def post_to_notion(report, code_change_note=""):
         f"{report['wins']}W / {report['losses']}L / {report['expired']}E · "
         f"{report['total_signals']} signals"
     )
+
+    # Notion caps a block's "children" array at 100 entries on creation.
+    # With all 16 panels now feeding this report (previously just Setup 1,
+    # capped well under 100), a full trading day can have 100+ signal rows
+    # — the header row alone can push a single-shot table over the limit.
+    # Create the table with the first 100 rows (header + 99 data rows max),
+    # then append any remaining rows directly to the table block in
+    # further chunks of <=100.
+    NOTION_TABLE_CHUNK = 100
+    first_chunk = table_rows[:NOTION_TABLE_CHUNK]
     blocks = [
         {"type": "paragraph", "paragraph": {"rich_text": _rt(summary_line)}},
         {
@@ -279,15 +289,33 @@ def post_to_notion(report, code_change_note=""):
                 "table_width": 11,
                 "has_column_header": True,
                 "has_row_header":    False,
-                "children":          table_rows,
+                "children":          first_chunk,
             },
         },
     ]
     rb = _notion("patch", f"/blocks/{page_id}/children", {"children": blocks})
     if rb.status_code != 200:
         print(f"[Notion] Block append failed {rb.status_code}: {rb.text[:200]}")
-    else:
-        print(f"[Notion] Page body written ({len(report['detail'])} signal rows)")
+        return page_id
+
+    rows_written = len(first_chunk) - 1   # minus the header row
+    remaining = table_rows[NOTION_TABLE_CHUNK:]
+    if remaining:
+        table_block_id = next(
+            (b["id"] for b in rb.json().get("results", []) if b["type"] == "table"), None
+        )
+        if table_block_id:
+            for i in range(0, len(remaining), NOTION_TABLE_CHUNK):
+                chunk = remaining[i:i + NOTION_TABLE_CHUNK]
+                rc = _notion("patch", f"/blocks/{table_block_id}/children", {"children": chunk})
+                if rc.status_code != 200:
+                    print(f"[Notion] Table row chunk append failed {rc.status_code}: {rc.text[:200]}")
+                    break
+                rows_written += len(chunk)
+        else:
+            print("[Notion] Could not find table block id to append remaining rows")
+
+    print(f"[Notion] Page body written ({rows_written}/{len(report['detail'])} signal rows)")
     return page_id
 
 # ── Per-panel auto code improvement ─────────────────────────────────────────
