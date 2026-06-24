@@ -2146,11 +2146,17 @@
       const color = isBull ? 'var(--green)' : 'var(--red)';
       list.innerHTML = stocks.map(s => {
         const isInactive = s.is_active === false;
+        const sinceTag = s.detected_at
+          ? `<span style="font-size:9px;font-weight:400;color:var(--text-muted);margin-left:15px;">&#9201; ${s.detected_at} IST</span>`
+          : "";
         return `
         <div class="stock-name-item ${isInactive ? 'signal-inactive' : ''}" data-symbol="${s.symbol}" onclick="_selectStock('${panelKey}','${s.symbol}')">
-          <span style="display:flex;align-items:center;gap:8px;">
-            <span class="dot" style="background:${isInactive ? 'var(--text-muted)' : color}"></span>
-            <span>${s.symbol}</span>
+          <span style="display:flex;flex-direction:column;gap:2px;min-width:0;">
+            <span style="display:flex;align-items:center;gap:8px;">
+              <span class="dot" style="background:${isInactive ? 'var(--text-muted)' : color}"></span>
+              <span>${s.symbol}</span>
+            </span>
+            ${sinceTag}
           </span>
           ${isInactive ? `<span class="gone-tag">&#8629; Signal gone</span>` : ''}
         </div>`;
