@@ -3317,7 +3317,8 @@ def signals_all_today_csv():
     mean: the full day's capture, not just what's currently on screen."""
     ist       = pytz.timezone("Asia/Kolkata")
     today_str = datetime.now(ist).strftime("%Y-%m-%d")
-    headers = ["Panel","Symbol","Setup","Active","Detected At (IST)","Price","Gap%","PDH","PDL",
+    headers = ["Panel","Symbol","Setup","Active","Signal Detected At (IST)","Signal Shown At (IST)",
+               "Price","Gap%","PDH","PDL",
                "Key Level","Key Label","Vol Ratio","Score","Label",
                "Demand Zone","Supply Zone","Entry","SL","SL%","T1","T2","R:R"]
     rows = [
@@ -3338,6 +3339,7 @@ def signals_all_today_csv():
                 s.get("symbol", ""), s.get("setup", ""),
                 "Yes" if s.get("is_active") else "No",
                 s.get("detected_at", ""),
+                s.get("first_shown_at", s.get("detected_at", "")),
                 s.get("price", ""), s.get("gap_pct", ""),
                 s.get("pdh", ""), s.get("pdl", ""),
                 s.get("key_level", ""), s.get("key_label", ""),
