@@ -2194,8 +2194,10 @@
 
     const isBull  = panelKey.includes('bull');
     const color   = isBull ? 'var(--green)' : 'var(--red)';
+    const detailShownSuffix = (s.first_shown_at && s.first_shown_at !== s.detected_at)
+      ? ` (shown ${s.first_shown_at})` : '';
     const detected = s.detected_at
-      ? `<span style="font-size:11px;color:var(--text);font-weight:700;">&#9201; Since ${s.detected_at} IST</span>` : '';
+      ? `<span style="font-size:11px;color:var(--text);font-weight:700;">&#9201; Since ${s.detected_at} IST${detailShownSuffix}</span>` : '';
 
     content.innerHTML = `
       <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px;">
