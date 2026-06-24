@@ -205,6 +205,32 @@
       padding: 4px 10px; cursor: pointer; font-size: 12px;
     }
     .refresh-btn:hover { color: var(--text); border-color: var(--accent); }
+    .diag-link {
+      background: var(--bg-card-2); border: 1px solid var(--border);
+      color: var(--accent); border-radius: 6px; text-decoration: none;
+      padding: 4px 10px; font-size: 12px; cursor: pointer;
+    }
+    .diag-link:hover { border-color: var(--accent); opacity: .85; }
+    .diag-funnel-row { margin-bottom: 10px; }
+    .diag-funnel-label {
+      display: flex; justify-content: space-between; font-size: 12px;
+      margin-bottom: 4px; color: var(--text);
+    }
+    .diag-funnel-label .n { color: var(--text-muted); font-weight: 700; }
+    .diag-funnel-track {
+      background: var(--bg-card-2); border-radius: 4px; height: 8px; overflow: hidden;
+    }
+    .diag-funnel-fill { background: var(--accent); height: 100%; border-radius: 4px; }
+    .diag-funnel-fill.pass { background: var(--green); }
+    .diag-samples {
+      margin-top: 4px; margin-bottom: 14px; font-size: 11px; color: var(--text-muted);
+    }
+    .diag-samples code { color: var(--text); background: var(--bg-card-2); padding: 1px 5px; border-radius: 4px; }
+    .diag-blocked {
+      background: rgba(239,68,68,.08); border: 1px solid rgba(239,68,68,.3);
+      border-radius: 8px; padding: 12px 14px; font-size: 13px; color: var(--red);
+      margin-bottom: 14px;
+    }
     th[data-field] { cursor: pointer; user-select: none; }
     th[data-field]:hover { color: var(--accent); }
     .sort-arrow { font-size: 9px; color: var(--accent); }
@@ -1037,7 +1063,7 @@
           Exhaustion Short &nbsp;<span style="font-size:11px;color:var(--text-muted);font-weight:400;">Huge rally + pullback from day high → red candle</span>
         </div>
         <div style="display:flex;gap:6px;align-items:center;">
-          <button class="refresh-btn" onclick="loadExhaustionShort()">↺ Refresh</button>
+          <a class="diag-link" href="javascript:void(0)" onclick="openDiagnose('exh-short')" title="Why isn't this panel showing the signals you expect?">Diagnose ↗</a><button class="refresh-btn" onclick="loadExhaustionShort()">↺ Refresh</button>
           <button class="expand-btn" onclick="expandPanel(this)" title="Full screen (Esc to close)">⤢ Expand</button>
         </div>
       </div>
@@ -1083,7 +1109,7 @@
           PDH Breakout &nbsp;<span style="font-size:11px;color:var(--text-muted);font-weight:400;">Close &gt; PDH · trend + momentum confirmed</span>
         </div>
         <div style="display:flex;gap:6px;align-items:center;">
-          <button class="refresh-btn" onclick="loadPdhBreakout()">↺ Refresh</button>
+          <a class="diag-link" href="javascript:void(0)" onclick="openDiagnose('pdh-breakout')" title="Why isn't this panel showing the signals you expect?">Diagnose ↗</a><button class="refresh-btn" onclick="loadPdhBreakout()">↺ Refresh</button>
           <button class="expand-btn" onclick="expandPanel(this)" title="Full screen (Esc to close)">⤢ Expand</button>
         </div>
       </div>
@@ -1126,7 +1152,7 @@
           ORB &nbsp;<span style="font-size:11px;color:var(--text-muted);font-weight:400;">Narrow open → consolidate → breakout up</span>
         </div>
         <div style="display:flex;gap:6px;align-items:center;">
-          <button class="refresh-btn" onclick="loadOrbBullish()">↺ Refresh</button>
+          <a class="diag-link" href="javascript:void(0)" onclick="openDiagnose('orb-bull')" title="Why isn't this panel showing the signals you expect?">Diagnose ↗</a><button class="refresh-btn" onclick="loadOrbBullish()">↺ Refresh</button>
           <button class="expand-btn" onclick="expandPanel(this)" title="Full screen (Esc to close)">⤢ Expand</button>
         </div>
       </div>
@@ -1160,7 +1186,7 @@
           ORB &nbsp;<span style="font-size:11px;color:var(--text-muted);font-weight:400;">Narrow open → consolidate → breakdown</span>
         </div>
         <div style="display:flex;gap:6px;align-items:center;">
-          <button class="refresh-btn" onclick="loadOrbBearish()">↺ Refresh</button>
+          <a class="diag-link" href="javascript:void(0)" onclick="openDiagnose('orb-bear')" title="Why isn't this panel showing the signals you expect?">Diagnose ↗</a><button class="refresh-btn" onclick="loadOrbBearish()">↺ Refresh</button>
           <button class="expand-btn" onclick="expandPanel(this)" title="Full screen (Esc to close)">⤢ Expand</button>
         </div>
       </div>
@@ -1205,7 +1231,7 @@
           Demand Zone &nbsp;<span style="font-size:11px;color:var(--text-muted);font-weight:400;">Narrow base + high-vol impulse up, now retesting</span>
         </div>
         <div style="display:flex;gap:6px;align-items:center;">
-          <button class="refresh-btn" onclick="loadDemandZone()">↺ Refresh</button>
+          <a class="diag-link" href="javascript:void(0)" onclick="openDiagnose('zone-demand')" title="Why isn't this panel showing the signals you expect?">Diagnose ↗</a><button class="refresh-btn" onclick="loadDemandZone()">↺ Refresh</button>
           <button class="expand-btn" onclick="expandPanel(this)" title="Full screen (Esc to close)">⤢ Expand</button>
         </div>
       </div>
@@ -1237,7 +1263,7 @@
           Supply Zone &nbsp;<span style="font-size:11px;color:var(--text-muted);font-weight:400;">Narrow base + high-vol impulse down, now retesting</span>
         </div>
         <div style="display:flex;gap:6px;align-items:center;">
-          <button class="refresh-btn" onclick="loadSupplyZone()">↺ Refresh</button>
+          <a class="diag-link" href="javascript:void(0)" onclick="openDiagnose('zone-supply')" title="Why isn't this panel showing the signals you expect?">Diagnose ↗</a><button class="refresh-btn" onclick="loadSupplyZone()">↺ Refresh</button>
           <button class="expand-btn" onclick="expandPanel(this)" title="Full screen (Esc to close)">⤢ Expand</button>
         </div>
       </div>
@@ -1280,7 +1306,7 @@
           Momentum Breakout &nbsp;<span style="font-size:11px;color:var(--text-muted);font-weight:400;">Opened in range → clean break above PDH</span>
         </div>
         <div style="display:flex;gap:6px;align-items:center;">
-          <button class="refresh-btn" onclick="loadMomentumBreakoutBullish()">↺ Refresh</button>
+          <a class="diag-link" href="javascript:void(0)" onclick="openDiagnose('mb-bull')" title="Why isn't this panel showing the signals you expect?">Diagnose ↗</a><button class="refresh-btn" onclick="loadMomentumBreakoutBullish()">↺ Refresh</button>
           <button class="expand-btn" onclick="expandPanel(this)" title="Full screen (Esc to close)">⤢ Expand</button>
         </div>
       </div>
@@ -1313,7 +1339,7 @@
           Momentum Breakdown &nbsp;<span style="font-size:11px;color:var(--text-muted);font-weight:400;">Opened in range → clean break below PDL</span>
         </div>
         <div style="display:flex;gap:6px;align-items:center;">
-          <button class="refresh-btn" onclick="loadMomentumBreakoutBearish()">↺ Refresh</button>
+          <a class="diag-link" href="javascript:void(0)" onclick="openDiagnose('mb-bear')" title="Why isn't this panel showing the signals you expect?">Diagnose ↗</a><button class="refresh-btn" onclick="loadMomentumBreakoutBearish()">↺ Refresh</button>
           <button class="expand-btn" onclick="expandPanel(this)" title="Full screen (Esc to close)">⤢ Expand</button>
         </div>
       </div>
@@ -1357,7 +1383,7 @@
           Bear Trap &nbsp;<span style="font-size:11px;color:var(--text-muted);font-weight:400;">Failed PDL breakdown → buyers take control</span>
         </div>
         <div style="display:flex;gap:6px;align-items:center;">
-          <button class="refresh-btn" onclick="loadBearTrap()">↺ Refresh</button>
+          <a class="diag-link" href="javascript:void(0)" onclick="openDiagnose('trap-bull')" title="Why isn't this panel showing the signals you expect?">Diagnose ↗</a><button class="refresh-btn" onclick="loadBearTrap()">↺ Refresh</button>
           <button class="expand-btn" onclick="expandPanel(this)" title="Full screen (Esc to close)">⤢ Expand</button>
         </div>
       </div>
@@ -1390,7 +1416,7 @@
           Bull Trap &nbsp;<span style="font-size:11px;color:var(--text-muted);font-weight:400;">Failed PDH breakout → sellers take control</span>
         </div>
         <div style="display:flex;gap:6px;align-items:center;">
-          <button class="refresh-btn" onclick="loadBullTrap()">↺ Refresh</button>
+          <a class="diag-link" href="javascript:void(0)" onclick="openDiagnose('trap-bear')" title="Why isn't this panel showing the signals you expect?">Diagnose ↗</a><button class="refresh-btn" onclick="loadBullTrap()">↺ Refresh</button>
           <button class="expand-btn" onclick="expandPanel(this)" title="Full screen (Esc to close)">⤢ Expand</button>
         </div>
       </div>
@@ -1435,7 +1461,7 @@
           OI Bullish &nbsp;<span style="font-size:11px;color:var(--text-muted);font-weight:400;">Fresh Long Buildup → Buy Call</span>
         </div>
         <div style="display:flex;gap:6px;align-items:center;">
-          <button class="refresh-btn" onclick="loadOiOptionsBullish()">↺ Refresh</button>
+          <a class="diag-link" href="javascript:void(0)" onclick="openDiagnose('oi-bull')" title="Why isn't this panel showing the signals you expect?">Diagnose ↗</a><button class="refresh-btn" onclick="loadOiOptionsBullish()">↺ Refresh</button>
           <button class="expand-btn" onclick="expandPanel(this)" title="Full screen (Esc to close)">⤢ Expand</button>
         </div>
       </div>
@@ -1470,7 +1496,7 @@
           OI Bearish &nbsp;<span style="font-size:11px;color:var(--text-muted);font-weight:400;">Fresh Short Buildup → Buy Put</span>
         </div>
         <div style="display:flex;gap:6px;align-items:center;">
-          <button class="refresh-btn" onclick="loadOiOptionsBearish()">↺ Refresh</button>
+          <a class="diag-link" href="javascript:void(0)" onclick="openDiagnose('oi-bear')" title="Why isn't this panel showing the signals you expect?">Diagnose ↗</a><button class="refresh-btn" onclick="loadOiOptionsBearish()">↺ Refresh</button>
           <button class="expand-btn" onclick="expandPanel(this)" title="Full screen (Esc to close)">⤢ Expand</button>
         </div>
       </div>
@@ -2103,6 +2129,8 @@
         <option value="volume_ratio_desc" ${sortKey === 'volume_ratio_desc' ? 'selected' : ''}>Volume (high → low)</option>
         <option value="symbol_asc" ${sortKey === 'symbol_asc' ? 'selected' : ''}>Symbol (A → Z)</option>
       </select>
+      <a class="diag-link" href="javascript:void(0)" onclick="openDiagnose('${panelKey}')" style="margin-left:10px;"
+         title="Why isn't this panel showing the signals you expect?">Diagnose ↗</a>
       <span style="margin-left:auto;font-size:11px;color:var(--text-muted);font-weight:600">
         ${activeStocks.length} active signal${activeStocks.length !== 1 ? 's' : ''}
       </span>`;
@@ -3011,6 +3039,130 @@
     if (_modalChartHolder.instance) { _modalChartHolder.instance.remove(); _modalChartHolder.instance = null; }
   }
 
+  // ── Per-panel Diagnose modal ─────────────────────────────────────
+  // Runs the SAME screener function used by the live panel, with a debug
+  // accumulator, so the funnel below always reflects today's real
+  // filtering — not a guess about why a stock you expected isn't there.
+  const _STAGE_LABELS = {
+    no_data: "Missing/insufficient price data",
+    no_quote_data: "Missing live quote data",
+    no_intraday_data: "Missing intraday data",
+    no_today_bars: "No bars formed yet today",
+    price_below_100: "Price below ₹100 floor",
+    exception: "Unexpected error while screening",
+    invalid_risk: "Invalid risk (entry too close to SL)",
+    fresh_buildup: "No fresh Long/Short OI buildup",
+    liquidity_turnover: "Futures turnover too low",
+    sector_unclassified: "Sector unknown / unmapped",
+    strong_sector: "Sector not moving in trade's direction",
+    relative_volume: "Relative volume too low",
+    vwap_alignment: "Price on wrong side of VWAP",
+    opening_range_breakout: "Hasn't broken opening 15-min range",
+    prev_day_rally: "Previous day didn't rally enough",
+    unusual_volume: "5-min candle volume not unusual",
+    not_red_candle: "Latest 5-min candle isn't red",
+    impulse_body: "Candle body too small (not impulsive)",
+    impulse_turnover: "Candle turnover too low",
+    bollinger_band: "Hasn't crossed 20-day Bollinger upper band",
+    pullback_depth: "Hasn't pulled back enough from day high",
+    day_volume: "Day volume too low",
+    nifty_alignment: "Nifty moving against this trade's direction",
+    no_valid_zone: "No qualifying demand/supply zone found in lookback window",
+    not_near_zone: "Price not close enough to retest the zone",
+    not_above_pdh: "Hasn't closed above PDH yet",
+    breakout_too_stale: "Breakout happened too long ago",
+    below_200ema: "Price below the 200-period EMA (trend filter)",
+    rsi_too_low: "Daily RSI below threshold (momentum filter)",
+    multi_day_not_consolidating: "Stock wasn't rangebound over prior days",
+    opening_range_too_wide: "Opening 5-min range too wide",
+    no_clean_breakout: "No clean breakout — broke the other side first, or never broke",
+    round_tripped: "Price round-tripped back through the breakout level",
+    gapped_open: "Opened outside yesterday's range (gapped)",
+    no_confirm_bar_yet: "Confirmation candle hasn't formed yet",
+    confirm_candle_too_wide: "Confirmation candle's range too wide",
+    confirm_wrong_direction: "Confirmation candle in the wrong direction",
+    breakout_volume: "Breakout candle volume too low",
+    open_not_near_level: "Didn't open near PDH/PDL for a trap setup",
+    no_breakdown_or_breakout_yet: "No breakdown/breakout (trap bar) yet",
+    no_reversal_yet: "No reversal back through the level yet",
+    reversal_wrong_direction: "Reversal candle in the wrong direction",
+    reversal_volume: "Reversal candle volume too low",
+    reversal_too_stale: "Reversal happened too long ago",
+    trap_failed_again: "Reversed but then broke back through the level again",
+  };
+
+  async function openDiagnose(panelKey) {
+    const cfg = _PANEL_CONFIGS.find(c => c.key === panelKey);
+    document.getElementById('diag-title').textContent = cfg ? `${cfg.label} — ${cfg.sub}` : panelKey;
+    document.getElementById('diag-sub').textContent = 'Why a stock did or didn\'t qualify, right now';
+    const body = document.getElementById('diag-body');
+    body.innerHTML = `<div class="empty-state"><div class="spinner"></div>Running the live screener with diagnostics…</div>`;
+    document.getElementById('diagnose-overlay').classList.add('open');
+    document.body.style.overflow = 'hidden';
+
+    try {
+      const res  = await fetch(`${API}/api/debug/panel/${panelKey}`);
+      const data = await res.json();
+      renderDiagnose(data);
+    } catch (e) {
+      body.innerHTML = `<div class="empty-state">Could not reach the diagnostic endpoint — try again in a moment.</div>`;
+    }
+  }
+
+  function closeDiagnose() {
+    document.getElementById('diagnose-overlay').classList.remove('open');
+    document.body.style.overflow = '';
+  }
+
+  function renderDiagnose(data) {
+    const body = document.getElementById('diag-body');
+    if (data.error) {
+      body.innerHTML = `<div class="empty-state">${data.error}</div>`;
+      return;
+    }
+    let html = '';
+    if (data.blocked) {
+      html += `<div class="diag-blocked">&#9888; ${data.blocked}</div>`;
+    }
+    const totalEvaluated = data.funnel.reduce((s, f) => s + f.count, 0) + data.passed;
+    html += `<div style="font-size:13px;margin-bottom:14px;color:var(--text-muted);">
+      <strong style="color:var(--text)">${data.passed}</strong> stock(s) cleared every gate today
+      (<strong style="color:var(--text)">${data.shown}</strong> currently shown, after the score/Top-5 cutoff)
+      out of <strong style="color:var(--text)">${totalEvaluated}</strong> evaluated.
+    </div>`;
+
+    if (data.passed > 0) {
+      const maxCount = Math.max(data.passed, ...data.funnel.map(f => f.count), 1);
+      html += `<div class="diag-funnel-row">
+        <div class="diag-funnel-label"><span>✅ Passed every gate</span><span class="n">${data.passed}</span></div>
+        <div class="diag-funnel-track"><div class="diag-funnel-fill pass" style="width:${data.passed/maxCount*100}%"></div></div>
+      </div>`;
+      const passSamples = (data.samples['PASSED'] || []).map(s => s.symbol).join(', ');
+      if (passSamples) html += `<div class="diag-samples">${passSamples}</div>`;
+    }
+
+    if (!data.funnel.length && data.passed === 0 && !data.blocked) {
+      html += `<div class="empty-state">No stocks were evaluated — universe or market data may not be ready yet.</div>`;
+    }
+
+    const maxCount = Math.max(data.passed, ...data.funnel.map(f => f.count), 1);
+    data.funnel.forEach(f => {
+      const label = _STAGE_LABELS[f.stage] || f.stage;
+      html += `<div class="diag-funnel-row">
+        <div class="diag-funnel-label"><span>${label}</span><span class="n">${f.count}</span></div>
+        <div class="diag-funnel-track"><div class="diag-funnel-fill" style="width:${f.count/maxCount*100}%"></div></div>
+      </div>`;
+      const examples = (data.samples[f.stage] || []).slice(0, 5).map(s => {
+        const extras = Object.entries(s).filter(([k]) => k !== 'symbol')
+          .map(([k, v]) => `${k}=${v}`).join(', ');
+        return `<code>${s.symbol}</code>${extras ? ` (${extras})` : ''}`;
+      }).join(', ');
+      if (examples) html += `<div class="diag-samples">e.g. ${examples}</div>`;
+    });
+
+    body.innerHTML = html || `<div class="empty-state">Nothing to show.</div>`;
+  }
+
   // ── Boot ──────────────────────────────────────────────────────
   // Apply the team's saved whole-panel drag order (if any) to the Full
   // Table View sections, and wire each section's divider as the drag
@@ -3056,6 +3208,20 @@
     </div>
     <div class="chart-legend" id="chart-legend"></div>
     <div class="chart-src-note">&#9679; Live data via Upstox · 5-min candles · IST times</div>
+  </div>
+</div>
+
+<!-- ── Per-panel Diagnose Modal ────────────────────────────────────── -->
+<div class="chart-overlay" id="diagnose-overlay" onclick="if(event.target===this)closeDiagnose()">
+  <div class="chart-modal" style="max-width:640px;">
+    <div class="chart-hdr">
+      <div>
+        <h3 id="diag-title">Diagnose</h3>
+        <div class="chart-sub" id="diag-sub"></div>
+      </div>
+      <button class="chart-close" onclick="closeDiagnose()">&#x2715;</button>
+    </div>
+    <div id="diag-body" style="padding:16px 20px;max-height:70vh;overflow-y:auto;"></div>
   </div>
 </div>
 
