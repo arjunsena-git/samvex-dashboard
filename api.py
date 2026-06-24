@@ -1085,7 +1085,30 @@ OI_OPT_REL_VOL_MIN    = 2.0    # underlying stock's own paced volume vs prev day
 OI_OPT_REL_VOL_MAX    = 6.0    # relative volume that maxes the confidence score
 
 
-def _screen_oi_options(direction: str) -> list:
+# ── Per-panel diagnostics ───────────────────────────────────────────
+# Screener functions take an optional `_debug` dict and record which gate
+# eliminated each stock that didn't qualify, plus a handful of named-gate
+# sample failures. This is the SAME code path as the live screener (just a
+# few extra lines at each meaningful gate) so the "why didn't X show up"
+# answer can never drift from the actual filtering logic.
+def _dbg_fail(_debug, stage, sym, **extra):
+    if _debug is None:
+        return
+    _debug["funnel"][stage] = _debug["funnel"].get(stage, 0) + 1
+    bucket = _debug["samples"].setdefault(stage, [])
+    if len(bucket) < 8:
+        bucket.append({"symbol": sym.replace(".NS", ""), **extra})
+
+def _dbg_pass(_debug, sym, **extra):
+    if _debug is None:
+        return
+    _debug["funnel"]["PASSED"] = _debug["funnel"].get("PASSED", 0) + 1
+    bucket = _debug["samples"].setdefault("PASSED", [])
+    if len(bucket) < 8:
+        bucket.append({"symbol": sym.replace(".NS", ""), **extra})
+
+
+def _screen_oi_options(direction: str, _debug: dict = None) -> list:
     """OI-based stock-options-buying screener. Returns Buy-Call candidates
     (bullish, fresh Long Buildup) or Buy-Put candidates (bearish, fresh Short
     Buildup) that ALSO clear a Strong Sector + Relative Volume + VWAP +
@@ -1096,12 +1119,16 @@ def _screen_oi_options(direction: str) -> list:
     greeks. Exact strike/premium selection is left to the trader's broker;
     this only ranks which underlyings to look at."""
     if not _is_live():
+        if _debug is not None:
+            _debug["blocked"] = "Upstox not live — OI Options requires live futures OI data, no delayed-data fallback exists."
         return []
 
     bullish     = direction == "bullish"
     fmap        = _load_futures_map()
     quotes      = _fetch_futures_quotes()
     if not quotes:
+        if _debug is not None:
+            _debug["blocked"] = "Could not fetch futures quotes from Upstox just now."
         return []
 
     sector_map      = _load_sector_map()
@@ -1126,8 +1153,10 @@ def _screen_oi_options(direction: str) -> list:
             day_low    = float(ohlc.get("low", 0) or 0)
 
             if last_price <= 0 or prev_close <= 0 or oi <= 0 or oi_day_low <= 0:
+                _dbg_fail(_debug, "no_quote_data", sym)
                 continue
             if day_high <= 0 or day_low <= 0:
+                _dbg_fail(_debug, "no_quote_data", sym)
                 continue
 
             price_chg  = (last_price - prev_close) / prev_close * 100
@@ -1136,25 +1165,31 @@ def _screen_oi_options(direction: str) -> list:
             # Leg 1: fresh buildup only — Long Buildup for bullish, Short Buildup for bearish
             if bullish:
                 if price_chg < OI_OPT_PRICE_CHG_MIN or oi_buildup < OI_OPT_OI_CHG_MIN:
+                    _dbg_fail(_debug, "fresh_buildup", sym, price_chg=round(price_chg,2), oi_buildup_pct=round(oi_buildup,2))
                     continue
             else:
                 if price_chg > -OI_OPT_PRICE_CHG_MIN or oi_buildup < OI_OPT_OI_CHG_MIN:
+                    _dbg_fail(_debug, "fresh_buildup", sym, price_chg=round(price_chg,2), oi_buildup_pct=round(oi_buildup,2))
                     continue
 
             # Liquidity gate: today's futures turnover must be substantial
             turnover = volume * lot_size * last_price
             if turnover < OI_OPT_MIN_TURNOVER:
+                _dbg_fail(_debug, "liquidity_turnover", sym, turnover_cr=round(turnover/1e7,1), needed_cr=round(OI_OPT_MIN_TURNOVER/1e7,1))
                 continue
 
             # Leg 2: Strong Sector — exclude entirely if we can't classify
             # the stock or don't have a reliable strength reading for its sector
             sector = sector_map.get(sym)
             if not sector or sector not in sector_strength:
+                _dbg_fail(_debug, "sector_unclassified", sym, sector=sector or "unknown")
                 continue
             sector_chg = sector_strength[sector]
             if bullish and sector_chg < OI_OPT_SECTOR_MIN_PCT:
+                _dbg_fail(_debug, "strong_sector", sym, sector=sector, sector_chg_pct=round(sector_chg,2))
                 continue
             if not bullish and sector_chg > -OI_OPT_SECTOR_MIN_PCT:
+                _dbg_fail(_debug, "strong_sector", sym, sector=sector, sector_chg_pct=round(sector_chg,2))
                 continue
 
             # Underlying stock's own intraday data (separate from the futures
@@ -1163,6 +1198,7 @@ def _screen_oi_options(direction: str) -> list:
             intra15 = _get_ticker_df(batch_15m, f"{sym}.NS")
             intra5  = _get_ticker_df(batch_5m, f"{sym}.NS")
             if daily is None or intra15 is None or intra5 is None or len(daily) < 2:
+                _dbg_fail(_debug, "no_intraday_data", sym)
                 continue
 
             try:
@@ -1183,21 +1219,25 @@ def _screen_oi_options(direction: str) -> list:
                 today_bars5 = intra5.iloc[:0]
 
             if len(today_bars15) < 1 or len(today_bars5) < 1:
+                _dbg_fail(_debug, "no_today_bars", sym)
                 continue
 
             # Leg 3: Relative Volume > 2x — underlying's own paced volume vs prev day
             prev_vol = float(daily["Volume"].iloc[-2])
             if prev_vol <= 0:
+                _dbg_fail(_debug, "no_intraday_data", sym)
                 continue
             day_vol_so_far = float(today_bars15["Volume"].sum())
             elapsed_min    = max(15.0, len(today_bars15) * 15.0)
             paced_vol      = (day_vol_so_far / elapsed_min) * 375.0
             rel_vol_ratio  = paced_vol / prev_vol
             if rel_vol_ratio < OI_OPT_REL_VOL_MIN:
+                _dbg_fail(_debug, "relative_volume", sym, rel_vol_ratio=round(rel_vol_ratio,2), needed=OI_OPT_REL_VOL_MIN)
                 continue
 
             spot_price = float(today_bars5["Close"].iloc[-1])
             if spot_price <= 0:
+                _dbg_fail(_debug, "no_intraday_data", sym)
                 continue
 
             # Leg 4: VWAP Alignment — spot price on the right side of today's VWAP
@@ -1207,12 +1247,15 @@ def _screen_oi_options(direction: str) -> list:
             vols5   = today_bars5["Volume"].astype(float).tolist()
             vwap_den = sum(vols5)
             if vwap_den <= 0:
+                _dbg_fail(_debug, "no_intraday_data", sym)
                 continue
             vwap_num = sum(((highs5[i] + lows5[i] + closes5[i]) / 3) * vols5[i] for i in range(len(closes5)))
             vwap = vwap_num / vwap_den
             if bullish and spot_price <= vwap:
+                _dbg_fail(_debug, "vwap_alignment", sym, spot_price=round(spot_price,2), vwap=round(vwap,2))
                 continue
             if not bullish and spot_price >= vwap:
+                _dbg_fail(_debug, "vwap_alignment", sym, spot_price=round(spot_price,2), vwap=round(vwap,2))
                 continue
 
             # Leg 5: First 15-Minute Breakout — broke the opening 15-min
@@ -1223,15 +1266,18 @@ def _screen_oi_options(direction: str) -> list:
             day_low15  = float(today_bars15["Low"].min())
             if bullish:
                 if day_high15 <= or_high15 or spot_price <= or_high15:
+                    _dbg_fail(_debug, "opening_range_breakout", sym, spot_price=round(spot_price,2), or_high15=round(or_high15,2))
                     continue
             else:
                 if day_low15 >= or_low15 or spot_price >= or_low15:
+                    _dbg_fail(_debug, "opening_range_breakout", sym, spot_price=round(spot_price,2), or_low15=round(or_low15,2))
                     continue
 
             entry = round(last_price, 2)
             sl    = round(day_low * 0.997, 2) if bullish else round(day_high * 1.003, 2)
             risk  = abs(entry - sl)
             if risk <= 0:
+                _dbg_fail(_debug, "invalid_risk", sym)
                 continue
             sign_ = 1 if bullish else -1
             t1    = round(entry + sign_ * risk * 1.5, 2)
@@ -1251,6 +1297,7 @@ def _screen_oi_options(direction: str) -> list:
             conf_score = round(oi_s + relvol_s + vwap_s + sector_s + or_s)
             conf_label = "STRONG" if conf_score >= 65 else "GOOD" if conf_score >= 40 else "WATCH"
 
+            _dbg_pass(_debug, sym, confidence_score=conf_score, rel_vol_ratio=round(rel_vol_ratio,2))
             results.append({
                 "symbol":           sym,
                 "price":            entry,
@@ -1284,6 +1331,7 @@ def _screen_oi_options(direction: str) -> list:
             })
 
         except Exception:
+            _dbg_fail(_debug, "exception", sym)
             continue
 
     results.sort(key=lambda x: x["confidence_score"], reverse=True)
@@ -1308,7 +1356,7 @@ DZ_VOL_BASELINE_DAYS  = 5     # candles before the base used to compute the volu
 DZ_PROXIMITY_PCT      = 1.0   # current price must be within this % of the zone level — the retest gate
 
 
-def _screen_demand_supply_zone(direction: str) -> list:
+def _screen_demand_supply_zone(direction: str, _debug: dict = None) -> list:
     """Demand Zone (bullish) / Supply Zone (bearish) screener — see module comment above."""
     universe    = _load_nifty500() or _get_fno_universe()
     batch_daily = _get_daily_batch()
@@ -1327,6 +1375,7 @@ def _screen_demand_supply_zone(direction: str) -> list:
             # +1 for today's in-progress row, +1 buffer so a base/impulse pair
             # always has at least one volume-baseline candle before it
             if daily is None or len(daily) < DZ_ZONE_LOOKBACK_DAYS + DZ_VOL_BASELINE_DAYS + 2:
+                _dbg_fail(_debug, "no_data", symbol)
                 continue
 
             opens  = daily["Open"].astype(float).tolist()
@@ -1345,6 +1394,7 @@ def _screen_demand_supply_zone(direction: str) -> list:
                 current_price = closes[today_idx]
 
             if current_price < 100:
+                _dbg_fail(_debug, "price_below_100", symbol, price=round(current_price,2))
                 continue
 
             zone_level  = None
@@ -1405,17 +1455,20 @@ def _screen_demand_supply_zone(direction: str) -> list:
                 break
 
             if zone_level is None or zone_level <= 0:
+                _dbg_fail(_debug, "no_valid_zone", symbol)
                 continue
 
             # Retest gate: current price must be within DZ_PROXIMITY_PCT of the zone
             zone_dist_pct = abs(current_price - zone_level) / zone_level * 100
             if zone_dist_pct > DZ_PROXIMITY_PCT:
+                _dbg_fail(_debug, "not_near_zone", symbol, zone_level=round(zone_level,2), dist_pct=round(zone_dist_pct,2), price=round(current_price,2))
                 continue
 
             entry = round(current_price, 2)
             sl    = round(zone_level * 0.99, 2) if bullish else round(zone_level * 1.01, 2)
             risk  = abs(entry - sl)
             if risk <= 0:
+                _dbg_fail(_debug, "invalid_risk", symbol)
                 continue
             sign_ = 1 if bullish else -1
             t1    = round(entry + sign_ * risk * 1.5, 2)
@@ -1432,6 +1485,7 @@ def _screen_demand_supply_zone(direction: str) -> list:
             conf_score = round(impulse_s + vol_s + fresh_s)
             conf_label = "STRONG" if conf_score >= 65 else "GOOD" if conf_score >= 40 else "WATCH"
 
+            _dbg_pass(_debug, symbol, confidence_score=conf_score, zone_level=round(zone_level,2))
             results.append({
                 "symbol":           symbol.replace(".NS", ""),
                 "price":            entry,
@@ -1460,6 +1514,7 @@ def _screen_demand_supply_zone(direction: str) -> list:
             })
 
         except Exception:
+            _dbg_fail(_debug, "exception", symbol)
             continue
 
     results.sort(key=lambda x: x["confidence_score"], reverse=True)
@@ -1648,7 +1703,7 @@ EXH_BB_PERIOD          = 20       # Bollinger Band lookback (daily closes)
 EXH_BB_STD_MULT        = 2.0      # Bollinger Band std-dev multiplier
 
 
-def _screen_exhaustion_short() -> list:
+def _screen_exhaustion_short(_debug: dict = None) -> list:
     """Exhaustion Short / profit-booking screener — see module comment above."""
     universe    = _load_nifty500() or _get_fno_universe()
     batch_15m   = _get_15m_batch()
@@ -1660,6 +1715,8 @@ def _screen_exhaustion_short() -> list:
 
     # Only generate fresh shorts between 9:15 AM and 2:00 PM IST
     if not (_dtime(9, 15) <= now.time() <= _dtime(14, 0)):
+        if _debug is not None:
+            _debug["blocked"] = "Exhaustion Short only fires 9:15 AM–2:00 PM IST — outside that window right now."
         return []
 
     live_quotes = None
@@ -1682,6 +1739,7 @@ def _screen_exhaustion_short() -> list:
             daily = _get_ticker_df(batch_daily, symbol)
 
             if intra is None or intra5 is None or daily is None or len(daily) < EXH_BB_PERIOD + 1:
+                _dbg_fail(_debug, "no_data", symbol)
                 continue
 
             try:
@@ -1714,10 +1772,12 @@ def _screen_exhaustion_short() -> list:
             prev_prev_close = float(daily["Close"].iloc[-3])
 
             if pdl <= 0 or prev_close <= 0 or prev_vol <= 0 or prev_prev_close <= 0:
+                _dbg_fail(_debug, "no_data", symbol)
                 continue
 
             prev_day_rally_pct = (prev_close - prev_prev_close) / prev_prev_close * 100
             if prev_day_rally_pct < EXH_PREV_DAY_RALLY_PCT:
+                _dbg_fail(_debug, "prev_day_rally", symbol, rally_pct=round(prev_day_rally_pct,2), needed=EXH_PREV_DAY_RALLY_PCT)
                 continue
 
             # Latest completed 5-min candle must be an impulsive, high-turnover red candle
@@ -1741,22 +1801,28 @@ def _screen_exhaustion_short() -> list:
                 same_slot_vols = []
 
             if len(same_slot_vols) < 2:
+                _dbg_fail(_debug, "no_data", symbol)
                 continue
             avg_same_slot_vol = sum(same_slot_vols) / len(same_slot_vols)
             if c5_vol <= avg_same_slot_vol:
+                _dbg_fail(_debug, "unusual_volume", symbol, c5_vol=round(c5_vol), avg_same_slot_vol=round(avg_same_slot_vol))
                 continue
 
             c5_range = c5_high - c5_low
             if c5_range <= 0:
+                _dbg_fail(_debug, "no_data", symbol)
                 continue
             c5_body_ratio = abs(c5_close - c5_open) / c5_range
             c5_turnover   = c5_close * c5_vol
 
             if c5_close >= c5_open:
+                _dbg_fail(_debug, "not_red_candle", symbol)
                 continue
             if c5_body_ratio < EXH_IMPULSE_BODY_RATIO:
+                _dbg_fail(_debug, "impulse_body", symbol, body_ratio=round(c5_body_ratio,2), needed=EXH_IMPULSE_BODY_RATIO)
                 continue
             if c5_turnover < EXH_IMPULSE_TURNOVER:
+                _dbg_fail(_debug, "impulse_turnover", symbol, turnover_cr=round(c5_turnover/1e7,1), needed_cr=round(EXH_IMPULSE_TURNOVER/1e7,1))
                 continue
 
             opens  = today_bars["Open"].tolist()
@@ -1774,6 +1840,7 @@ def _screen_exhaustion_short() -> list:
                 current_price = closes[-1]
 
             if current_price < 100:
+                _dbg_fail(_debug, "price_below_100", symbol, price=round(current_price,2))
                 continue
 
             # Price must have crossed above the 20-day Bollinger upper band
@@ -1782,6 +1849,7 @@ def _screen_exhaustion_short() -> list:
             bb_std   = float(closes_hist.std(ddof=0))
             bb_upper = bb_sma + EXH_BB_STD_MULT * bb_std
             if current_price <= bb_upper:
+                _dbg_fail(_debug, "bollinger_band", symbol, price=round(current_price,2), bb_upper=round(bb_upper,2))
                 continue
 
             day_high = max(highs)
@@ -1794,16 +1862,20 @@ def _screen_exhaustion_short() -> list:
 
             # ── Gates ──────────────────────────────────────────────
             if current_price > day_high * (1 - EXH_PULLBACK_PCT / 100):
+                _dbg_fail(_debug, "pullback_depth", symbol, price=round(current_price,2), day_high=round(day_high,2))
                 continue
             if vol_ratio < EXH_VOL_RATIO:
+                _dbg_fail(_debug, "day_volume", symbol, vol_ratio=round(vol_ratio,2), needed=EXH_VOL_RATIO)
                 continue
             if nifty_chg > 1.0:                # don't fight a strongly bullish Nifty
+                _dbg_fail(_debug, "nifty_alignment", symbol, nifty_chg=round(nifty_chg,2))
                 continue
 
             # Trade plan: short with structural SL above day high
             sl   = round(day_high * 1.003, 2)
             risk = sl - current_price
             if risk <= 0:
+                _dbg_fail(_debug, "invalid_risk", symbol)
                 continue
 
             sl_pct = round(risk / current_price * 100, 2)
@@ -1827,6 +1899,7 @@ def _screen_exhaustion_short() -> list:
             except Exception:
                 bos_time = now.strftime("%H:%M")
 
+            _dbg_pass(_debug, symbol, confidence_score=conf_score)
             results.append({
                 "symbol":           symbol.replace(".NS", ""),
                 "price":            round(current_price, 2),
@@ -1857,6 +1930,7 @@ def _screen_exhaustion_short() -> list:
             })
 
         except Exception:
+            _dbg_fail(_debug, "exception", symbol)
             continue
 
     results.sort(key=lambda x: x["confidence_score"], reverse=True)
@@ -1914,7 +1988,7 @@ def _wilder_rsi(closes: list, period: int = 14):
     return 100 - (100 / (1 + rs))
 
 
-def _screen_pdh_trend() -> list:
+def _screen_pdh_trend(_debug: dict = None) -> list:
     """PDH Breakout / Trend + Momentum screener — see module comment above."""
     universe    = _load_nifty500() or _get_fno_universe()
     batch_15m   = _get_15m_batch()
@@ -1934,6 +2008,7 @@ def _screen_pdh_trend() -> list:
             daily = _get_ticker_df(batch_daily, symbol)
 
             if intra is None or daily is None or len(daily) < PDH_RSI_PERIOD + 2:
+                _dbg_fail(_debug, "no_data", symbol)
                 continue
 
             try:
@@ -1946,10 +2021,12 @@ def _screen_pdh_trend() -> list:
                 today_bars = intra.iloc[:0]
 
             if len(today_bars) < 1:
+                _dbg_fail(_debug, "no_data", symbol)
                 continue
 
             pdh = float(daily["High"].iloc[-2])
             if pdh <= 0:
+                _dbg_fail(_debug, "no_data", symbol)
                 continue
 
             closes = today_bars["Close"].tolist()
@@ -1964,32 +2041,39 @@ def _screen_pdh_trend() -> list:
                 current_price = closes[-1]
 
             if current_price < 100 or current_price <= pdh:
+                _dbg_fail(_debug, "not_above_pdh", symbol, price=round(current_price,2), pdh=round(pdh,2))
                 continue
 
             # Fresh breakout: the bar that first closed above PDH must be recent
             bos_bar = next((i for i, c in enumerate(closes) if c > pdh), -1)
             if bos_bar < 0:
+                _dbg_fail(_debug, "not_above_pdh", symbol, price=round(current_price,2), pdh=round(pdh,2))
                 continue
             if n_bars - 1 - bos_bar > _PDH_FRESH:
+                _dbg_fail(_debug, "breakout_too_stale", symbol, bars_ago=n_bars-1-bos_bar, allowed=_PDH_FRESH)
                 continue
 
             # Trend filter: price above 200-period EMA on all available 15-min closes
             all_closes_15m = intra["Close"].dropna().astype(float).tolist()
             if len(all_closes_15m) < 30:
+                _dbg_fail(_debug, "no_data", symbol)
                 continue
             ema200 = _ema(all_closes_15m, PDH_EMA_PERIOD)
             if ema200 is None or current_price < ema200:
+                _dbg_fail(_debug, "below_200ema", symbol, price=round(current_price,2), ema200=round(ema200,2) if ema200 else None)
                 continue
 
             # Momentum filter: daily RSI(14) >= 60
             daily_closes = daily["Close"].astype(float).tolist()
             rsi = _wilder_rsi(daily_closes, PDH_RSI_PERIOD)
             if rsi is None or rsi < PDH_RSI_MIN:
+                _dbg_fail(_debug, "rsi_too_low", symbol, rsi=round(rsi,1) if rsi is not None else None, needed=PDH_RSI_MIN)
                 continue
 
             # Liquidity filter: day volume so far >= 10 lakh shares
             day_vol = sum(vols)
             if day_vol < PDH_VOL_MIN:
+                _dbg_fail(_debug, "day_volume", symbol, day_vol=int(day_vol), needed=PDH_VOL_MIN)
                 continue
 
             prev_close = float(daily["Close"].iloc[-2])
@@ -2003,6 +2087,7 @@ def _screen_pdh_trend() -> list:
             sl   = round(pdh * 0.997, 2)
             risk = current_price - sl
             if risk <= 0:
+                _dbg_fail(_debug, "invalid_risk", symbol)
                 continue
 
             sl_pct = round(risk / current_price * 100, 2)
@@ -2026,6 +2111,7 @@ def _screen_pdh_trend() -> list:
             except Exception:
                 bos_time = datetime.now(ist).strftime("%H:%M")
 
+            _dbg_pass(_debug, symbol, confidence_score=conf_score)
             results.append({
                 "symbol":           symbol.replace(".NS", ""),
                 "price":            round(current_price, 2),
@@ -2055,6 +2141,7 @@ def _screen_pdh_trend() -> list:
             })
 
         except Exception:
+            _dbg_fail(_debug, "exception", symbol)
             continue
 
     results.sort(key=lambda x: x["confidence_score"], reverse=True)
@@ -2076,7 +2163,7 @@ ORB_PRIOR_DAYS            = 3      # also require the stock to have been rangebo
 ORB_PRIOR_RANGE_MAX_PCT   = 5.0    # (highest high - lowest low) over those N days, as % of price — multi-day consolidation, not just an intraday narrow open
 
 
-def _screen_orb(direction: str) -> list:
+def _screen_orb(direction: str, _debug: dict = None) -> list:
     """Opening Range Breakout screener — see module comment above."""
     universe    = _load_nifty500() or _get_fno_universe()
     batch_5m    = _get_5m_batch()
@@ -2103,6 +2190,7 @@ def _screen_orb(direction: str) -> list:
             intra5 = _get_ticker_df(batch_5m, symbol)
             daily  = _get_ticker_df(batch_daily, symbol)
             if intra5 is None or daily is None or len(daily) < ORB_PRIOR_DAYS + 1:
+                _dbg_fail(_debug, "no_data", symbol)
                 continue
 
             # Multi-day consolidation gate: the stock must already have been
@@ -2114,9 +2202,11 @@ def _screen_orb(direction: str) -> list:
             prior_high = float(prior_days["High"].max())
             prior_low  = float(prior_days["Low"].min())
             if prior_low <= 0:
+                _dbg_fail(_debug, "no_data", symbol)
                 continue
             prior_range_pct = (prior_high - prior_low) / prior_low * 100
             if prior_range_pct > ORB_PRIOR_RANGE_MAX_PCT:
+                _dbg_fail(_debug, "multi_day_not_consolidating", symbol, prior_range_pct=round(prior_range_pct,2), needed_max=ORB_PRIOR_RANGE_MAX_PCT)
                 continue
 
             try:
@@ -2130,6 +2220,7 @@ def _screen_orb(direction: str) -> list:
 
             # Need the opening candle plus at least one more bar to check for a breakout
             if len(today_bars5) < 2:
+                _dbg_fail(_debug, "no_data", symbol)
                 continue
 
             opens  = today_bars5["Open"].tolist()
@@ -2144,11 +2235,13 @@ def _screen_orb(direction: str) -> list:
             or_close = closes[0]
             or_range = or_high - or_low
             if or_close <= 0 or or_range <= 0:
+                _dbg_fail(_debug, "no_data", symbol)
                 continue
 
             # Narrow opening range gate
             or_range_pct = or_range / or_close * 100
             if or_range_pct > ORB_MAX_RANGE_PCT:
+                _dbg_fail(_debug, "opening_range_too_wide", symbol, or_range_pct=round(or_range_pct,2), needed_max=ORB_MAX_RANGE_PCT)
                 continue
 
             # Find the first bar (after the opening candle) whose close breaks
@@ -2165,10 +2258,12 @@ def _screen_orb(direction: str) -> list:
                     breakout_bar = -1
                     break
             if breakout_bar < 0:
+                _dbg_fail(_debug, "no_clean_breakout", symbol)
                 continue
 
             # Freshness: breakout must be recent
             if n_bars - 1 - breakout_bar > ORB_FRESHNESS_BARS:
+                _dbg_fail(_debug, "breakout_too_stale", symbol, bars_ago=n_bars-1-breakout_bar, allowed=ORB_FRESHNESS_BARS)
                 continue
 
             # VWAP confirmation: the breakout candle itself must close on the
@@ -2177,6 +2272,7 @@ def _screen_orb(direction: str) -> list:
             # participation behind the move, not just a thin print.
             vwap_den = sum(vols[:breakout_bar + 1])
             if vwap_den <= 0:
+                _dbg_fail(_debug, "no_data", symbol)
                 continue
             vwap_num = sum(
                 ((highs[i] + lows[i] + closes[i]) / 3) * vols[i]
@@ -2185,9 +2281,11 @@ def _screen_orb(direction: str) -> list:
             vwap = vwap_num / vwap_den
             if bullish:
                 if closes[breakout_bar] <= vwap:
+                    _dbg_fail(_debug, "vwap_alignment", symbol, breakout_close=round(closes[breakout_bar],2), vwap=round(vwap,2))
                     continue
             else:
                 if closes[breakout_bar] >= vwap:
+                    _dbg_fail(_debug, "vwap_alignment", symbol, breakout_close=round(closes[breakout_bar],2), vwap=round(vwap,2))
                     continue
 
             # Volume confirmation: breakout candle vs avg volume of the
@@ -2196,9 +2294,11 @@ def _screen_orb(direction: str) -> list:
             avg_consol_vol = (sum(consolidation_vols) / len(consolidation_vols)
                                if consolidation_vols else vols[0])
             if avg_consol_vol <= 0:
+                _dbg_fail(_debug, "no_data", symbol)
                 continue
             vol_ratio = vols[breakout_bar] / avg_consol_vol
             if vol_ratio < ORB_VOL_RATIO:
+                _dbg_fail(_debug, "breakout_volume", symbol, vol_ratio=round(vol_ratio,2), needed=ORB_VOL_RATIO)
                 continue
 
             if live_quotes:
@@ -2209,6 +2309,7 @@ def _screen_orb(direction: str) -> list:
                 current_price = closes[-1]
 
             if current_price < 100:
+                _dbg_fail(_debug, "price_below_100", symbol, price=round(current_price,2))
                 continue
 
             day_high = max(highs)
@@ -2217,13 +2318,17 @@ def _screen_orb(direction: str) -> list:
             # One-side rally gate: no round-trip back through the breakout level
             if bullish:
                 if current_price < day_high * (1 - ORB_NO_REVERSAL_PCT / 100):
+                    _dbg_fail(_debug, "round_tripped", symbol, price=round(current_price,2), day_high=round(day_high,2))
                     continue
                 if nifty_chg < -1.0:
+                    _dbg_fail(_debug, "nifty_alignment", symbol, nifty_chg=round(nifty_chg,2))
                     continue
             else:
                 if current_price > day_low * (1 + ORB_NO_REVERSAL_PCT / 100):
+                    _dbg_fail(_debug, "round_tripped", symbol, price=round(current_price,2), day_low=round(day_low,2))
                     continue
                 if nifty_chg > 1.0:
+                    _dbg_fail(_debug, "nifty_alignment", symbol, nifty_chg=round(nifty_chg,2))
                     continue
 
             prev_close = float(daily["Close"].iloc[-2])
@@ -2239,6 +2344,7 @@ def _screen_orb(direction: str) -> list:
                 sl   = round(or_high * 1.003, 2)
                 risk = sl - current_price
             if risk <= 0:
+                _dbg_fail(_debug, "invalid_risk", symbol)
                 continue
 
             sign_  = 1 if bullish else -1
@@ -2263,6 +2369,7 @@ def _screen_orb(direction: str) -> list:
             except Exception:
                 bos_time = datetime.now(ist).strftime("%H:%M")
 
+            _dbg_pass(_debug, symbol, confidence_score=conf_score)
             results.append({
                 "symbol":           symbol.replace(".NS", ""),
                 "price":            round(current_price, 2),
@@ -2291,6 +2398,7 @@ def _screen_orb(direction: str) -> list:
             })
 
         except Exception:
+            _dbg_fail(_debug, "exception", symbol)
             continue
 
     results.sort(key=lambda x: x["confidence_score"], reverse=True)
@@ -2311,7 +2419,7 @@ MB_FRESHNESS_BARS     = 6     # the breakout+confirm pair must be within the las
 MB_NO_REVERSAL_PCT    = 1.5   # current price must stay within 1.5% of the day extreme
 
 
-def _screen_momentum_breakout(direction: str) -> list:
+def _screen_momentum_breakout(direction: str, _debug: dict = None) -> list:
     """Momentum Breakout screener — see module comment above."""
     universe    = _load_nifty500() or _get_fno_universe()
     batch_5m    = _get_5m_batch()
@@ -2338,6 +2446,7 @@ def _screen_momentum_breakout(direction: str) -> list:
             intra5 = _get_ticker_df(batch_5m, symbol)
             daily  = _get_ticker_df(batch_daily, symbol)
             if intra5 is None or daily is None or len(daily) < 2:
+                _dbg_fail(_debug, "no_data", symbol)
                 continue
 
             try:
@@ -2351,11 +2460,13 @@ def _screen_momentum_breakout(direction: str) -> list:
 
             # Need the open bar + at least 1 bar to break out + 1 bar to confirm
             if len(today_bars5) < 3:
+                _dbg_fail(_debug, "no_data", symbol)
                 continue
 
             pdh = float(daily["High"].iloc[-2])
             pdl = float(daily["Low"].iloc[-2])
             if pdh <= 0 or pdl <= 0:
+                _dbg_fail(_debug, "no_data", symbol)
                 continue
 
             opens  = today_bars5["Open"].tolist()
@@ -2367,6 +2478,7 @@ def _screen_momentum_breakout(direction: str) -> list:
 
             # Opened within yesterday's range — no gap either way
             if opens[0] > pdh or opens[0] < pdl:
+                _dbg_fail(_debug, "gapped_open", symbol, open=round(opens[0],2), pdh=round(pdh,2), pdl=round(pdl,2))
                 continue
 
             # Find the first bar (after at least 1 prior bar, so a volume
@@ -2378,34 +2490,43 @@ def _screen_momentum_breakout(direction: str) -> list:
                     breakout_bar = i
                     break
             if breakout_bar < 0:
+                _dbg_fail(_debug, "no_clean_breakout", symbol)
                 continue
 
             # Volume confirmation on the breakout candle itself
             avg_vol_before = sum(vols[:breakout_bar]) / breakout_bar
             if avg_vol_before <= 0:
+                _dbg_fail(_debug, "no_data", symbol)
                 continue
             vol_ratio = vols[breakout_bar] / avg_vol_before
             if vol_ratio < MB_VOL_RATIO:
+                _dbg_fail(_debug, "breakout_volume", symbol, vol_ratio=round(vol_ratio,2), needed=MB_VOL_RATIO)
                 continue
 
             # The very next 5-min candle must be small AND in the same direction
             confirm = breakout_bar + 1
             if confirm >= n_bars:
+                _dbg_fail(_debug, "no_confirm_bar_yet", symbol)
                 continue
             confirm_close = closes[confirm]
             confirm_open  = opens[confirm]
             if confirm_close <= 0:
+                _dbg_fail(_debug, "no_data", symbol)
                 continue
             confirm_range_pct = (highs[confirm] - lows[confirm]) / confirm_close * 100
             if confirm_range_pct >= MB_CONFIRM_MAX_RANGE_PCT:
+                _dbg_fail(_debug, "confirm_candle_too_wide", symbol, confirm_range_pct=round(confirm_range_pct,2), needed_max=MB_CONFIRM_MAX_RANGE_PCT)
                 continue
             if bullish and confirm_close <= confirm_open:
+                _dbg_fail(_debug, "confirm_wrong_direction", symbol)
                 continue
             if not bullish and confirm_close >= confirm_open:
+                _dbg_fail(_debug, "confirm_wrong_direction", symbol)
                 continue
 
             # Freshness: the breakout+confirm pair must be recent
             if n_bars - 1 - confirm > MB_FRESHNESS_BARS:
+                _dbg_fail(_debug, "breakout_too_stale", symbol, bars_ago=n_bars-1-confirm, allowed=MB_FRESHNESS_BARS)
                 continue
 
             if live_quotes:
@@ -2416,6 +2537,7 @@ def _screen_momentum_breakout(direction: str) -> list:
                 current_price = closes[-1]
 
             if current_price < 100:
+                _dbg_fail(_debug, "price_below_100", symbol, price=round(current_price,2))
                 continue
 
             day_high = max(highs)
@@ -2424,13 +2546,17 @@ def _screen_momentum_breakout(direction: str) -> list:
             # No-reversal gate: no round-trip back through the breakout level
             if bullish:
                 if current_price < day_high * (1 - MB_NO_REVERSAL_PCT / 100):
+                    _dbg_fail(_debug, "round_tripped", symbol, price=round(current_price,2), day_high=round(day_high,2))
                     continue
                 if nifty_chg < -1.0:
+                    _dbg_fail(_debug, "nifty_alignment", symbol, nifty_chg=round(nifty_chg,2))
                     continue
             else:
                 if current_price > day_low * (1 + MB_NO_REVERSAL_PCT / 100):
+                    _dbg_fail(_debug, "round_tripped", symbol, price=round(current_price,2), day_low=round(day_low,2))
                     continue
                 if nifty_chg > 1.0:
+                    _dbg_fail(_debug, "nifty_alignment", symbol, nifty_chg=round(nifty_chg,2))
                     continue
 
             prev_close = float(daily["Close"].iloc[-2])
@@ -2439,6 +2565,7 @@ def _screen_momentum_breakout(direction: str) -> list:
             sl   = round(pdh * 0.997, 2) if bullish else round(pdl * 1.003, 2)
             risk = abs(current_price - sl)
             if risk <= 0:
+                _dbg_fail(_debug, "invalid_risk", symbol)
                 continue
             sign_ = 1 if bullish else -1
             t1    = round(current_price + sign_ * risk * 1.5, 2)
@@ -2461,6 +2588,7 @@ def _screen_momentum_breakout(direction: str) -> list:
             except Exception:
                 bos_time = datetime.now(ist).strftime("%H:%M")
 
+            _dbg_pass(_debug, symbol, confidence_score=conf_score)
             results.append({
                 "symbol":           symbol.replace(".NS", ""),
                 "price":            round(current_price, 2),
@@ -2488,6 +2616,7 @@ def _screen_momentum_breakout(direction: str) -> list:
             })
 
         except Exception:
+            _dbg_fail(_debug, "exception", symbol)
             continue
 
     results.sort(key=lambda x: x["confidence_score"], reverse=True)
@@ -2510,7 +2639,7 @@ TRAP_FRESHNESS_BARS   = 6     # the reversal must be within the last 6 5-min bar
 TRAP_RECLAIM_MAX_BARS = 12    # the reclaim must happen within this many bars of the trap bar (60 min)
 
 
-def _screen_trap(direction: str) -> list:
+def _screen_trap(direction: str, _debug: dict = None) -> list:
     """Bear Trap (bullish) / Bull Trap (bearish) reversal screener — see module comment above."""
     universe    = _load_nifty500() or _get_fno_universe()
     batch_5m    = _get_5m_batch()
@@ -2537,6 +2666,7 @@ def _screen_trap(direction: str) -> list:
             intra5 = _get_ticker_df(batch_5m, symbol)
             daily  = _get_ticker_df(batch_daily, symbol)
             if intra5 is None or daily is None or len(daily) < 2:
+                _dbg_fail(_debug, "no_data", symbol)
                 continue
 
             try:
@@ -2549,11 +2679,13 @@ def _screen_trap(direction: str) -> list:
                 today_bars5 = intra5.iloc[:0]
 
             if len(today_bars5) < 3:
+                _dbg_fail(_debug, "no_data", symbol)
                 continue
 
             pdh = float(daily["High"].iloc[-2])
             pdl = float(daily["Low"].iloc[-2])
             if pdh <= 0 or pdl <= 0:
+                _dbg_fail(_debug, "no_data", symbol)
                 continue
 
             opens  = today_bars5["Open"].tolist()
@@ -2566,9 +2698,11 @@ def _screen_trap(direction: str) -> list:
             # Opened within range, or near the level the trap forms around
             if bullish:
                 if opens[0] < pdl * (1 - TRAP_NEAR_LEVEL_PCT / 100) or opens[0] > pdh:
+                    _dbg_fail(_debug, "open_not_near_level", symbol, open=round(opens[0],2), pdl=round(pdl,2))
                     continue
             else:
                 if opens[0] > pdh * (1 + TRAP_NEAR_LEVEL_PCT / 100) or opens[0] < pdl:
+                    _dbg_fail(_debug, "open_not_near_level", symbol, open=round(opens[0],2), pdh=round(pdh,2))
                     continue
 
             # Find the trap bar: first close beyond the level (the breakdown/breakout)
@@ -2579,6 +2713,7 @@ def _screen_trap(direction: str) -> list:
                     trap_bar = i
                     break
             if trap_bar < 0:
+                _dbg_fail(_debug, "no_breakdown_or_breakout_yet", symbol)
                 continue
 
             # Find the reversal bar: first LATER close back on the right side
@@ -2591,6 +2726,7 @@ def _screen_trap(direction: str) -> list:
                     reversal_bar = j
                     break
             if reversal_bar < 0:
+                _dbg_fail(_debug, "no_reversal_yet", symbol)
                 continue
 
             # Reversal candle must be in the right direction and on volume —
@@ -2598,20 +2734,25 @@ def _screen_trap(direction: str) -> list:
             rev_open  = opens[reversal_bar]
             rev_close = closes[reversal_bar]
             if bullish and rev_close <= rev_open:
+                _dbg_fail(_debug, "reversal_wrong_direction", symbol)
                 continue
             if not bullish and rev_close >= rev_open:
+                _dbg_fail(_debug, "reversal_wrong_direction", symbol)
                 continue
 
             avg_vol_before = sum(vols[:reversal_bar]) / reversal_bar
             if avg_vol_before <= 0:
+                _dbg_fail(_debug, "no_data", symbol)
                 continue
             vol_ratio = vols[reversal_bar] / avg_vol_before
             if vol_ratio < TRAP_VOL_RATIO:
+                _dbg_fail(_debug, "reversal_volume", symbol, vol_ratio=round(vol_ratio,2), needed=TRAP_VOL_RATIO)
                 continue
 
             # Freshness: the reversal must be recent
             bars_since_reversal = n_bars - 1 - reversal_bar
             if bars_since_reversal > TRAP_FRESHNESS_BARS:
+                _dbg_fail(_debug, "reversal_too_stale", symbol, bars_ago=bars_since_reversal, allowed=TRAP_FRESHNESS_BARS)
                 continue
 
             if live_quotes:
@@ -2622,19 +2763,24 @@ def _screen_trap(direction: str) -> list:
                 current_price = closes[-1]
 
             if current_price < 100:
+                _dbg_fail(_debug, "price_below_100", symbol, price=round(current_price,2))
                 continue
 
             # Validity: current price must still be on the reclaimed side of
             # the level — if it's broken back through, the trap failed again
             if bullish:
                 if current_price < pdl:
+                    _dbg_fail(_debug, "trap_failed_again", symbol, price=round(current_price,2), pdl=round(pdl,2))
                     continue
                 if nifty_chg < -1.0:
+                    _dbg_fail(_debug, "nifty_alignment", symbol, nifty_chg=round(nifty_chg,2))
                     continue
             else:
                 if current_price > pdh:
+                    _dbg_fail(_debug, "trap_failed_again", symbol, price=round(current_price,2), pdh=round(pdh,2))
                     continue
                 if nifty_chg > 1.0:
+                    _dbg_fail(_debug, "nifty_alignment", symbol, nifty_chg=round(nifty_chg,2))
                     continue
 
             day_high   = max(highs)
@@ -2645,6 +2791,7 @@ def _screen_trap(direction: str) -> list:
             sl   = round(day_low * 0.997, 2) if bullish else round(day_high * 1.003, 2)
             risk = abs(current_price - sl)
             if risk <= 0:
+                _dbg_fail(_debug, "invalid_risk", symbol)
                 continue
             sign_ = 1 if bullish else -1
             t1    = round(current_price + sign_ * risk * 1.5, 2)
@@ -2667,6 +2814,7 @@ def _screen_trap(direction: str) -> list:
             except Exception:
                 bos_time = datetime.now(ist).strftime("%H:%M")
 
+            _dbg_pass(_debug, symbol, confidence_score=conf_score)
             results.append({
                 "symbol":           symbol.replace(".NS", ""),
                 "price":            round(current_price, 2),
@@ -2694,6 +2842,7 @@ def _screen_trap(direction: str) -> list:
             })
 
         except Exception:
+            _dbg_fail(_debug, "exception", symbol)
             continue
 
     results.sort(key=lambda x: x["confidence_score"], reverse=True)
@@ -3113,6 +3262,50 @@ def api_zone_supply():
         return jsonify([])
     active = _cached("zone_supply", _screen_demand_supply_zone, "bearish", ttl=SCREEN_TTL)
     return jsonify(_merge_with_history(active, 6, "bearish"))
+
+
+# ── Per-panel diagnostics ────────────────────────────────────────────
+# Each panel runs the SAME screener function used to generate its live
+# signals, with an extra _debug accumulator — so "why didn't X show up"
+# always reflects the real, current filtering logic, not a guess.
+_PANEL_DIAGNOSE = {
+    "exh-short":    lambda dbg: _screen_exhaustion_short(_debug=dbg),
+    "pdh-breakout": lambda dbg: _screen_pdh_trend(_debug=dbg),
+    "orb-bull":     lambda dbg: _screen_orb("bullish", _debug=dbg),
+    "orb-bear":     lambda dbg: _screen_orb("bearish", _debug=dbg),
+    "zone-demand":  lambda dbg: _screen_demand_supply_zone("bullish", _debug=dbg),
+    "zone-supply":  lambda dbg: _screen_demand_supply_zone("bearish", _debug=dbg),
+    "mb-bull":      lambda dbg: _screen_momentum_breakout("bullish", _debug=dbg),
+    "mb-bear":      lambda dbg: _screen_momentum_breakout("bearish", _debug=dbg),
+    "trap-bull":    lambda dbg: _screen_trap("bullish", _debug=dbg),
+    "trap-bear":    lambda dbg: _screen_trap("bearish", _debug=dbg),
+    "oi-bull":      lambda dbg: _screen_oi_options("bullish", _debug=dbg),
+    "oi-bear":      lambda dbg: _screen_oi_options("bearish", _debug=dbg),
+}
+
+@app.route("/api/debug/panel/<panel_key>")
+def debug_panel(panel_key):
+    fn = _PANEL_DIAGNOSE.get(panel_key)
+    if not fn:
+        return jsonify({"error": f"unknown panel '{panel_key}'"}), 404
+    dbg = {"funnel": {}, "samples": {}, "blocked": None}
+    try:
+        results = fn(dbg)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    passed = dbg["funnel"].get("PASSED", 0)
+    funnel_sorted = sorted(
+        ({"stage": k, "count": v} for k, v in dbg["funnel"].items() if k != "PASSED"),
+        key=lambda x: x["count"], reverse=True,
+    )
+    return jsonify({
+        "panel":     panel_key,
+        "blocked":   dbg["blocked"],
+        "passed":    passed,
+        "shown":     len(results),
+        "funnel":    funnel_sorted,
+        "samples":   dbg["samples"],
+    })
 
 @app.route("/api/signals/all-today.csv")
 def signals_all_today_csv():
