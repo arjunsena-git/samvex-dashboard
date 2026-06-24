@@ -2146,8 +2146,10 @@
       const color = isBull ? 'var(--green)' : 'var(--red)';
       list.innerHTML = stocks.map(s => {
         const isInactive = s.is_active === false;
+        const shownSuffix = (s.first_shown_at && s.first_shown_at !== s.detected_at)
+          ? ` (shown ${s.first_shown_at})` : "";
         const sinceTag = s.detected_at
-          ? `<span style="font-size:9px;font-weight:400;color:var(--text-muted);margin-left:15px;">&#9201; ${s.detected_at} IST</span>`
+          ? `<span style="font-size:9px;font-weight:400;color:var(--text-muted);margin-left:15px;">&#9201; Since ${s.detected_at} IST${shownSuffix}</span>`
           : "";
         return `
         <div class="stock-name-item ${isInactive ? 'signal-inactive' : ''}" data-symbol="${s.symbol}" onclick="_selectStock('${panelKey}','${s.symbol}')">
