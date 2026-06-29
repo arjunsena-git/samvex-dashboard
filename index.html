@@ -846,6 +846,22 @@
     .analysis-filters input { width: 160px; }
     th[data-afield] { cursor: pointer; user-select: none; }
     th[data-afield]:hover { color: var(--accent); }
+    .analysis-day {
+      background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: var(--radius); margin-bottom: 10px; overflow: hidden;
+    }
+    .analysis-day-hdr {
+      display: flex; align-items: center; gap: 12px; padding: 12px 16px;
+      cursor: pointer; user-select: none;
+    }
+    .analysis-day-hdr:hover { background: var(--bg-card-2); }
+    .analysis-day-arrow { font-size: 11px; color: var(--text-muted); transition: transform .15s; width: 10px; }
+    .analysis-day.expanded .analysis-day-arrow { transform: rotate(90deg); }
+    .analysis-day-date { font-size: 13px; font-weight: 800; }
+    .analysis-day-stats { font-size: 12px; color: var(--text-muted); display: flex; gap: 14px; flex-wrap: wrap; margin-left: auto; }
+    .analysis-day-stats b { color: var(--text); }
+    .analysis-day-body { display: none; border-top: 1px solid var(--border); overflow-x: auto; }
+    .analysis-day.expanded .analysis-day-body { display: block; }
     .journal-table-wrap {
       background: var(--bg-card); border: 1px solid var(--border);
       border-radius: var(--radius); overflow-x: auto;
@@ -1088,27 +1104,11 @@
         <option value="bearish">🔴 Bearish</option>
       </select>
       <input id="analysis-filter-symbol" type="text" placeholder="Symbol contains…" oninput="_renderAnalysisTable()">
+      <button class="csv-btn" onclick="_setAllAnalysisDaysExpanded(true)">Expand all</button>
+      <button class="csv-btn" onclick="_setAllAnalysisDaysExpanded(false)">Collapse all</button>
     </div>
-    <div class="journal-table-wrap">
-      <table class="journal-table">
-        <thead>
-          <tr>
-            <th data-afield="date" onclick="sortAnalysis(event,'date')">Date</th>
-            <th data-afield="detected_at" onclick="sortAnalysis(event,'detected_at')">Time</th>
-            <th data-afield="symbol" onclick="sortAnalysis(event,'symbol')">Stock</th>
-            <th data-afield="panel" onclick="sortAnalysis(event,'panel')">Panel</th>
-            <th data-afield="direction" onclick="sortAnalysis(event,'direction')">Dir</th>
-            <th data-afield="entry" onclick="sortAnalysis(event,'entry')">Entry ₹</th>
-            <th data-afield="sl" onclick="sortAnalysis(event,'sl')">SL ₹</th>
-            <th data-afield="t1" onclick="sortAnalysis(event,'t1')">T1 ₹</th>
-            <th data-afield="outcome" onclick="sortAnalysis(event,'outcome')">Outcome</th>
-            <th data-afield="r_achieved" onclick="sortAnalysis(event,'r_achieved')">R</th>
-          </tr>
-        </thead>
-        <tbody id="analysis-tbody">
-          <tr><td colspan="10"><div class="journal-empty"><div class="spinner"></div>Loading…</div></td></tr>
-        </tbody>
-      </table>
+    <div id="analysis-days">
+      <div class="journal-empty"><div class="spinner"></div>Loading…</div>
     </div>
   </div>
 
@@ -2407,9 +2407,10 @@
   }
 
   // ── Daily Signal Analysis — last 30 days, filterable/sortable ───
-  let _analysisActive = false;
-  let _analysisRows   = [];   // raw rows from /api/signals/history, never mutated
-  let _analysisSort   = null; // {field, dir}
+  let _analysisActive    = false;
+  let _analysisRows      = [];        // raw rows from /api/signals/history, never mutated
+  let _analysisSort      = null;      // {field, dir}
+  let _analysisExpanded  = new Set(); // dates currently expanded
 
   const _ANALYSIS_HIDE_ELS = ['oi-divider', 'oi-table-grid', 'geo-divider', 'geo-panel'];
 
@@ -2447,8 +2448,8 @@
   }
 
   async function loadAnalysis() {
-    const tbody = document.getElementById('analysis-tbody');
-    tbody.innerHTML = `<tr><td colspan="10"><div class="journal-empty"><div class="spinner"></div>Loading…</div></td></tr>`;
+    const container = document.getElementById('analysis-days');
+    container.innerHTML = `<div class="journal-empty"><div class="spinner"></div>Loading…</div>`;
     try {
       const res  = await fetch(`${API}/api/signals/history`);
       const data = await res.json();
@@ -2459,11 +2460,16 @@
       panelSel.innerHTML = '<option value="">All panels</option>' +
         panels.map(p => `<option value="${p}">${p.split(' — ')[0].split(' (')[0]}</option>`).join('');
 
+      // Default: only the most recent day open, so the view doesn't dump
+      // 30 days of tables on screen at once (the whole point of this view).
+      const allDates = [...new Set(_analysisRows.map(r => r.date))].sort().reverse();
+      _analysisExpanded = new Set(allDates.slice(0, 1));
+
       _renderAnalysisTable();
     } catch (e) {
-      tbody.innerHTML = `<tr><td colspan="10"><div class="journal-empty">
+      container.innerHTML = `<div class="journal-empty">
         Server unreachable — <a href="javascript:loadAnalysis()" style="color:var(--accent);text-decoration:underline;">Retry</a>
-      </div></td></tr>`;
+      </div>`;
     }
   }
 
@@ -2478,10 +2484,30 @@
     const cur = _analysisSort;
     const dir = (cur && cur.field === field) ? -cur.dir : 1;
     _analysisSort = { field, dir };
-    document.querySelectorAll('#analysis-page th[data-afield] .sort-arrow').forEach(a => a.remove());
-    const th = ev.currentTarget;
-    th.insertAdjacentHTML('beforeend', `<span class="sort-arrow">${dir === 1 ? ' ▲' : ' ▼'}</span>`);
     _renderAnalysisTable();
+  }
+
+  function toggleAnalysisDay(date) {
+    if (_analysisExpanded.has(date)) _analysisExpanded.delete(date);
+    else _analysisExpanded.add(date);
+    const el = document.querySelector(`.analysis-day[data-date="${date}"]`);
+    if (el) el.classList.toggle('expanded', _analysisExpanded.has(date));
+  }
+
+  function _setAllAnalysisDaysExpanded(expand) {
+    const dates = [...new Set(_analysisRows.map(r => r.date))];
+    _analysisExpanded = expand ? new Set(dates) : new Set();
+    _renderAnalysisTable();
+  }
+
+  function _analysisStatsLine(rows) {
+    const valid   = rows.filter(r => r.outcome !== 'invalid' && r.outcome !== 'no_data');
+    const wins    = valid.filter(r => r.outcome === 'T1_hit' || r.outcome === 'T2_hit');
+    const losses  = valid.filter(r => r.outcome === 'SL_hit');
+    const expired = valid.filter(r => r.outcome === 'expired');
+    const winRate = valid.length ? (wins.length / valid.length * 100).toFixed(1) : '0.0';
+    const avgR    = valid.length ? (valid.reduce((s, r) => s + (r.r_achieved || 0), 0) / valid.length).toFixed(2) : '0.00';
+    return { rows, wins, losses, expired, winRate, avgR };
   }
 
   function _renderAnalysisTable() {
@@ -2495,7 +2521,7 @@
     cutoff.setDate(cutoff.getDate() - days);
     const cutoffStr = cutoff.toLocaleDateString('en-CA');
 
-    let rows = _analysisRows.filter(r => {
+    const rows = _analysisRows.filter(r => {
       if (r.date < cutoffStr) return false;
       if (outcomeF && r.outcome !== outcomeF) return false;
       if (panelF && r.panel !== panelF) return false;
@@ -2504,50 +2530,88 @@
       return true;
     });
 
-    if (_analysisSort) {
-      const { field, dir } = _analysisSort;
-      rows = [...rows].sort((a, b) => {
-        const av = a[field], bv = b[field];
-        const an = parseFloat(av), bn = parseFloat(bv);
-        const cmp = (!isNaN(an) && !isNaN(bn)) ? (an - bn) : String(av ?? '').localeCompare(String(bv ?? ''));
-        return cmp * dir;
-      });
-    } else {
-      rows = [...rows].sort((a, b) =>
-        (b.date + (b.detected_at || '')).localeCompare(a.date + (a.detected_at || '')));
-    }
-
-    const valid   = rows.filter(r => r.outcome !== 'invalid' && r.outcome !== 'no_data');
-    const wins    = valid.filter(r => r.outcome === 'T1_hit' || r.outcome === 'T2_hit');
-    const losses  = valid.filter(r => r.outcome === 'SL_hit');
-    const expired = valid.filter(r => r.outcome === 'expired');
-    const winRate = valid.length ? (wins.length / valid.length * 100).toFixed(1) : '0.0';
-    const avgR    = valid.length ? (valid.reduce((s, r) => s + (r.r_achieved || 0), 0) / valid.length).toFixed(2) : '0.00';
-
+    const overall = _analysisStatsLine(rows);
     document.getElementById('analysis-summary').innerHTML = `
       <span><b>${rows.length}</b> signals</span>
-      <span><b>${winRate}%</b> win rate</span>
-      <span><b>${avgR}R</b> avg</span>
-      <span><b>${wins.length}</b>W / <b>${losses.length}</b>L / <b>${expired.length}</b>E</span>`;
+      <span><b>${overall.winRate}%</b> win rate</span>
+      <span><b>${overall.avgR}R</b> avg</span>
+      <span><b>${overall.wins.length}</b>W / <b>${overall.losses.length}</b>L / <b>${overall.expired.length}</b>E</span>`;
 
-    const tbody = document.getElementById('analysis-tbody');
+    const container = document.getElementById('analysis-days');
     if (!rows.length) {
-      tbody.innerHTML = `<tr><td colspan="10"><div class="journal-empty">No signals match these filters.</div></td></tr>`;
+      container.innerHTML = `<div class="journal-empty">No signals match these filters.</div>`;
       return;
     }
-    tbody.innerHTML = rows.map(r => `
-      <tr>
-        <td>${r.date}</td>
-        <td>${r.detected_at || ''}</td>
-        <td><a class="sym" href="https://www.tradingview.com/chart/?symbol=NSE:${r.symbol}" target="_blank" rel="noopener noreferrer">${r.symbol}</a></td>
-        <td>${(r.panel || '').split(' — ')[0].split(' (')[0]}</td>
-        <td>${_ANALYSIS_DIR_ICON[r.direction] || r.direction || ''}</td>
-        <td>${r.entry ?? '—'}</td>
-        <td>${r.sl ?? '—'}</td>
-        <td>${r.t1 ?? '—'}</td>
-        <td>${_ANALYSIS_OUTCOME_ICON[r.outcome] || r.outcome || ''}</td>
-        <td style="color:${(r.r_achieved || 0) >= 0 ? 'var(--green)' : 'var(--red)'}">${r.r_achieved ?? '—'}</td>
-      </tr>`).join('');
+
+    const byDate = {};
+    rows.forEach(r => (byDate[r.date] = byDate[r.date] || []).push(r));
+    const sortedDates = Object.keys(byDate).sort().reverse();
+
+    container.innerHTML = sortedDates.map(date => {
+      let dayRows = byDate[date];
+      if (_analysisSort) {
+        const { field, dir } = _analysisSort;
+        dayRows = [...dayRows].sort((a, b) => {
+          const av = a[field], bv = b[field];
+          const an = parseFloat(av), bn = parseFloat(bv);
+          const cmp = (!isNaN(an) && !isNaN(bn)) ? (an - bn) : String(av ?? '').localeCompare(String(bv ?? ''));
+          return cmp * dir;
+        });
+      } else {
+        dayRows = [...dayRows].sort((a, b) => (b.detected_at || '').localeCompare(a.detected_at || ''));
+      }
+      const s = _analysisStatsLine(dayRows);
+      const expanded = _analysisExpanded.has(date);
+      const arrow = (field) => {
+        if (!_analysisSort || _analysisSort.field !== field) return '';
+        return `<span class="sort-arrow">${_analysisSort.dir === 1 ? ' ▲' : ' ▼'}</span>`;
+      };
+
+      return `
+      <div class="analysis-day${expanded ? ' expanded' : ''}" data-date="${date}">
+        <div class="analysis-day-hdr" onclick="toggleAnalysisDay('${date}')">
+          <span class="analysis-day-arrow">&#9656;</span>
+          <span class="analysis-day-date">${date}</span>
+          <span class="analysis-day-stats">
+            <span><b>${dayRows.length}</b> signals</span>
+            <span><b>${s.winRate}%</b> win rate</span>
+            <span><b>${s.avgR}R</b> avg</span>
+            <span><b>${s.wins.length}</b>W / <b>${s.losses.length}</b>L / <b>${s.expired.length}</b>E</span>
+          </span>
+        </div>
+        <div class="analysis-day-body">
+          <table class="journal-table">
+            <thead>
+              <tr>
+                <th data-afield="detected_at" onclick="sortAnalysis(event,'detected_at')">Time${arrow('detected_at')}</th>
+                <th data-afield="symbol" onclick="sortAnalysis(event,'symbol')">Stock${arrow('symbol')}</th>
+                <th data-afield="panel" onclick="sortAnalysis(event,'panel')">Panel${arrow('panel')}</th>
+                <th data-afield="direction" onclick="sortAnalysis(event,'direction')">Dir${arrow('direction')}</th>
+                <th data-afield="entry" onclick="sortAnalysis(event,'entry')">Entry ₹${arrow('entry')}</th>
+                <th data-afield="sl" onclick="sortAnalysis(event,'sl')">SL ₹${arrow('sl')}</th>
+                <th data-afield="t1" onclick="sortAnalysis(event,'t1')">T1 ₹${arrow('t1')}</th>
+                <th data-afield="outcome" onclick="sortAnalysis(event,'outcome')">Outcome${arrow('outcome')}</th>
+                <th data-afield="r_achieved" onclick="sortAnalysis(event,'r_achieved')">R${arrow('r_achieved')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${dayRows.map(r => `
+              <tr>
+                <td>${r.detected_at || ''}</td>
+                <td><a class="sym" href="https://www.tradingview.com/chart/?symbol=NSE:${r.symbol}" target="_blank" rel="noopener noreferrer">${r.symbol}</a></td>
+                <td>${(r.panel || '').split(' — ')[0].split(' (')[0]}</td>
+                <td>${_ANALYSIS_DIR_ICON[r.direction] || r.direction || ''}</td>
+                <td>${r.entry ?? '—'}</td>
+                <td>${r.sl ?? '—'}</td>
+                <td>${r.t1 ?? '—'}</td>
+                <td>${_ANALYSIS_OUTCOME_ICON[r.outcome] || r.outcome || ''}</td>
+                <td style="color:${(r.r_achieved || 0) >= 0 ? 'var(--green)' : 'var(--red)'}">${r.r_achieved ?? '—'}</td>
+              </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>`;
+    }).join('');
   }
 
   function openJournalForm(id) {
