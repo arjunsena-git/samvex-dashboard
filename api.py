@@ -3831,6 +3831,21 @@ def admin_daily_report():
     return jsonify({"date": date_str, "days_stored": len(reports)})
 
 
+@app.route("/api/admin/daily-report/<date_str>", methods=["DELETE"])
+def admin_delete_daily_report(date_str):
+    """Remove one day's stored report (e.g. a bad/test push). Same secret
+    as the POST endpoint. POST body: {"secret": "..."}"""
+    body = flask_req.get_json(force=True, silent=True) or {}
+    if not REPORT_PUSH_SECRET or body.get("secret") != REPORT_PUSH_SECRET:
+        return jsonify({"error": "Unauthorized"}), 403
+    reports = _load_daily_reports()
+    if date_str not in reports:
+        return jsonify({"error": "not found"}), 404
+    del reports[date_str]
+    _save_daily_reports(reports)
+    return jsonify({"deleted": date_str, "days_stored": len(reports)})
+
+
 @app.route("/api/signals/history")
 def signals_history():
     """Last 30 days of signal-performance reports, flattened into one
