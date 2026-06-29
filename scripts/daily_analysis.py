@@ -199,6 +199,29 @@ def _notion(method, path, body=None):
 def _rt(text):
     return [{"type": "text", "text": {"content": str(text)}}]
 
+REPORT_PUSH_SECRET = os.environ.get("REPORT_PUSH_SECRET", "")
+
+def post_to_dashboard(report):
+    """Push today's report to the dashboard's own 30-day history store —
+    runs alongside the Notion post, not instead of it, so the in-dashboard
+    'Daily Signal Analysis' view (filterable/sortable, unlike a Notion
+    table) stays in sync without anyone touching Notion."""
+    if not REPORT_PUSH_SECRET:
+        print("[Dashboard] No REPORT_PUSH_SECRET — skipping")
+        return
+    try:
+        r = requests.post(
+            API_BASE + "/api/admin/daily-report",
+            json={"secret": REPORT_PUSH_SECRET, "date": TODAY_STR, "report": report},
+            timeout=20,
+        )
+        if r.status_code == 200:
+            print(f"[Dashboard] Report stored — {r.json()}")
+        else:
+            print(f"[Dashboard] Push failed {r.status_code}: {r.text[:200]}")
+    except Exception as e:
+        print(f"[Dashboard] Push error: {e}")
+
 def post_to_notion(report, code_change_note=""):
     if not NOTION_KEY:
         print("[Notion] No API key — skipping")
@@ -545,9 +568,11 @@ def main():
         else:
             change_note = change_note.replace("{commit_placeholder}", "(push failed)")
 
-    # Post to Notion
+    # Post to Notion (existing audit log) and the dashboard's own
+    # filterable/sortable history view (new — neither replaces the other)
     post_to_notion(report, change_note)
     update_improvement_page(change_note)
+    post_to_dashboard(report)
 
     print(f"\n[Done] {TODAY_STR} analysis complete.")
 

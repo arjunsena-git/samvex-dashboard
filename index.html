@@ -835,6 +835,17 @@
     .journal-hdr h2 { font-size: 16px; font-weight: 800; }
     .journal-stats { display: flex; gap: 18px; flex-wrap: wrap; font-size: 12px; color: var(--text-muted); }
     .journal-stats b { color: var(--text); font-size: 13px; }
+    .analysis-filters {
+      display: flex; gap: 8px; flex-wrap: wrap; align-items: center;
+    }
+    .analysis-filters select, .analysis-filters input {
+      background: var(--bg-card-2); border: 1px solid var(--border);
+      color: var(--text); border-radius: 6px; font-size: 12px;
+      padding: 6px 10px;
+    }
+    .analysis-filters input { width: 160px; }
+    th[data-afield] { cursor: pointer; user-select: none; }
+    th[data-afield]:hover { color: var(--accent); }
     .journal-table-wrap {
       background: var(--bg-card); border: 1px solid var(--border);
       border-radius: var(--radius); overflow-x: auto;
@@ -997,6 +1008,7 @@
   <div class="csv-toolbar" style="gap:8px;flex-wrap:wrap;">
     <button id="chart-mode-btn" class="chart-mode-toggle active" onclick="toggleChartMode()">&#9776; Full Table View</button>
     <button id="journal-btn" class="chart-mode-toggle" onclick="toggleJournalView()">&#128209; Trade Journal</button>
+    <button id="analysis-btn" class="chart-mode-toggle" onclick="toggleAnalysisView()">&#128202; Daily Signal Analysis</button>
     <a id="download-all-btn" class="csv-btn" style="text-decoration:none;display:inline-flex;align-items:center;"
        title="Every signal captured today across all panels, active and inactive">
       ↓ Download All Signals (Today)
@@ -1041,6 +1053,60 @@
         </thead>
         <tbody id="journal-tbody">
           <tr><td colspan="13"><div class="journal-empty"><div class="spinner"></div>Loading…</div></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ── Daily Signal Analysis — last 30 days, filterable/sortable ──── -->
+  <div class="journal-page" id="analysis-page">
+    <div class="journal-hdr">
+      <h2>&#128202; Daily Signal Analysis</h2>
+      <div class="journal-stats" id="analysis-summary"></div>
+    </div>
+    <div class="analysis-filters">
+      <select id="analysis-filter-date" onchange="_renderAnalysisTable()">
+        <option value="7">Last 7 days</option>
+        <option value="14">Last 14 days</option>
+        <option value="30" selected>Last 30 days</option>
+      </select>
+      <select id="analysis-filter-outcome" onchange="_renderAnalysisTable()">
+        <option value="">All outcomes</option>
+        <option value="T1_hit">✅ T1 Hit</option>
+        <option value="T2_hit">✅ T2 Hit 🔥</option>
+        <option value="SL_hit">❌ SL Hit</option>
+        <option value="expired">⏳ Expired</option>
+        <option value="invalid">— Invalid</option>
+        <option value="no_data">— No data</option>
+      </select>
+      <select id="analysis-filter-panel" onchange="_renderAnalysisTable()">
+        <option value="">All panels</option>
+      </select>
+      <select id="analysis-filter-direction" onchange="_renderAnalysisTable()">
+        <option value="">All directions</option>
+        <option value="bullish">🟢 Bullish</option>
+        <option value="bearish">🔴 Bearish</option>
+      </select>
+      <input id="analysis-filter-symbol" type="text" placeholder="Symbol contains…" oninput="_renderAnalysisTable()">
+    </div>
+    <div class="journal-table-wrap">
+      <table class="journal-table">
+        <thead>
+          <tr>
+            <th data-afield="date" onclick="sortAnalysis(event,'date')">Date</th>
+            <th data-afield="detected_at" onclick="sortAnalysis(event,'detected_at')">Time</th>
+            <th data-afield="symbol" onclick="sortAnalysis(event,'symbol')">Stock</th>
+            <th data-afield="panel" onclick="sortAnalysis(event,'panel')">Panel</th>
+            <th data-afield="direction" onclick="sortAnalysis(event,'direction')">Dir</th>
+            <th data-afield="entry" onclick="sortAnalysis(event,'entry')">Entry ₹</th>
+            <th data-afield="sl" onclick="sortAnalysis(event,'sl')">SL ₹</th>
+            <th data-afield="t1" onclick="sortAnalysis(event,'t1')">T1 ₹</th>
+            <th data-afield="outcome" onclick="sortAnalysis(event,'outcome')">Outcome</th>
+            <th data-afield="r_achieved" onclick="sortAnalysis(event,'r_achieved')">R</th>
+          </tr>
+        </thead>
+        <tbody id="analysis-tbody">
+          <tr><td colspan="10"><div class="journal-empty"><div class="spinner"></div>Loading…</div></td></tr>
         </tbody>
       </table>
     </div>
@@ -2026,6 +2092,7 @@
 
   function toggleChartMode() {
     if (_journalActive) _closeJournalView();
+    if (_analysisActive) _closeAnalysisView();
     _chartModeActive = !_chartModeActive;
     _applyChartModeDisplay();
   }
@@ -2255,6 +2322,7 @@
   const _JOURNAL_HIDE_ELS = ['oi-divider', 'oi-table-grid', 'geo-divider', 'geo-panel'];
 
   function toggleJournalView() {
+    if (_analysisActive) _closeAnalysisView();
     _journalActive = !_journalActive;
     document.getElementById('journal-btn').classList.toggle('active', _journalActive);
     document.getElementById('journal-page').style.display = _journalActive ? 'flex' : 'none';
@@ -2335,6 +2403,150 @@
           <button class="journal-icon-btn" onclick="openJournalForm('${e.id}')" title="Edit">&#9998;</button>
           <button class="journal-icon-btn" onclick="deleteJournalEntry('${e.id}')" title="Delete">&#128465;</button>
         </td>
+      </tr>`).join('');
+  }
+
+  // ── Daily Signal Analysis — last 30 days, filterable/sortable ───
+  let _analysisActive = false;
+  let _analysisRows   = [];   // raw rows from /api/signals/history, never mutated
+  let _analysisSort   = null; // {field, dir}
+
+  const _ANALYSIS_HIDE_ELS = ['oi-divider', 'oi-table-grid', 'geo-divider', 'geo-panel'];
+
+  function toggleAnalysisView() {
+    _analysisActive = !_analysisActive;
+    document.getElementById('analysis-btn').classList.toggle('active', _analysisActive);
+    document.getElementById('analysis-page').style.display = _analysisActive ? 'flex' : 'none';
+    document.querySelector('.summary-row').style.display = _analysisActive ? 'none' : '';
+    _ANALYSIS_HIDE_ELS.forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.style.display = _analysisActive ? 'none' : '';
+    });
+
+    if (_analysisActive) {
+      if (_journalActive) _closeJournalView();
+      document.getElementById('chart-fullpage').classList.remove('visible');
+      _SCANNER_ELS.forEach(id => { const el = document.getElementById(id); if (el) el.style.display = 'none'; });
+      loadAnalysis();
+    } else {
+      _applyChartModeDisplay();
+    }
+  }
+
+  // Used by toggleChartMode()/toggleJournalView() so switching away from
+  // this view while it's open closes it first, without double-toggling state.
+  function _closeAnalysisView() {
+    _analysisActive = false;
+    document.getElementById('analysis-btn').classList.remove('active');
+    document.getElementById('analysis-page').style.display = 'none';
+    document.querySelector('.summary-row').style.display = '';
+    _ANALYSIS_HIDE_ELS.forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.style.display = '';
+    });
+  }
+
+  async function loadAnalysis() {
+    const tbody = document.getElementById('analysis-tbody');
+    tbody.innerHTML = `<tr><td colspan="10"><div class="journal-empty"><div class="spinner"></div>Loading…</div></td></tr>`;
+    try {
+      const res  = await fetch(`${API}/api/signals/history`);
+      const data = await res.json();
+      _analysisRows = data.signals || [];
+
+      const panelSel = document.getElementById('analysis-filter-panel');
+      const panels = [...new Set(_analysisRows.map(r => r.panel).filter(Boolean))].sort();
+      panelSel.innerHTML = '<option value="">All panels</option>' +
+        panels.map(p => `<option value="${p}">${p.split(' — ')[0].split(' (')[0]}</option>`).join('');
+
+      _renderAnalysisTable();
+    } catch (e) {
+      tbody.innerHTML = `<tr><td colspan="10"><div class="journal-empty">
+        Server unreachable — <a href="javascript:loadAnalysis()" style="color:var(--accent);text-decoration:underline;">Retry</a>
+      </div></td></tr>`;
+    }
+  }
+
+  const _ANALYSIS_OUTCOME_ICON = {
+    T1_hit: "✅ T1 Hit", T2_hit: "✅ T2 Hit 🔥",
+    SL_hit: "❌ SL Hit", expired: "⏳ Expired",
+    invalid: "— Invalid", no_data: "— No data",
+  };
+  const _ANALYSIS_DIR_ICON = { bullish: "🟢 Bull", bearish: "🔴 Bear" };
+
+  function sortAnalysis(ev, field) {
+    const cur = _analysisSort;
+    const dir = (cur && cur.field === field) ? -cur.dir : 1;
+    _analysisSort = { field, dir };
+    document.querySelectorAll('#analysis-page th[data-afield] .sort-arrow').forEach(a => a.remove());
+    const th = ev.currentTarget;
+    th.insertAdjacentHTML('beforeend', `<span class="sort-arrow">${dir === 1 ? ' ▲' : ' ▼'}</span>`);
+    _renderAnalysisTable();
+  }
+
+  function _renderAnalysisTable() {
+    const days       = parseInt(document.getElementById('analysis-filter-date').value, 10);
+    const outcomeF   = document.getElementById('analysis-filter-outcome').value;
+    const panelF     = document.getElementById('analysis-filter-panel').value;
+    const dirF       = document.getElementById('analysis-filter-direction').value;
+    const symbolF    = document.getElementById('analysis-filter-symbol').value.trim().toUpperCase();
+
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - days);
+    const cutoffStr = cutoff.toLocaleDateString('en-CA');
+
+    let rows = _analysisRows.filter(r => {
+      if (r.date < cutoffStr) return false;
+      if (outcomeF && r.outcome !== outcomeF) return false;
+      if (panelF && r.panel !== panelF) return false;
+      if (dirF && r.direction !== dirF) return false;
+      if (symbolF && !(r.symbol || '').toUpperCase().includes(symbolF)) return false;
+      return true;
+    });
+
+    if (_analysisSort) {
+      const { field, dir } = _analysisSort;
+      rows = [...rows].sort((a, b) => {
+        const av = a[field], bv = b[field];
+        const an = parseFloat(av), bn = parseFloat(bv);
+        const cmp = (!isNaN(an) && !isNaN(bn)) ? (an - bn) : String(av ?? '').localeCompare(String(bv ?? ''));
+        return cmp * dir;
+      });
+    } else {
+      rows = [...rows].sort((a, b) =>
+        (b.date + (b.detected_at || '')).localeCompare(a.date + (a.detected_at || '')));
+    }
+
+    const valid   = rows.filter(r => r.outcome !== 'invalid' && r.outcome !== 'no_data');
+    const wins    = valid.filter(r => r.outcome === 'T1_hit' || r.outcome === 'T2_hit');
+    const losses  = valid.filter(r => r.outcome === 'SL_hit');
+    const expired = valid.filter(r => r.outcome === 'expired');
+    const winRate = valid.length ? (wins.length / valid.length * 100).toFixed(1) : '0.0';
+    const avgR    = valid.length ? (valid.reduce((s, r) => s + (r.r_achieved || 0), 0) / valid.length).toFixed(2) : '0.00';
+
+    document.getElementById('analysis-summary').innerHTML = `
+      <span><b>${rows.length}</b> signals</span>
+      <span><b>${winRate}%</b> win rate</span>
+      <span><b>${avgR}R</b> avg</span>
+      <span><b>${wins.length}</b>W / <b>${losses.length}</b>L / <b>${expired.length}</b>E</span>`;
+
+    const tbody = document.getElementById('analysis-tbody');
+    if (!rows.length) {
+      tbody.innerHTML = `<tr><td colspan="10"><div class="journal-empty">No signals match these filters.</div></td></tr>`;
+      return;
+    }
+    tbody.innerHTML = rows.map(r => `
+      <tr>
+        <td>${r.date}</td>
+        <td>${r.detected_at || ''}</td>
+        <td><a class="sym" href="https://www.tradingview.com/chart/?symbol=NSE:${r.symbol}" target="_blank" rel="noopener noreferrer">${r.symbol}</a></td>
+        <td>${(r.panel || '').split(' — ')[0].split(' (')[0]}</td>
+        <td>${_ANALYSIS_DIR_ICON[r.direction] || r.direction || ''}</td>
+        <td>${r.entry ?? '—'}</td>
+        <td>${r.sl ?? '—'}</td>
+        <td>${r.t1 ?? '—'}</td>
+        <td>${_ANALYSIS_OUTCOME_ICON[r.outcome] || r.outcome || ''}</td>
+        <td style="color:${(r.r_achieved || 0) >= 0 ? 'var(--green)' : 'var(--red)'}">${r.r_achieved ?? '—'}</td>
       </tr>`).join('');
   }
 

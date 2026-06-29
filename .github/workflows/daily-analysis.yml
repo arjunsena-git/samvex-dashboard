@@ -40,6 +40,7 @@ jobs:
       - name: Run daily analysis
         env:
           NOTION_API_KEY: ${{ secrets.NOTION_API_KEY }}
+          REPORT_PUSH_SECRET: ${{ secrets.REPORT_PUSH_SECRET }}
         run: |
           python scripts/daily_analysis.py
 

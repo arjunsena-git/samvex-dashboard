@@ -2,7 +2,7 @@ from flask import Flask, jsonify, redirect, request as flask_req, Response
 from flask_cors import CORS
 import yfinance as yf
 import pandas as pd
-from datetime import datetime, time as _dtime
+from datetime import datetime, time as _dtime, timedelta
 import pytz
 import time
 import math
@@ -454,6 +454,50 @@ def _save_journal(entries: list) -> None:
             fh.write(payload)
     except Exception as e:
         print(f"[Journal] disk save error: {e}")
+
+
+# ── Daily Signal Analysis history ───────────────────────────────────
+# Same Redis-first/disk-fallback pattern as the trade journal — survives
+# Render cold-starts. The GitHub Actions daily_analysis.py script pushes
+# one report per trading day here (in addition to Notion); the dashboard
+# renders the last 30 days as a filterable/sortable table client-side.
+_DAILY_REPORTS_REDIS_KEY      = "samvex_daily_reports"
+_DAILY_REPORTS_FILE           = os.path.join(_SIGNALS_DIR, "daily_reports.json")
+DAILY_REPORTS_RETENTION_DAYS  = 30
+REPORT_PUSH_SECRET            = os.environ.get("REPORT_PUSH_SECRET", "")
+
+
+def _load_daily_reports() -> dict:
+    """date_str -> report dict (same shape as daily_analysis.py's `report`)."""
+    raw = _upstash(["GET", _DAILY_REPORTS_REDIS_KEY])
+    if raw:
+        try:
+            return json.loads(raw)
+        except Exception as e:
+            print(f"[DailyReports] Redis parse error: {e}")
+    try:
+        if os.path.exists(_DAILY_REPORTS_FILE):
+            with open(_DAILY_REPORTS_FILE) as fh:
+                return json.load(fh)
+    except Exception as e:
+        print(f"[DailyReports] disk load error: {e}")
+    return {}
+
+
+def _save_daily_reports(reports: dict) -> None:
+    payload = json.dumps(reports)
+    _upstash(["SET", _DAILY_REPORTS_REDIS_KEY, payload])
+    try:
+        with open(_DAILY_REPORTS_FILE, "w") as fh:
+            fh.write(payload)
+    except Exception as e:
+        print(f"[DailyReports] disk save error: {e}")
+
+
+def _prune_daily_reports(reports: dict) -> dict:
+    ist    = pytz.timezone("Asia/Kolkata")
+    cutoff = (datetime.now(ist) - timedelta(days=DAILY_REPORTS_RETENTION_DAYS)).strftime("%Y-%m-%d")
+    return {d: r for d, r in reports.items() if d >= cutoff}
 
 
 def _num_or_none(v):
@@ -3763,6 +3807,53 @@ def journal_delete(entry_id):
         return jsonify({"error": "not found"}), 404
     _save_journal(new_entries)
     return jsonify({"deleted": entry_id})
+
+
+@app.route("/api/admin/daily-report", methods=["POST"])
+def admin_daily_report():
+    """Receives one day's signal-performance report from the GitHub Actions
+    daily_analysis.py script (pushed alongside the existing Notion post,
+    not instead of it) and stores it for the dashboard's 'Daily Signal
+    Analysis' history view. Auto-prunes anything older than
+    DAILY_REPORTS_RETENTION_DAYS on every write.
+    POST body: {"secret": "...", "date": "YYYY-MM-DD", "report": {...}}"""
+    body = flask_req.get_json(force=True, silent=True) or {}
+    if not REPORT_PUSH_SECRET or body.get("secret") != REPORT_PUSH_SECRET:
+        return jsonify({"error": "Unauthorized"}), 403
+    date_str = body.get("date", "")
+    report   = body.get("report")
+    if not date_str or not isinstance(report, dict):
+        return jsonify({"error": "date and report required"}), 400
+    reports = _load_daily_reports()
+    reports[date_str] = report
+    reports = _prune_daily_reports(reports)
+    _save_daily_reports(reports)
+    return jsonify({"date": date_str, "days_stored": len(reports)})
+
+
+@app.route("/api/signals/history")
+def signals_history():
+    """Last 30 days of signal-performance reports, flattened into one
+    per-signal list (each row tagged with its date) for the dashboard's
+    filterable/sortable 'Daily Signal Analysis' view."""
+    reports = _prune_daily_reports(_load_daily_reports())
+    rows = []
+    for date_str, report in sorted(reports.items(), reverse=True):
+        for d in report.get("detail", []):
+            rows.append({"date": date_str, **d})
+    days = [
+        {
+            "date": date_str,
+            "total_signals": r.get("total_signals"),
+            "win_rate_pct": r.get("win_rate_pct"),
+            "avg_r_achieved": r.get("avg_r_achieved"),
+            "wins": r.get("wins"),
+            "losses": r.get("losses"),
+            "expired": r.get("expired"),
+        }
+        for date_str, r in sorted(reports.items(), reverse=True)
+    ]
+    return jsonify({"days": days, "signals": rows, "total": len(rows)})
 
 
 @app.route("/api/ping")
