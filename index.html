@@ -862,6 +862,32 @@
     .analysis-day-stats b { color: var(--text); }
     .analysis-day-body { display: none; border-top: 1px solid var(--border); overflow-x: auto; }
     .analysis-day.expanded .analysis-day-body { display: block; }
+    .col-filter-trigger {
+      margin-left: 5px; cursor: pointer; color: var(--text-muted); font-size: 9px;
+    }
+    .col-filter-trigger:hover { color: var(--accent); }
+    .col-filter-trigger.active { color: var(--accent); }
+    .col-filter-popover {
+      display: none; position: fixed; z-index: 2000;
+      background: #161922; border: 1px solid var(--border); border-radius: 8px;
+      box-shadow: 0 8px 24px rgba(0,0,0,.5); padding: 8px; min-width: 180px;
+      max-height: 260px; overflow-y: auto; font-size: 12px;
+    }
+    .col-filter-popover.open { display: block; }
+    .col-filter-popover label {
+      display: flex; align-items: center; gap: 7px; padding: 5px 6px;
+      border-radius: 5px; cursor: pointer; white-space: nowrap;
+    }
+    .col-filter-popover label:hover { background: var(--bg-card-2); }
+    .col-filter-actions {
+      display: flex; justify-content: space-between; gap: 6px;
+      margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--border);
+    }
+    .col-filter-actions button {
+      background: var(--bg-card-2); border: 1px solid var(--border); color: var(--text);
+      border-radius: 5px; font-size: 11px; padding: 4px 9px; cursor: pointer;
+    }
+    .col-filter-actions button:hover { border-color: var(--accent); }
     .journal-table-wrap {
       background: var(--bg-card); border: 1px solid var(--border);
       border-radius: var(--radius); overflow-x: auto;
@@ -1086,30 +1112,15 @@
         <option value="14">Last 14 days</option>
         <option value="30" selected>Last 30 days</option>
       </select>
-      <select id="analysis-filter-outcome" onchange="_renderAnalysisTable()">
-        <option value="">All outcomes</option>
-        <option value="T1_hit">✅ T1 Hit</option>
-        <option value="T2_hit">✅ T2 Hit 🔥</option>
-        <option value="SL_hit">❌ SL Hit</option>
-        <option value="expired">⏳ Expired</option>
-        <option value="invalid">— Invalid</option>
-        <option value="no_data">— No data</option>
-      </select>
-      <select id="analysis-filter-panel" onchange="_renderAnalysisTable()">
-        <option value="">All panels</option>
-      </select>
-      <select id="analysis-filter-direction" onchange="_renderAnalysisTable()">
-        <option value="">All directions</option>
-        <option value="bullish">🟢 Bullish</option>
-        <option value="bearish">🔴 Bearish</option>
-      </select>
       <input id="analysis-filter-symbol" type="text" placeholder="Symbol contains…" oninput="_renderAnalysisTable()">
+      <span style="font-size:11px;color:var(--text-muted);">Click ▾ on Panel/Dir/Outcome column headers to filter</span>
       <button class="csv-btn" onclick="_setAllAnalysisDaysExpanded(true)">Expand all</button>
       <button class="csv-btn" onclick="_setAllAnalysisDaysExpanded(false)">Collapse all</button>
     </div>
     <div id="analysis-days">
       <div class="journal-empty"><div class="spinner"></div>Loading…</div>
     </div>
+    <div class="col-filter-popover" id="col-filter-popover"></div>
   </div>
 
   <!-- ── Exhaustion Short: Profit Booking After Rally ─────────────── -->
@@ -2411,6 +2422,9 @@
   let _analysisRows      = [];        // raw rows from /api/signals/history, never mutated
   let _analysisSort      = null;      // {field, dir}
   let _analysisExpanded  = new Set(); // dates currently expanded
+  // Excel-style column header filters. null = no filter (show all);
+  // otherwise a Set of allowed values for that column.
+  let _analysisColFilters = { outcome: null, panel: null, direction: null };
 
   const _ANALYSIS_HIDE_ELS = ['oi-divider', 'oi-table-grid', 'geo-divider', 'geo-panel'];
 
@@ -2454,11 +2468,7 @@
       const res  = await fetch(`${API}/api/signals/history`);
       const data = await res.json();
       _analysisRows = data.signals || [];
-
-      const panelSel = document.getElementById('analysis-filter-panel');
-      const panels = [...new Set(_analysisRows.map(r => r.panel).filter(Boolean))].sort();
-      panelSel.innerHTML = '<option value="">All panels</option>' +
-        panels.map(p => `<option value="${p}">${p.split(' — ')[0].split(' (')[0]}</option>`).join('');
+      _analysisColFilters = { outcome: null, panel: null, direction: null };
 
       // Default: only the most recent day open, so the view doesn't dump
       // 30 days of tables on screen at once (the whole point of this view).
@@ -2487,6 +2497,73 @@
     _renderAnalysisTable();
   }
 
+  // ── Excel-style column header filter popover ─────────────────────
+  function _colFilterOptions(col) {
+    if (col === 'direction') return [['bullish', '🟢 Bullish'], ['bearish', '🔴 Bearish']];
+    if (col === 'outcome') {
+      return Object.entries(_ANALYSIS_OUTCOME_ICON);
+    }
+    if (col === 'panel') {
+      const panels = [...new Set(_analysisRows.map(r => r.panel).filter(Boolean))].sort();
+      return panels.map(p => [p, p.split(' — ')[0].split(' (')[0]]);
+    }
+    return [];
+  }
+
+  function openColFilter(ev, col) {
+    ev.stopPropagation();
+    const pop = document.getElementById('col-filter-popover');
+    const wasOpenForSameCol = pop.classList.contains('open') && pop.dataset.col === col;
+    pop.classList.remove('open');
+    if (wasOpenForSameCol) return;   // clicking the same trigger again closes it
+
+    const options = _colFilterOptions(col);
+    const active  = _analysisColFilters[col];   // null = all selected
+    pop.dataset.col = col;
+    pop.innerHTML = options.map(([val, label]) => `
+      <label>
+        <input type="checkbox" value="${val}" ${(!active || active.has(val)) ? 'checked' : ''}
+               onchange="_toggleColFilterValue('${col}','${val}', this.checked)">
+        ${label}
+      </label>`).join('') + `
+      <div class="col-filter-actions">
+        <button onclick="_colFilterClear('${col}')">Select all</button>
+        <button onclick="document.getElementById('col-filter-popover').classList.remove('open')">Done</button>
+      </div>`;
+
+    const rect = ev.currentTarget.getBoundingClientRect();
+    pop.style.top  = `${rect.bottom + 4}px`;
+    pop.style.left = `${Math.min(rect.left, window.innerWidth - 220)}px`;
+    pop.classList.add('open');
+  }
+
+  function _toggleColFilterValue(col, val, checked) {
+    const options = _colFilterOptions(col).map(o => o[0]);
+    let cur = _analysisColFilters[col];
+    if (cur === null) cur = new Set(options);   // start from "all" when first narrowing
+    if (checked) cur.add(val); else cur.delete(val);
+    // If everything ends up checked again, treat as "no filter" rather than
+    // an explicit full set — keeps the trigger icon's active/inactive state honest.
+    _analysisColFilters[col] = (cur.size >= options.length) ? null : cur;
+    _renderAnalysisTable();
+    // Re-open the popover in place so re-renders don't yank it away mid-click
+    const pop = document.getElementById('col-filter-popover');
+    pop.classList.add('open');
+  }
+
+  function _colFilterClear(col) {
+    _analysisColFilters[col] = null;
+    document.getElementById('col-filter-popover').classList.remove('open');
+    _renderAnalysisTable();
+  }
+
+  document.addEventListener('click', (e) => {
+    const pop = document.getElementById('col-filter-popover');
+    if (pop && pop.classList.contains('open') && !pop.contains(e.target) && !e.target.classList.contains('col-filter-trigger')) {
+      pop.classList.remove('open');
+    }
+  });
+
   function toggleAnalysisDay(date) {
     if (_analysisExpanded.has(date)) _analysisExpanded.delete(date);
     else _analysisExpanded.add(date);
@@ -2511,11 +2588,9 @@
   }
 
   function _renderAnalysisTable() {
-    const days       = parseInt(document.getElementById('analysis-filter-date').value, 10);
-    const outcomeF   = document.getElementById('analysis-filter-outcome').value;
-    const panelF     = document.getElementById('analysis-filter-panel').value;
-    const dirF       = document.getElementById('analysis-filter-direction').value;
-    const symbolF    = document.getElementById('analysis-filter-symbol').value.trim().toUpperCase();
+    const days     = parseInt(document.getElementById('analysis-filter-date').value, 10);
+    const symbolF  = document.getElementById('analysis-filter-symbol').value.trim().toUpperCase();
+    const colF     = _analysisColFilters;
 
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - days);
@@ -2523,9 +2598,9 @@
 
     const rows = _analysisRows.filter(r => {
       if (r.date < cutoffStr) return false;
-      if (outcomeF && r.outcome !== outcomeF) return false;
-      if (panelF && r.panel !== panelF) return false;
-      if (dirF && r.direction !== dirF) return false;
+      if (colF.outcome && !colF.outcome.has(r.outcome)) return false;
+      if (colF.panel && !colF.panel.has(r.panel)) return false;
+      if (colF.direction && !colF.direction.has(r.direction)) return false;
       if (symbolF && !(r.symbol || '').toUpperCase().includes(symbolF)) return false;
       return true;
     });
@@ -2583,15 +2658,24 @@
           <table class="journal-table">
             <thead>
               <tr>
-                <th data-afield="detected_at" onclick="sortAnalysis(event,'detected_at')">Time${arrow('detected_at')}</th>
-                <th data-afield="symbol" onclick="sortAnalysis(event,'symbol')">Stock${arrow('symbol')}</th>
-                <th data-afield="panel" onclick="sortAnalysis(event,'panel')">Panel${arrow('panel')}</th>
-                <th data-afield="direction" onclick="sortAnalysis(event,'direction')">Dir${arrow('direction')}</th>
-                <th data-afield="entry" onclick="sortAnalysis(event,'entry')">Entry ₹${arrow('entry')}</th>
-                <th data-afield="sl" onclick="sortAnalysis(event,'sl')">SL ₹${arrow('sl')}</th>
-                <th data-afield="t1" onclick="sortAnalysis(event,'t1')">T1 ₹${arrow('t1')}</th>
-                <th data-afield="outcome" onclick="sortAnalysis(event,'outcome')">Outcome${arrow('outcome')}</th>
-                <th data-afield="r_achieved" onclick="sortAnalysis(event,'r_achieved')">R${arrow('r_achieved')}</th>
+                <th data-afield="detected_at"><span onclick="sortAnalysis(event,'detected_at')">Time${arrow('detected_at')}</span></th>
+                <th data-afield="symbol"><span onclick="sortAnalysis(event,'symbol')">Stock${arrow('symbol')}</span></th>
+                <th data-afield="panel">
+                  <span onclick="sortAnalysis(event,'panel')">Panel${arrow('panel')}</span>
+                  <span class="col-filter-trigger${colF.panel ? ' active' : ''}" onclick="openColFilter(event,'panel')">&#9660;</span>
+                </th>
+                <th data-afield="direction">
+                  <span onclick="sortAnalysis(event,'direction')">Dir${arrow('direction')}</span>
+                  <span class="col-filter-trigger${colF.direction ? ' active' : ''}" onclick="openColFilter(event,'direction')">&#9660;</span>
+                </th>
+                <th data-afield="entry"><span onclick="sortAnalysis(event,'entry')">Entry ₹${arrow('entry')}</span></th>
+                <th data-afield="sl"><span onclick="sortAnalysis(event,'sl')">SL ₹${arrow('sl')}</span></th>
+                <th data-afield="t1"><span onclick="sortAnalysis(event,'t1')">T1 ₹${arrow('t1')}</span></th>
+                <th data-afield="outcome">
+                  <span onclick="sortAnalysis(event,'outcome')">Outcome${arrow('outcome')}</span>
+                  <span class="col-filter-trigger${colF.outcome ? ' active' : ''}" onclick="openColFilter(event,'outcome')">&#9660;</span>
+                </th>
+                <th data-afield="r_achieved"><span onclick="sortAnalysis(event,'r_achieved')">R${arrow('r_achieved')}</span></th>
               </tr>
             </thead>
             <tbody>
