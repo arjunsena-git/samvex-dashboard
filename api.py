@@ -1730,18 +1730,17 @@ def _get_ticker_df(batch, ticker):
 # Gates:
 #   • Active only 9:15 AM – 2:00 PM IST (avoid fresh shorts into the close)
 #   • Previous day's rally (prev close vs day-before close) ≥ +11%
-#   • Current price ≥ 0.3% off the day high (pullback already underway)
 #   • Paced day volume ≥ 1.3× prev day volume (real participation)
-#   • Latest completed 5-min candle is impulsive: body ≥ 60% of its range,
-#     closed red, with turnover (close × volume) ≥ ₹50 crore
+#   • Prior session closed above the Bollinger upper band (overextended, crossed and closed)
+#   • Latest completed 5-min candle is the blow-off spike: green, ≥2.5% impulsive move,
+#     turnover (close × volume) ≥ ₹50 crore, and itself closes outside (above) the
+#     Bollinger upper band — short right after this candle closes, no pullback needed
 #   • That same 5-min candle's volume > avg volume of the same time slot
 #     on the previous 2–3 trading days (unusual participation, not routine)
-#   • Price has crossed above the 20-day Bollinger upper band (overextended)
 #   • Nifty 50 not up more than 1% (don't fight a strongly bullish market)
 EXH_PREV_DAY_RALLY_PCT = 11.0     # min previous-day gain to qualify as a "huge rally"
-EXH_PULLBACK_PCT       = 0.3      # min pullback off day high
 EXH_VOL_RATIO          = 1.3      # min paced-volume ratio vs prev day
-EXH_IMPULSE_BODY_RATIO = 0.6      # min body/range ratio on the confirming 5-min candle
+EXH_IMPULSE_MOVE_PCT   = 2.5      # min % move (close vs open) on the confirming 5-min candle
 EXH_IMPULSE_TURNOVER   = 50_00_00_000  # ₹50 crore min turnover on that 5-min candle
 EXH_BB_PERIOD          = 20       # Bollinger Band lookback (daily closes)
 EXH_BB_STD_MULT        = 2.0      # Bollinger Band std-dev multiplier
@@ -1824,10 +1823,19 @@ def _screen_exhaustion_short(_debug: dict = None) -> list:
                 _dbg_fail(_debug, "prev_day_rally", symbol, rally_pct=round(prev_day_rally_pct,2), needed=EXH_PREV_DAY_RALLY_PCT)
                 continue
 
-            # Latest completed 5-min candle must be an impulsive, high-turnover red candle
+            # Prior session must have closed above the Bollinger upper band (crossed and closed,
+            # not just an intraday wick through it)
+            closes_hist = daily["Close"].iloc[-(EXH_BB_PERIOD + 1):-1].astype(float)
+            bb_sma   = float(closes_hist.mean())
+            bb_std   = float(closes_hist.std(ddof=0))
+            bb_upper = bb_sma + EXH_BB_STD_MULT * bb_std
+            if prev_close <= bb_upper:
+                _dbg_fail(_debug, "bollinger_band", symbol, price=round(prev_close,2), bb_upper=round(bb_upper,2))
+                continue
+
+            # Latest completed 5-min candle must be the blow-off spike: impulsive, high-turnover,
+            # GREEN, and closing outside (above) the Bollinger upper band
             c5_open  = float(today_bars5["Open"].iloc[-1])
-            c5_high  = float(today_bars5["High"].iloc[-1])
-            c5_low   = float(today_bars5["Low"].iloc[-1])
             c5_close = float(today_bars5["Close"].iloc[-1])
             c5_vol   = float(today_bars5["Volume"].iloc[-1])
 
@@ -1852,21 +1860,23 @@ def _screen_exhaustion_short(_debug: dict = None) -> list:
                 _dbg_fail(_debug, "unusual_volume", symbol, c5_vol=round(c5_vol), avg_same_slot_vol=round(avg_same_slot_vol))
                 continue
 
-            c5_range = c5_high - c5_low
-            if c5_range <= 0:
+            if c5_open <= 0:
                 _dbg_fail(_debug, "no_data", symbol)
                 continue
-            c5_body_ratio = abs(c5_close - c5_open) / c5_range
-            c5_turnover   = c5_close * c5_vol
+            c5_move_pct = (c5_close - c5_open) / c5_open * 100
+            c5_turnover = c5_close * c5_vol
 
-            if c5_close >= c5_open:
-                _dbg_fail(_debug, "not_red_candle", symbol)
+            if c5_close <= c5_open:
+                _dbg_fail(_debug, "not_green_candle", symbol)
                 continue
-            if c5_body_ratio < EXH_IMPULSE_BODY_RATIO:
-                _dbg_fail(_debug, "impulse_body", symbol, body_ratio=round(c5_body_ratio,2), needed=EXH_IMPULSE_BODY_RATIO)
+            if c5_move_pct < EXH_IMPULSE_MOVE_PCT:
+                _dbg_fail(_debug, "impulse_move", symbol, move_pct=round(c5_move_pct,2), needed=EXH_IMPULSE_MOVE_PCT)
                 continue
             if c5_turnover < EXH_IMPULSE_TURNOVER:
                 _dbg_fail(_debug, "impulse_turnover", symbol, turnover_cr=round(c5_turnover/1e7,1), needed_cr=round(EXH_IMPULSE_TURNOVER/1e7,1))
+                continue
+            if c5_close <= bb_upper:
+                _dbg_fail(_debug, "candle_outside_bb", symbol, price=round(c5_close,2), bb_upper=round(bb_upper,2))
                 continue
 
             opens  = today_bars["Open"].tolist()
@@ -1887,15 +1897,6 @@ def _screen_exhaustion_short(_debug: dict = None) -> list:
                 _dbg_fail(_debug, "price_below_100", symbol, price=round(current_price,2))
                 continue
 
-            # Price must have crossed above the 20-day Bollinger upper band
-            closes_hist = daily["Close"].iloc[-(EXH_BB_PERIOD + 1):-1].astype(float)
-            bb_sma   = float(closes_hist.mean())
-            bb_std   = float(closes_hist.std(ddof=0))
-            bb_upper = bb_sma + EXH_BB_STD_MULT * bb_std
-            if current_price <= bb_upper:
-                _dbg_fail(_debug, "bollinger_band", symbol, price=round(current_price,2), bb_upper=round(bb_upper,2))
-                continue
-
             day_high = max(highs)
             day_vol  = sum(vols)
             elapsed_min = max(15.0, n_bars * 15.0)
@@ -1905,9 +1906,6 @@ def _screen_exhaustion_short(_debug: dict = None) -> list:
             day_chg_pct = (current_price - prev_close) / prev_close * 100
 
             # ── Gates ──────────────────────────────────────────────
-            if current_price > day_high * (1 - EXH_PULLBACK_PCT / 100):
-                _dbg_fail(_debug, "pullback_depth", symbol, price=round(current_price,2), day_high=round(day_high,2))
-                continue
             if vol_ratio < EXH_VOL_RATIO:
                 _dbg_fail(_debug, "day_volume", symbol, vol_ratio=round(vol_ratio,2), needed=EXH_VOL_RATIO)
                 continue
@@ -1926,12 +1924,11 @@ def _screen_exhaustion_short(_debug: dict = None) -> list:
             t1     = round(current_price - risk * 1.5, 2)
             t2     = round(current_price - risk * 3.0, 2)
 
-            # Confidence 0–100: prev-day rally size (40) + pullback depth (35) + volume (25)
-            rally_s      = min(prev_day_rally_pct / 22.0, 1.0) * 40
-            pullback_pct = (day_high - current_price) / day_high * 100
-            pull_s       = min(pullback_pct / 1.5, 1.0) * 35
-            vol_s        = min((vol_ratio - EXH_VOL_RATIO) / 1.0, 1.0) * 25
-            conf_score   = round(rally_s + pull_s + vol_s)
+            # Confidence 0–100: prev-day rally size (40) + spike-candle move size (35) + volume (25)
+            rally_s    = min(prev_day_rally_pct / 22.0, 1.0) * 40
+            move_s     = min((c5_move_pct - EXH_IMPULSE_MOVE_PCT) / 2.5, 1.0) * 35
+            vol_s      = min((vol_ratio - EXH_VOL_RATIO) / 1.0, 1.0) * 25
+            conf_score = round(rally_s + move_s + vol_s)
             conf_label   = "STRONG" if conf_score >= 65 else "GOOD" if conf_score >= 40 else "WATCH"
 
             gap_pct = round((float(today_bars["Open"].iloc[0]) - prev_close) / prev_close * 100, 2)

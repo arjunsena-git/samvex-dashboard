@@ -1146,10 +1146,10 @@
       </div>
       <div class="criteria-row">
         <span class="chip chip-orange">Prev day rally ≥ +11%</span>
-        <span class="chip chip-red">Crossed 20-day BB upper band</span>
-        <span class="chip chip-red">Price ≥0.3% off day high</span>
+        <span class="chip chip-red">Crossed and closed BB upper band</span>
         <span class="chip chip-blue">Vol ≥1.3×</span>
-        <span class="chip chip-red">5-min impulsive red candle ≥₹50cr turnover</span>
+        <span class="chip chip-red">5-min impulsive green candle ≥2.5% move + ₹50cr turnover</span>
+        <span class="chip chip-red">5-min candle closed outside BB upper band</span>
         <span class="chip chip-red">5-min vol &gt; its 2–3 day avg</span>
         <span class="chip chip-blue">Active 9:15–14:00 IST</span>
         <span class="chip chip-orange">Max 5 · GOOD+ only</span>
@@ -3430,11 +3430,11 @@
     opening_range_breakout: "Hasn't broken opening 15-min range",
     prev_day_rally: "Previous day didn't rally enough",
     unusual_volume: "5-min candle volume not unusual",
-    not_red_candle: "Latest 5-min candle isn't red",
-    impulse_body: "Candle body too small (not impulsive)",
+    not_green_candle: "Latest 5-min candle isn't green",
+    impulse_move: "5-min candle move too small (<2.5%)",
     impulse_turnover: "Candle turnover too low",
-    bollinger_band: "Hasn't crossed 20-day Bollinger upper band",
-    pullback_depth: "Hasn't pulled back enough from day high",
+    bollinger_band: "Prior session hasn't crossed and closed above Bollinger upper band",
+    candle_outside_bb: "5-min candle didn't close outside the Bollinger upper band",
     day_volume: "Day volume too low",
     nifty_alignment: "Nifty moving against this trade's direction",
     no_valid_zone: "No qualifying demand/supply zone found in lookback window",
