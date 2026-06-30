@@ -2457,7 +2457,7 @@ def _screen_orb(direction: str, _debug: dict = None) -> list:
 # small and in the same direction (green after a PDH break, red after a PDL
 # break) shows the move being absorbed calmly rather than immediately
 # round-tripping — read as room for a real follow-through rally/fall.
-MB_VOL_RATIO          = 2.1   # breakout candle volume vs avg volume of bars so far today
+MB_VOL_RATIO          = 2.2   # breakout candle volume vs avg volume of bars so far today
 MB_CONFIRM_MAX_RANGE_PCT = 0.5   # the very next 5-min candle's range, as % of price, must be < 0.5%
 MB_FRESHNESS_BARS     = 6     # the breakout+confirm pair must be within the last 6 5-min bars (30 min)
 MB_NO_REVERSAL_PCT    = 1.5   # current price must stay within 1.5% of the day extreme
