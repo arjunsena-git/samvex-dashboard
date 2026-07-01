@@ -1093,18 +1093,13 @@
     </div>
     <div class="journal-table-wrap">
       <table class="journal-table">
-        <thead>
-          <tr>
-            <th>Date</th><th>Trader</th><th>Symbol</th><th>Dir</th><th>Setup</th>
-            <th>Entry</th><th>Exit</th><th>Qty</th><th>Capital</th><th>P&amp;L ₹</th><th>ROI %</th>
-            <th>R:R</th><th>Outcome</th><th></th>
-          </tr>
-        </thead>
+        <thead id="journal-thead"></thead>
         <tbody id="journal-tbody">
           <tr><td colspan="14"><div class="journal-empty"><div class="spinner"></div>Loading…</div></td></tr>
         </tbody>
       </table>
     </div>
+    <div class="col-filter-popover" id="jf-col-filter-popover"></div>
   </div>
 
   <!-- ── Daily Signal Analysis — last 30 days, filterable/sortable ──── -->
@@ -2330,9 +2325,11 @@
   }
 
   // ── Trade Journal — shared, editable, central log ──────────────
-  let _journalActive  = false;
-  let _journalEntries = [];
-  let _journalEditId  = null;
+  let _journalActive     = false;
+  let _journalEntries    = [];
+  let _journalEditId     = null;
+  let _journalSort       = null;   // { field, dir }
+  let _journalColFilters = { trader: null, symbol: null, direction: null, setup: null, outcome: null };
 
   // Sections below the signal panels that aren't part of Live Panels /
   // Full Table View toggling, but should still get out of the way when
@@ -2386,9 +2383,34 @@
 
   function _renderJournalTable() {
     const tbody   = document.getElementById('journal-tbody');
+    const thead   = document.getElementById('journal-thead');
     const stats   = document.getElementById('journal-stats');
     const fromVal = document.getElementById('jf-filter-from')?.value || '';
     const toVal   = document.getElementById('jf-filter-to')?.value   || '';
+
+    // Build header with sort arrows and filter triggers
+    const _sa = f => _journalSort && _journalSort.field === f
+      ? `<span class="sort-arrow">${_journalSort.dir === 1 ? ' ▲' : ' ▼'}</span>` : '';
+    const _sh = (label, field) =>
+      `<th onclick="_jfSort('${field}')" style="cursor:pointer;white-space:nowrap;">${label}${_sa(field)}</th>`;
+    const _fh = (label, field, col) =>
+      `<th onclick="_jfSort('${field}')" style="cursor:pointer;white-space:nowrap;">${label}${_sa(field)}&nbsp;<span class="col-filter-trigger${_journalColFilters[col] ? ' active' : ''}" onclick="_jfOpenColFilter(event,'${col}')">&#9660;</span></th>`;
+    if (thead) thead.innerHTML = `<tr>
+      ${_sh('Date', 'date')}
+      ${_fh('Trader', 'trader', 'trader')}
+      ${_fh('Symbol', 'symbol', 'symbol')}
+      ${_fh('Dir', 'direction', 'direction')}
+      ${_fh('Setup', 'setup', 'setup')}
+      ${_sh('Entry', 'entry_price')}
+      ${_sh('Exit', 'exit_price')}
+      ${_sh('Qty', 'quantity')}
+      ${_sh('Capital', '_capital')}
+      ${_sh('P&amp;L ₹', 'pnl_amount')}
+      ${_sh('ROI %', '_roi')}
+      ${_sh('R:R', 'risk_reward')}
+      ${_fh('Outcome', 'outcome', 'outcome')}
+      <th></th>
+    </tr>`;
 
     if (!_journalEntries.length) {
       tbody.innerHTML = `<tr><td colspan="14"><div class="journal-empty">No trades logged yet. Click "+ Add Trade" to start.</div></td></tr>`;
@@ -2396,27 +2418,54 @@
       return;
     }
 
-    const filtered = _journalEntries.filter(e => {
+    // Apply date range + column filters
+    let rows = _journalEntries.filter(e => {
       if (fromVal && e.date < fromVal) return false;
       if (toVal   && e.date > toVal)   return false;
+      for (const [col, allowed] of Object.entries(_journalColFilters)) {
+        if (allowed && !allowed.has(String(e[col] ?? ''))) return false;
+      }
       return true;
     });
 
-    const closed   = filtered.filter(e => e.outcome !== 'Open');
-    const wins     = closed.filter(e => e.outcome === 'Win').length;
-    const totalPnl = closed.reduce((s, e) => s + (e.pnl_amount || 0), 0);
-    const winRate  = closed.length ? (wins / closed.length * 100).toFixed(1) + '%' : '—';
+    // Apply sort
+    if (_journalSort) {
+      const { field, dir } = _journalSort;
+      rows = [...rows].sort((a, b) => {
+        let av, bv;
+        if (field === '_capital') {
+          av = a.entry_price != null && a.quantity != null ? a.entry_price * a.quantity / 5 : null;
+          bv = b.entry_price != null && b.quantity != null ? b.entry_price * b.quantity / 5 : null;
+        } else if (field === '_roi') {
+          const cA = a.entry_price != null && a.quantity != null ? a.entry_price * a.quantity / 5 : null;
+          const cB = b.entry_price != null && b.quantity != null ? b.entry_price * b.quantity / 5 : null;
+          av = cA && a.pnl_amount != null ? a.pnl_amount / cA * 100 : null;
+          bv = cB && b.pnl_amount != null ? b.pnl_amount / cB * 100 : null;
+        } else {
+          av = a[field]; bv = b[field];
+        }
+        if (av == null && bv == null) return 0;
+        if (av == null) return 1;
+        if (bv == null) return -1;
+        return dir * (av < bv ? -1 : av > bv ? 1 : 0);
+      });
+    }
 
-    const isFiltered = fromVal || toVal;
-    const rangeLabel = isFiltered
+    const anyFilter  = fromVal || toVal || Object.values(_journalColFilters).some(v => v);
+    const closed     = rows.filter(e => e.outcome !== 'Open');
+    const wins       = closed.filter(e => e.outcome === 'Win').length;
+    const totalPnl   = closed.reduce((s, e) => s + (e.pnl_amount || 0), 0);
+    const winRate    = closed.length ? (wins / closed.length * 100).toFixed(1) + '%' : '—';
+    const isDateFiltered = fromVal || toVal;
+    const rangeLabel = isDateFiltered
       ? ` <span style="color:var(--accent);font-size:11px;">(${fromVal || '…'} → ${toVal || '…'})</span>`
       : '';
     stats.innerHTML = `
-      <span><b>${filtered.length}</b>${isFiltered ? ` of ${_journalEntries.length}` : ''} trades${rangeLabel}</span>
+      <span><b>${rows.length}</b>${anyFilter ? ` of ${_journalEntries.length}` : ''} trades${rangeLabel}</span>
       <span><b>${winRate}</b> win rate (${closed.length} closed)</span>
-      <span style="color:${totalPnl >= 0 ? 'var(--green)' : 'var(--red)'}"><b>${fmt(totalPnl)}</b> ${isFiltered ? 'P&amp;L in range' : 'total P&amp;L'}</span>`;
+      <span style="color:${totalPnl >= 0 ? 'var(--green)' : 'var(--red)'}"><b>${fmt(totalPnl)}</b> ${anyFilter ? 'P&amp;L in range' : 'total P&amp;L'}</span>`;
 
-    tbody.innerHTML = filtered.length ? filtered.map(e => `
+    tbody.innerHTML = rows.length ? rows.map(e => `
       <tr>
         <td>${e.date || ''}</td>
         <td>${e.trader || '—'}</td>
@@ -2436,7 +2485,55 @@
           <button class="journal-icon-btn" onclick="deleteJournalEntry('${e.id}')" title="Delete">&#128465;</button>
         </td>
       </tr>`).join('')
-      : `<tr><td colspan="14"><div class="journal-empty">No trades match the selected date range.</div></td></tr>`;
+      : `<tr><td colspan="14"><div class="journal-empty">No trades match the selected filters.</div></td></tr>`;
+  }
+
+  function _jfSort(field) {
+    const cur = _journalSort;
+    _journalSort = { field, dir: (cur && cur.field === field) ? -cur.dir : 1 };
+    _renderJournalTable();
+  }
+
+  function _jfOpenColFilter(ev, col) {
+    ev.stopPropagation();
+    const pop = document.getElementById('jf-col-filter-popover');
+    const wasOpen = pop.classList.contains('open') && pop.dataset.col === col;
+    pop.classList.remove('open');
+    if (wasOpen) return;
+
+    const vals   = [...new Set(_journalEntries.map(e => String(e[col] ?? '')).filter(v => v))].sort();
+    const active = _journalColFilters[col];
+    pop.dataset.col = col;
+    pop.innerHTML = vals.map(v => `
+      <label>
+        <input type="checkbox" value="${v}" ${(!active || active.has(v)) ? 'checked' : ''}
+               onchange="_jfToggleFilterVal('${col}','${v}',this.checked)">
+        ${v}
+      </label>`).join('') + `
+      <div class="col-filter-actions">
+        <button onclick="_jfFilterClear('${col}')">Select all</button>
+        <button onclick="document.getElementById('jf-col-filter-popover').classList.remove('open')">Done</button>
+      </div>`;
+
+    const rect = ev.currentTarget.getBoundingClientRect();
+    pop.style.top  = `${rect.bottom + 4}px`;
+    pop.style.left = `${Math.min(rect.left, window.innerWidth - 220)}px`;
+    pop.classList.add('open');
+  }
+
+  function _jfToggleFilterVal(col, val, checked) {
+    let cur = _journalColFilters[col];
+    if (!cur) cur = new Set(_journalEntries.map(e => String(e[col] ?? '')).filter(v => v));
+    if (checked) cur.add(val); else cur.delete(val);
+    const total = new Set(_journalEntries.map(e => String(e[col] ?? '')).filter(v => v)).size;
+    _journalColFilters[col] = cur.size >= total ? null : cur;
+    _renderJournalTable();
+  }
+
+  function _jfFilterClear(col) {
+    _journalColFilters[col] = null;
+    document.getElementById('jf-col-filter-popover').classList.remove('open');
+    _renderJournalTable();
   }
 
   // ── Daily Signal Analysis — last 30 days, filterable/sortable ───
@@ -2583,6 +2680,10 @@
     const pop = document.getElementById('col-filter-popover');
     if (pop && pop.classList.contains('open') && !pop.contains(e.target) && !e.target.classList.contains('col-filter-trigger')) {
       pop.classList.remove('open');
+    }
+    const jfPop = document.getElementById('jf-col-filter-popover');
+    if (jfPop && jfPop.classList.contains('open') && !jfPop.contains(e.target) && !e.target.classList.contains('col-filter-trigger')) {
+      jfPop.classList.remove('open');
     }
   });
 
