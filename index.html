@@ -1096,12 +1096,12 @@
         <thead>
           <tr>
             <th>Date</th><th>Trader</th><th>Symbol</th><th>Dir</th><th>Setup</th>
-            <th>Entry</th><th>Exit</th><th>Qty</th><th>P&amp;L ₹</th><th>P&amp;L %</th>
+            <th>Entry</th><th>Exit</th><th>Qty</th><th>Capital</th><th>P&amp;L ₹</th><th>ROI %</th>
             <th>R:R</th><th>Outcome</th><th></th>
           </tr>
         </thead>
         <tbody id="journal-tbody">
-          <tr><td colspan="13"><div class="journal-empty"><div class="spinner"></div>Loading…</div></td></tr>
+          <tr><td colspan="14"><div class="journal-empty"><div class="spinner"></div>Loading…</div></td></tr>
         </tbody>
       </table>
     </div>
@@ -2374,13 +2374,13 @@
 
   async function loadJournal() {
     const tbody = document.getElementById('journal-tbody');
-    tbody.innerHTML = `<tr><td colspan="13"><div class="journal-empty"><div class="spinner"></div>Loading…</div></td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="14"><div class="journal-empty"><div class="spinner"></div>Loading…</div></td></tr>`;
     try {
       const res = await fetch(`${API}/api/journal`);
       _journalEntries = await res.json();
       _renderJournalTable();
     } catch (e) {
-      tbody.innerHTML = `<tr><td colspan="13"><div class="journal-empty">Failed to load journal — ${e.message}</div></td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="14"><div class="journal-empty">Failed to load journal — ${e.message}</div></td></tr>`;
     }
   }
 
@@ -2391,7 +2391,7 @@
     const toVal   = document.getElementById('jf-filter-to')?.value   || '';
 
     if (!_journalEntries.length) {
-      tbody.innerHTML = `<tr><td colspan="13"><div class="journal-empty">No trades logged yet. Click "+ Add Trade" to start.</div></td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="14"><div class="journal-empty">No trades logged yet. Click "+ Add Trade" to start.</div></td></tr>`;
       stats.innerHTML = '';
       return;
     }
@@ -2426,8 +2426,9 @@
         <td>${e.entry_price != null ? fmt(e.entry_price) : '—'}</td>
         <td>${e.exit_price != null ? fmt(e.exit_price) : '—'}</td>
         <td>${e.quantity || '—'}</td>
+        <td>${e.entry_price != null && e.quantity != null ? fmt(e.entry_price * e.quantity / 5) : '—'}</td>
         <td style="color:${(e.pnl_amount || 0) >= 0 ? 'var(--green)' : 'var(--red)'}">${e.pnl_amount != null ? fmt(e.pnl_amount) : '—'}</td>
-        <td style="color:${(e.pnl_pct || 0) >= 0 ? 'var(--green)' : 'var(--red)'}">${e.pnl_pct != null ? e.pnl_pct + '%' : '—'}</td>
+        <td style="color:${(e.pnl_amount || 0) >= 0 ? 'var(--green)' : 'var(--red)'}">${e.entry_price != null && e.quantity != null && e.pnl_amount != null ? ((e.pnl_amount / (e.entry_price * e.quantity / 5)) * 100).toFixed(2) + '%' : '—'}</td>
         <td>${e.risk_reward != null ? e.risk_reward : '—'}</td>
         <td><span class="journal-outcome-pill journal-outcome-${e.outcome}">${e.outcome}</span></td>
         <td class="journal-actions">
@@ -2435,7 +2436,7 @@
           <button class="journal-icon-btn" onclick="deleteJournalEntry('${e.id}')" title="Delete">&#128465;</button>
         </td>
       </tr>`).join('')
-      : `<tr><td colspan="13"><div class="journal-empty">No trades match the selected date range.</div></td></tr>`;
+      : `<tr><td colspan="14"><div class="journal-empty">No trades match the selected date range.</div></td></tr>`;
   }
 
   // ── Daily Signal Analysis — last 30 days, filterable/sortable ───
