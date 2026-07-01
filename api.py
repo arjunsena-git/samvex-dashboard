@@ -1738,7 +1738,7 @@ def _get_ticker_df(batch, ticker):
 #   • That same 5-min candle's volume > avg volume of the same time slot
 #     on the previous 2–3 trading days (unusual participation, not routine)
 #   • Nifty 50 not up more than 1% (don't fight a strongly bullish market)
-EXH_PREV_DAY_RALLY_PCT = 11.0     # min previous-day gain to qualify as a "huge rally"
+EXH_PREV_DAY_RALLY_PCT = 6.0      # min previous-day gain to qualify as a "huge rally"
 EXH_VOL_RATIO          = 1.3      # min paced-volume ratio vs prev day
 EXH_IMPULSE_MOVE_PCT   = 2.5      # min % move (close vs open) on the confirming 5-min candle
 EXH_IMPULSE_TURNOVER   = 50_00_00_000  # ₹50 crore min turnover on that 5-min candle
@@ -1925,7 +1925,7 @@ def _screen_exhaustion_short(_debug: dict = None) -> list:
             t2     = round(current_price - risk * 3.0, 2)
 
             # Confidence 0–100: prev-day rally size (40) + spike-candle move size (35) + volume (25)
-            rally_s    = min(prev_day_rally_pct / 22.0, 1.0) * 40
+            rally_s    = min(prev_day_rally_pct / 12.0, 1.0) * 40
             move_s     = min((c5_move_pct - EXH_IMPULSE_MOVE_PCT) / 2.5, 1.0) * 35
             vol_s      = min((vol_ratio - EXH_VOL_RATIO) / 1.0, 1.0) * 25
             conf_score = round(rally_s + move_s + vol_s)
