@@ -1084,6 +1084,13 @@
       <div class="journal-stats" id="journal-stats"></div>
       <button class="csv-btn" onclick="openJournalForm()">+ Add Trade</button>
     </div>
+    <div class="analysis-filters" style="padding:0 0 2px;">
+      <span style="font-size:12px;color:var(--text-muted);font-weight:600;">Filter by date:</span>
+      <input type="date" id="jf-filter-from" onchange="_renderJournalTable()" title="From date">
+      <span style="font-size:12px;color:var(--text-muted);">→</span>
+      <input type="date" id="jf-filter-to" onchange="_renderJournalTable()" title="To date">
+      <button class="col-filter-actions" style="background:none;border:1px solid var(--border);color:var(--text-muted);border-radius:6px;font-size:11px;padding:5px 10px;cursor:pointer;" onclick="document.getElementById('jf-filter-from').value='';document.getElementById('jf-filter-to').value='';_renderJournalTable()">Clear</button>
+    </div>
     <div class="journal-table-wrap">
       <table class="journal-table">
         <thead>
@@ -2378,8 +2385,10 @@
   }
 
   function _renderJournalTable() {
-    const tbody = document.getElementById('journal-tbody');
-    const stats = document.getElementById('journal-stats');
+    const tbody   = document.getElementById('journal-tbody');
+    const stats   = document.getElementById('journal-stats');
+    const fromVal = document.getElementById('jf-filter-from')?.value || '';
+    const toVal   = document.getElementById('jf-filter-to')?.value   || '';
 
     if (!_journalEntries.length) {
       tbody.innerHTML = `<tr><td colspan="13"><div class="journal-empty">No trades logged yet. Click "+ Add Trade" to start.</div></td></tr>`;
@@ -2387,16 +2396,27 @@
       return;
     }
 
-    const closed   = _journalEntries.filter(e => e.outcome !== 'Open');
+    const filtered = _journalEntries.filter(e => {
+      if (fromVal && e.date < fromVal) return false;
+      if (toVal   && e.date > toVal)   return false;
+      return true;
+    });
+
+    const closed   = filtered.filter(e => e.outcome !== 'Open');
     const wins     = closed.filter(e => e.outcome === 'Win').length;
     const totalPnl = closed.reduce((s, e) => s + (e.pnl_amount || 0), 0);
     const winRate  = closed.length ? (wins / closed.length * 100).toFixed(1) + '%' : '—';
-    stats.innerHTML = `
-      <span><b>${_journalEntries.length}</b> trades</span>
-      <span><b>${winRate}</b> win rate (${closed.length} closed)</span>
-      <span style="color:${totalPnl >= 0 ? 'var(--green)' : 'var(--red)'}"><b>${fmt(totalPnl)}</b> total P&amp;L</span>`;
 
-    tbody.innerHTML = _journalEntries.map(e => `
+    const isFiltered = fromVal || toVal;
+    const rangeLabel = isFiltered
+      ? ` <span style="color:var(--accent);font-size:11px;">(${fromVal || '…'} → ${toVal || '…'})</span>`
+      : '';
+    stats.innerHTML = `
+      <span><b>${filtered.length}</b>${isFiltered ? ` of ${_journalEntries.length}` : ''} trades${rangeLabel}</span>
+      <span><b>${winRate}</b> win rate (${closed.length} closed)</span>
+      <span style="color:${totalPnl >= 0 ? 'var(--green)' : 'var(--red)'}"><b>${fmt(totalPnl)}</b> ${isFiltered ? 'P&amp;L in range' : 'total P&amp;L'}</span>`;
+
+    tbody.innerHTML = filtered.length ? filtered.map(e => `
       <tr>
         <td>${e.date || ''}</td>
         <td>${e.trader || '—'}</td>
@@ -2414,7 +2434,8 @@
           <button class="journal-icon-btn" onclick="openJournalForm('${e.id}')" title="Edit">&#9998;</button>
           <button class="journal-icon-btn" onclick="deleteJournalEntry('${e.id}')" title="Delete">&#128465;</button>
         </td>
-      </tr>`).join('');
+      </tr>`).join('')
+      : `<tr><td colspan="13"><div class="journal-empty">No trades match the selected date range.</div></td></tr>`;
   }
 
   // ── Daily Signal Analysis — last 30 days, filterable/sortable ───
