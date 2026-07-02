@@ -1738,7 +1738,8 @@ def _get_ticker_df(batch, ticker):
 #   • That same 5-min candle's volume > avg volume of the same time slot
 #     on the previous 2–3 trading days (unusual participation, not routine)
 #   • Nifty 50 not up more than 1% (don't fight a strongly bullish market)
-EXH_PREV_DAY_RALLY_PCT = 6.0      # min previous-day gain to qualify as a "huge rally"
+EXH_PREV_DAY_RALLY_PCT = 6.0      # min single-day (prev session) gain — OR use cumulative below
+EXH_CUMUL_RALLY_PCT    = 10.0     # min 3-day cumulative gain (catches distributed rallies)
 EXH_VOL_RATIO          = 1.3      # min paced-volume ratio vs prev day
 EXH_IMPULSE_MOVE_PCT      = 1.5   # min % move (close vs open) on the confirming 5-min candle
 EXH_IMPULSE_TURNOVER_PCT  = 5.0   # spike candle turnover must be ≥ this % of avg daily turnover (last 5 sessions)
@@ -1779,7 +1780,7 @@ def _screen_exhaustion_short(_debug: dict = None) -> list:
             intra5 = _get_ticker_df(batch_5m, symbol)
             daily = _get_ticker_df(batch_daily, symbol)
 
-            if intra is None or intra5 is None or daily is None or len(daily) < EXH_BB_PERIOD + 1:
+            if intra is None or intra5 is None or daily is None or len(daily) < 6:
                 _dbg_fail(_debug, "no_data", symbol)
                 continue
 
@@ -1817,8 +1818,12 @@ def _screen_exhaustion_short(_debug: dict = None) -> list:
                 continue
 
             prev_day_rally_pct = (prev_close - prev_prev_close) / prev_prev_close * 100
-            if prev_day_rally_pct < EXH_PREV_DAY_RALLY_PCT:
-                _dbg_fail(_debug, "prev_day_rally", symbol, rally_pct=round(prev_day_rally_pct,2), needed=EXH_PREV_DAY_RALLY_PCT)
+            close_3d_ago       = float(daily["Close"].iloc[-5])
+            cumul_rally_pct    = (prev_close - close_3d_ago) / close_3d_ago * 100 if close_3d_ago > 0 else 0.0
+            if prev_day_rally_pct < EXH_PREV_DAY_RALLY_PCT and cumul_rally_pct < EXH_CUMUL_RALLY_PCT:
+                _dbg_fail(_debug, "prev_day_rally", symbol,
+                          rally_pct=round(prev_day_rally_pct, 2), needed=EXH_PREV_DAY_RALLY_PCT,
+                          cumul_3d_pct=round(cumul_rally_pct, 2), cumul_needed=EXH_CUMUL_RALLY_PCT)
                 continue
 
             # Relative turnover threshold: spike candle must represent ≥5% of avg daily turnover
@@ -1919,8 +1924,10 @@ def _screen_exhaustion_short(_debug: dict = None) -> list:
             t1     = round(current_price - risk * 1.5, 2)
             t2     = round(current_price - risk * 3.0, 2)
 
-            # Confidence 0–100: prev-day rally size (40) + spike-candle move size (35) + volume (25)
-            rally_s    = min(prev_day_rally_pct / 12.0, 1.0) * 40
+            # Confidence 0–100: rally size (40) + spike-candle move size (35) + volume (25)
+            # rally_s uses whichever is stronger — single-day or 3-day cumulative
+            best_rally = max(prev_day_rally_pct, cumul_rally_pct / 3.0)  # normalise 3d onto same scale
+            rally_s    = min(best_rally / 12.0, 1.0) * 40
             move_s     = min((c5_move_pct - EXH_IMPULSE_MOVE_PCT) / 2.5, 1.0) * 35
             vol_s      = min((vol_ratio - EXH_VOL_RATIO) / 1.0, 1.0) * 25
             conf_score = round(rally_s + move_s + vol_s)
