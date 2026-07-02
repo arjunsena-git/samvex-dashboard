@@ -1995,7 +1995,7 @@ def _screen_exhaustion_short(_debug: dict = None) -> list:
 PDH_EMA_PERIOD = 200
 PDH_RSI_PERIOD = 14
 PDH_RSI_MIN    = 60.0
-PDH_VOL_MIN    = 1_600_000   # 10 lakh shares
+PDH_VOL_MIN    = 1_700_000   # 10 lakh shares
 _PDH_FRESH     = 3           # breakout candle must be within the last 3 bars (45 min)
 
 
@@ -2456,7 +2456,7 @@ def _screen_orb(direction: str, _debug: dict = None) -> list:
 # small and in the same direction (green after a PDH break, red after a PDL
 # break) shows the move being absorbed calmly rather than immediately
 # round-tripping — read as room for a real follow-through rally/fall.
-MB_VOL_RATIO          = 2.3   # breakout candle volume vs avg volume of bars so far today
+MB_VOL_RATIO          = 2.4   # breakout candle volume vs avg volume of bars so far today
 MB_CONFIRM_MAX_RANGE_PCT = 0.5   # the very next 5-min candle's range, as % of price, must be < 0.5%
 MB_FRESHNESS_BARS     = 6     # the breakout+confirm pair must be within the last 6 5-min bars (30 min)
 MB_NO_REVERSAL_PCT    = 1.5   # current price must stay within 1.5% of the day extreme
@@ -2677,7 +2677,7 @@ def _screen_momentum_breakout(direction: str, _debug: dict = None) -> list:
 # at the reversal candle — earlier and lighter than Setup 1, which waits for
 # a full BOS to the opposite side of the range.
 TRAP_NEAR_LEVEL_PCT   = 1.0   # open can be up to 1% beyond PDL/PDH and still qualify ("near" the level)
-TRAP_VOL_RATIO        = 2.1   # reversal candle's volume vs avg volume of bars so far today
+TRAP_VOL_RATIO        = 2.2   # reversal candle's volume vs avg volume of bars so far today
 TRAP_FRESHNESS_BARS   = 6     # the reversal must be within the last 6 5-min bars (30 min)
 TRAP_RECLAIM_MAX_BARS = 12    # the reclaim must happen within this many bars of the trap bar (60 min)
 
