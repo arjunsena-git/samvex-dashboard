@@ -1740,10 +1740,8 @@ def _get_ticker_df(batch, ticker):
 #   • Nifty 50 not up more than 1% (don't fight a strongly bullish market)
 EXH_PREV_DAY_RALLY_PCT = 6.0      # min previous-day gain to qualify as a "huge rally"
 EXH_VOL_RATIO          = 1.3      # min paced-volume ratio vs prev day
-EXH_IMPULSE_MOVE_PCT      = 2.5   # min % move (close vs open) on the confirming 5-min candle
+EXH_IMPULSE_MOVE_PCT      = 1.5   # min % move (close vs open) on the confirming 5-min candle
 EXH_IMPULSE_TURNOVER_PCT  = 5.0   # spike candle turnover must be ≥ this % of avg daily turnover (last 5 sessions)
-EXH_BB_PERIOD          = 20       # Bollinger Band lookback (daily closes)
-EXH_BB_STD_MULT        = 2.0      # Bollinger Band std-dev multiplier
 
 
 def _screen_exhaustion_short(_debug: dict = None) -> list:
@@ -1756,10 +1754,10 @@ def _screen_exhaustion_short(_debug: dict = None) -> list:
     now         = datetime.now(ist)
     today_date  = now.date()
 
-    # Only generate fresh shorts between 9:15 AM and 2:00 PM IST
-    if not (_dtime(9, 15) <= now.time() <= _dtime(14, 0)):
+    # Only generate fresh shorts between 9:15 AM and 2:30 PM IST
+    if not (_dtime(9, 15) <= now.time() <= _dtime(14, 30)):
         if _debug is not None:
-            _debug["blocked"] = "Exhaustion Short only fires 9:15 AM–2:00 PM IST — outside that window right now."
+            _debug["blocked"] = "Exhaustion Short only fires 9:15 AM–2:30 PM IST — outside that window right now."
         return []
 
     live_quotes = None
@@ -1823,12 +1821,6 @@ def _screen_exhaustion_short(_debug: dict = None) -> list:
                 _dbg_fail(_debug, "prev_day_rally", symbol, rally_pct=round(prev_day_rally_pct,2), needed=EXH_PREV_DAY_RALLY_PCT)
                 continue
 
-            # BB upper band — used only for the 5-min candle close check below
-            closes_hist = daily["Close"].iloc[-(EXH_BB_PERIOD + 1):-1].astype(float)
-            bb_sma   = float(closes_hist.mean())
-            bb_std   = float(closes_hist.std(ddof=0))
-            bb_upper = bb_sma + EXH_BB_STD_MULT * bb_std
-
             # Relative turnover threshold: spike candle must represent ≥5% of avg daily turnover
             recent_daily      = daily.iloc[-6:-1]
             avg_daily_turnover = float(
@@ -1880,9 +1872,6 @@ def _screen_exhaustion_short(_debug: dict = None) -> list:
                           turnover_cr=round(c5_turnover/1e7,1),
                           needed_cr=round(turnover_threshold/1e7,1),
                           pct_of_daily=round(EXH_IMPULSE_TURNOVER_PCT,1))
-                continue
-            if c5_close <= bb_upper:
-                _dbg_fail(_debug, "candle_outside_bb", symbol, price=round(c5_close,2), bb_upper=round(bb_upper,2))
                 continue
 
             opens  = today_bars["Open"].tolist()
