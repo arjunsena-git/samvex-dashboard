@@ -558,6 +558,27 @@ def main():
     print(f"  Win rate: {report['win_rate_pct']}% | Avg R: {report['avg_r_achieved']} | "
           f"BOS delay: {report['avg_bos_delay_min']}min")
 
+    # Persist flattened outcome records to data/signal_outcomes.json (sandbox agents read this)
+    outcomes_file = Path("data/signal_outcomes.json")
+    if outcomes_file.exists():
+        try:
+            existing_outcomes = json.loads(outcomes_file.read_text())
+        except Exception:
+            existing_outcomes = []
+        # Remove any records already logged for today then re-add
+        existing_outcomes = [r for r in existing_outcomes if r.get("date") != TODAY_STR]
+        existing_outcomes.extend([
+            {**d, "date": TODAY_STR}
+            for d in report["detail"]
+            if d.get("outcome") not in ("invalid", "no_data")
+        ])
+        # Keep 60 days of history
+        cutoff = (NOW - pd.Timedelta(days=60)).strftime("%Y-%m-%d")
+        existing_outcomes = [r for r in existing_outcomes if r.get("date", "") >= cutoff]
+        outcomes_file.write_text(json.dumps(existing_outcomes, indent=2))
+        subprocess.run(["git", "add", "data/signal_outcomes.json"], check=False)
+        print(f"[Outcomes] {len(existing_outcomes)} records in {outcomes_file}")
+
     # Auto-improvement
     commit_msg, change_note = apply_code_improvement(report)
     commit_hash = None
