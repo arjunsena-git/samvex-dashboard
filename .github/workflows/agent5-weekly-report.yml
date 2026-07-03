@@ -30,6 +30,4 @@ jobs:
         run: pip install --upgrade pip pytz requests
 
       - name: Run weekly report
-        env:
-          NOTION_API_KEY: ${{ secrets.NOTION_API_KEY }}
         run: python scripts/agent5_weekly_report.py

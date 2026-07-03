@@ -917,6 +917,45 @@
     .journal-outcome-Open      { background: rgba(79,142,247,.12); color: var(--accent); }
     .journal-outcome-Breakeven { background: rgba(245,158,11,.12); color: var(--yellow); }
 
+    /* ── Sandbox Monitor ──────────────────────────────────────── */
+    .sandbox-section {
+      background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column; gap: 12px;
+    }
+    .sandbox-section-title {
+      font-size: 13px; font-weight: 700; color: var(--text);
+      border-bottom: 1px solid var(--border); padding-bottom: 8px; margin-bottom: 4px;
+    }
+    .sb-proposal-card {
+      background: var(--bg-card-2); border: 1px solid var(--border);
+      border-radius: 8px; padding: 12px 14px; display: flex; flex-direction: column; gap: 6px;
+    }
+    .sb-proposal-header {
+      display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    }
+    .sb-proposal-param { font-size: 13px; font-weight: 700; color: var(--accent); }
+    .sb-proposal-arrow { font-size: 13px; color: var(--text-muted); }
+    .sb-proposal-val   { font-size: 13px; font-weight: 600; color: var(--green); }
+    .sb-proposal-conf  {
+      font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 8px; margin-left: auto;
+    }
+    .sb-conf-HIGH   { background: rgba(34,197,94,.14);  color: var(--green); }
+    .sb-conf-MEDIUM { background: rgba(245,158,11,.14); color: var(--yellow); }
+    .sb-conf-LOW    { background: rgba(156,163,175,.14); color: var(--text-muted); }
+    .sb-proposal-reasoning { font-size: 12px; color: var(--text-muted); line-height: 1.5; }
+    .sb-proposal-impact    { font-size: 11px; color: var(--accent); margin-top: 2px; }
+    .sb-gate-bar-row { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+    .sb-gate-bar-label { font-size: 11px; color: var(--text-muted); width: 220px; flex-shrink: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .sb-gate-bar-track { flex: 1; background: var(--bg-card-2); border-radius: 4px; height: 10px; }
+    .sb-gate-bar-fill  { height: 10px; border-radius: 4px; background: var(--accent); }
+    .sb-gate-bar-count { font-size: 11px; color: var(--text-muted); width: 28px; text-align: right; flex-shrink: 0; }
+    .sb-outcome-pill {
+      padding: 2px 8px; border-radius: 8px; font-size: 10px; font-weight: 700; display: inline-block;
+    }
+    .sb-pill-T1_hit, .sb-pill-T2_hit { background: rgba(34,197,94,.13); color: var(--green); }
+    .sb-pill-SL_hit  { background: rgba(239,68,68,.13); color: var(--red); }
+    .sb-pill-expired { background: rgba(156,163,175,.13); color: var(--text-muted); }
+
     .journal-modal-overlay {
       display: none; position: fixed; inset: 0; background: rgba(0,0,0,.78);
       z-index: 1100; align-items: center; justify-content: center;
@@ -1051,6 +1090,7 @@
     <button id="chart-mode-btn" class="chart-mode-toggle active" onclick="toggleChartMode()">&#9776; Full Table View</button>
     <button id="journal-btn" class="chart-mode-toggle" onclick="toggleJournalView()">&#128209; Trade Journal</button>
     <button id="analysis-btn" class="chart-mode-toggle" onclick="toggleAnalysisView()">&#128202; Daily Signal Analysis</button>
+    <button id="sandbox-btn" class="chart-mode-toggle" onclick="toggleSandboxView()">&#129302; Sandbox Monitor</button>
     <a id="download-all-btn" class="csv-btn" style="text-decoration:none;display:inline-flex;align-items:center;"
        title="Every signal captured today across all panels, active and inactive">
       ↓ Download All Signals (Today)
@@ -1123,6 +1163,64 @@
       <div class="journal-empty"><div class="spinner"></div>Loading…</div>
     </div>
     <div class="col-filter-popover" id="col-filter-popover"></div>
+  </div>
+
+  <!-- ── Sandbox Monitor ───────────────────────────────────────────── -->
+  <div class="journal-page" id="sandbox-page">
+    <div class="journal-hdr">
+      <h2>&#129302; Sandbox Monitor</h2>
+      <div class="journal-stats" id="sandbox-summary"></div>
+      <button class="csv-btn" onclick="loadSandbox()" style="margin-left:auto;">&#8635; Refresh</button>
+    </div>
+
+    <!-- Proposals -->
+    <div class="sandbox-section">
+      <div class="sandbox-section-title">Agent 3 — Parameter Proposals <span id="sb-proposals-meta" style="font-weight:400;font-size:12px;color:var(--text-muted);margin-left:8px;"></span></div>
+      <div id="sb-proposals-body">
+        <div class="journal-empty"><div class="spinner"></div>Loading…</div>
+      </div>
+    </div>
+
+    <!-- Missed Signals -->
+    <div class="sandbox-section">
+      <div class="sandbox-section-title">Agent 2 — Missed Signals (last 30 days)</div>
+      <div class="table-wrap">
+        <table class="journal-table" id="sb-missed-table">
+          <thead>
+            <tr>
+              <th>Date</th><th>Symbol</th><th>Fell %</th>
+              <th>Blocking Gate</th><th>Actual Value</th><th>Threshold</th>
+            </tr>
+          </thead>
+          <tbody id="sb-missed-body">
+            <tr><td colspan="6"><div class="journal-empty"><div class="spinner"></div>Loading…</div></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Gate heatmap -->
+    <div class="sandbox-section">
+      <div class="sandbox-section-title">Most-blocking gates (last 30 days)</div>
+      <div id="sb-gate-bars"></div>
+    </div>
+
+    <!-- Signal Outcomes -->
+    <div class="sandbox-section">
+      <div class="sandbox-section-title">Agent 1 — Signal Outcomes (last 30 days)</div>
+      <div class="table-wrap">
+        <table class="journal-table" id="sb-outcomes-table">
+          <thead>
+            <tr>
+              <th>Date</th><th>Symbol</th><th>Panel</th><th>Outcome</th><th>R Achieved</th>
+            </tr>
+          </thead>
+          <tbody id="sb-outcomes-body">
+            <tr><td colspan="5"><div class="journal-empty"><div class="spinner"></div>Loading…</div></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
   </div>
 
   <!-- ── Exhaustion Short: Profit Booking After Rally ─────────────── -->
@@ -2102,8 +2200,9 @@
   }
 
   function toggleChartMode() {
-    if (_journalActive) _closeJournalView();
+    if (_journalActive)  _closeJournalView();
     if (_analysisActive) _closeAnalysisView();
+    if (_sandboxActive)  _closeSandboxView();
     _chartModeActive = !_chartModeActive;
     _applyChartModeDisplay();
   }
@@ -2336,6 +2435,7 @@
 
   function toggleJournalView() {
     if (_analysisActive) _closeAnalysisView();
+    if (_sandboxActive)  _closeSandboxView();
     _journalActive = !_journalActive;
     document.getElementById('journal-btn').classList.toggle('active', _journalActive);
     document.getElementById('journal-page').style.display = _journalActive ? 'flex' : 'none';
@@ -2556,7 +2656,8 @@
     });
 
     if (_analysisActive) {
-      if (_journalActive) _closeJournalView();
+      if (_journalActive)  _closeJournalView();
+      if (_sandboxActive)  _closeSandboxView();
       document.getElementById('chart-fullpage').classList.remove('visible');
       _SCANNER_ELS.forEach(id => { const el = document.getElementById(id); if (el) el.style.display = 'none'; });
       loadAnalysis();
@@ -2576,6 +2677,137 @@
       const el = document.getElementById(id);
       if (el) el.style.display = '';
     });
+  }
+
+  // ── Sandbox Monitor ─────────────────────────────────────────────────
+  let _sandboxActive = false;
+
+  function toggleSandboxView() {
+    if (_journalActive)  { _closeJournalView(); }
+    if (_analysisActive) { _closeAnalysisView(); }
+    _sandboxActive = !_sandboxActive;
+    document.getElementById('sandbox-btn').classList.toggle('active', _sandboxActive);
+    document.getElementById('sandbox-page').style.display = _sandboxActive ? 'flex' : 'none';
+    document.querySelector('.summary-row').style.display   = _sandboxActive ? 'none' : '';
+    _SCANNER_ELS.forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.style.display = _sandboxActive ? 'none' : '';
+    });
+    if (_sandboxActive) {
+      document.getElementById('chart-fullpage').classList.remove('visible');
+      loadSandbox();
+    } else {
+      _applyChartModeDisplay();
+    }
+  }
+
+  function _closeSandboxView() {
+    _sandboxActive = false;
+    document.getElementById('sandbox-btn').classList.remove('active');
+    document.getElementById('sandbox-page').style.display = 'none';
+    document.querySelector('.summary-row').style.display = '';
+  }
+
+  async function loadSandbox() {
+    const [outRes, missRes, propRes] = await Promise.all([
+      fetch(`${API}/api/sandbox/outcomes`).then(r => r.json()).catch(() => []),
+      fetch(`${API}/api/sandbox/missed`).then(r => r.json()).catch(() => []),
+      fetch(`${API}/api/sandbox/proposals`).then(r => r.json()).catch(() => ({proposals:[]})),
+    ]);
+    _renderSbProposals(propRes);
+    _renderSbMissed(missRes);
+    _renderSbOutcomes(outRes);
+    _renderSbSummary(outRes, missRes, propRes);
+  }
+
+  function _renderSbSummary(outcomes, missed, proposals) {
+    const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 30);
+    const cutStr = cutoff.toISOString().slice(0,10);
+    const recent = outcomes.filter(r => r.date >= cutStr && !['invalid','no_data'].includes(r.outcome));
+    const wins   = recent.filter(r => ['T1_hit','T2_hit'].includes(r.outcome)).length;
+    const wr     = recent.length ? Math.round(wins / recent.length * 100) : 0;
+    const nProp  = (proposals.proposals || []).length;
+    const nMiss  = missed.filter(r => r.date >= cutStr).length;
+    document.getElementById('sandbox-summary').innerHTML =
+      `<span>${recent.length} signals tracked</span>` +
+      `<span style="color:var(--green)">${wr}% win rate (30d)</span>` +
+      `<span>${nMiss} missed</span>` +
+      `<span style="color:var(--accent)">${nProp} pending proposals</span>`;
+  }
+
+  function _renderSbProposals(data) {
+    const meta = document.getElementById('sb-proposals-meta');
+    const body = document.getElementById('sb-proposals-body');
+    const props = data.proposals || [];
+    if (data.generated_at) meta.textContent = `Generated ${data.generated_at}`;
+    if (!props.length) {
+      body.innerHTML = `<div class="journal-empty" style="padding:24px">No proposals yet — Agent 3 runs Sunday 9 PM IST</div>`;
+      return;
+    }
+    body.innerHTML = props.map(p => `
+      <div class="sb-proposal-card">
+        <div class="sb-proposal-header">
+          <span class="sb-proposal-param">${p.parameter}</span>
+          <span class="sb-proposal-arrow">${p.current_value} &rarr;</span>
+          <span class="sb-proposal-val">${p.proposed_value}</span>
+          <span class="sb-proposal-conf sb-conf-${p.confidence}">${p.confidence}</span>
+        </div>
+        <div class="sb-proposal-reasoning">${p.reasoning}</div>
+        <div class="sb-proposal-impact">&#128200; ${p.expected_impact}</div>
+      </div>`).join('');
+    if (data.summary) {
+      body.insertAdjacentHTML('afterbegin',
+        `<div style="font-size:13px;color:var(--text-muted);margin-bottom:8px;line-height:1.5">${data.summary}</div>`);
+    }
+  }
+
+  function _renderSbMissed(rows) {
+    const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 30);
+    const cutStr = cutoff.toISOString().slice(0,10);
+    const recent = rows.filter(r => r.date >= cutStr).sort((a,b) => b.date.localeCompare(a.date));
+
+    // Gate bar chart
+    const gateCounts = {};
+    recent.forEach(r => { const g = r.blocking_gate || 'unknown'; gateCounts[g] = (gateCounts[g]||0)+1; });
+    const maxCount = Math.max(...Object.values(gateCounts), 1);
+    const sorted = Object.entries(gateCounts).sort((a,b) => b[1]-a[1]);
+    document.getElementById('sb-gate-bars').innerHTML = sorted.map(([gate, cnt]) => `
+      <div class="sb-gate-bar-row">
+        <span class="sb-gate-bar-label" title="${gate}">${gate}</span>
+        <div class="sb-gate-bar-track"><div class="sb-gate-bar-fill" style="width:${Math.round(cnt/maxCount*100)}%"></div></div>
+        <span class="sb-gate-bar-count">${cnt}</span>
+      </div>`).join('') || `<div class="journal-empty" style="padding:20px">No missed signals yet</div>`;
+
+    const tbody = document.getElementById('sb-missed-body');
+    if (!recent.length) {
+      tbody.innerHTML = `<tr><td colspan="6"><div class="journal-empty" style="padding:24px">Agent 2 hasn't run yet — fires weekdays 4:30 PM IST</div></td></tr>`;
+      return;
+    }
+    tbody.innerHTML = recent.map(r => `
+      <tr>
+        <td>${r.date}</td>
+        <td><strong>${r.symbol}</strong></td>
+        <td style="color:var(--red)">-${r.actual_fall_pct}%</td>
+        <td style="color:var(--yellow)">${r.blocking_gate}</td>
+        <td>${r.actual_value ?? '—'}</td>
+        <td>${r.threshold ?? '—'}</td>
+      </tr>`).join('');
+  }
+
+  function _renderSbOutcomes(rows) {
+    const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 30);
+    const cutStr = cutoff.toISOString().slice(0,10);
+    const recent = rows.filter(r => r.date >= cutStr).sort((a,b) => b.date.localeCompare(a.date));
+    const tbody = document.getElementById('sb-outcomes-body');
+    if (!recent.length) {
+      tbody.innerHTML = `<tr><td colspan="5"><div class="journal-empty" style="padding:24px">No outcome data yet — populated daily at market close</div></td></tr>`;
+      return;
+    }
+    tbody.innerHTML = recent.map(r => {
+      const pill = `<span class="sb-outcome-pill sb-pill-${r.outcome}">${r.outcome}</span>`;
+      const r_val = r.r_achieved != null ? (r.r_achieved > 0 ? `<span style="color:var(--green)">+${r.r_achieved}R</span>` : `<span style="color:var(--red)">${r.r_achieved}R</span>`) : '—';
+      return `<tr><td>${r.date}</td><td><strong>${r.symbol}</strong></td><td>${r.panel||'—'}</td><td>${pill}</td><td>${r_val}</td></tr>`;
+    }).join('');
   }
 
   async function loadAnalysis() {

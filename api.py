@@ -4061,6 +4061,43 @@ def insights_setup_explain():
     return jsonify({"explanations": explanations, "enabled": True})
 
 
+_SANDBOX_DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
+
+def _sandbox_read(filename):
+    path = os.path.join(_SANDBOX_DATA_DIR, filename)
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except Exception:
+        return None
+
+
+@app.route("/api/sandbox/outcomes")
+def sandbox_outcomes():
+    data = _sandbox_read("signal_outcomes.json")
+    if data is None:
+        return jsonify([])
+    return jsonify(data)
+
+
+@app.route("/api/sandbox/missed")
+def sandbox_missed():
+    data = _sandbox_read("missed_signals.json")
+    if data is None:
+        return jsonify([])
+    return jsonify(data)
+
+
+@app.route("/api/sandbox/proposals")
+def sandbox_proposals():
+    data = _sandbox_read("proposals.json")
+    if data is None:
+        return jsonify({"proposals": [], "generated_at": None, "status": "no_data"})
+    return jsonify(data)
+
+
 if __name__ == "__main__":
     print("Starting Samvex Dashboard API on http://localhost:5050")
     app.run(debug=True, port=5050, use_reloader=False)
