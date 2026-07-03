@@ -1793,7 +1793,7 @@
   // Auto-detect environment: localhost uses dev server, production uses Render
   const API = (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1")
     ? "http://localhost:5050"
-    : "https://samvex-api.onrender.com";
+    : "https://samvex-api-sandbox.onrender.com";
   document.getElementById('download-all-btn').href = API + '/api/signals/all-today.csv';
 
   // ── Fetch with retry (handles Render cold-start wake-up) ────────
