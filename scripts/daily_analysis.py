@@ -410,14 +410,15 @@ def apply_code_improvement(report):
     api_path = Path("api.py")
     if not api_path.exists():
         print("[AutoImpr] api.py not found in working directory")
-        return None, "api.py not found"
+        return None, "api.py not found", []
     if tot == 0:
-        return None, "No signals today — no code change basis"
+        return None, "No signals today — no code change basis", []
 
     content = api_path.read_text()
     stats   = panel_stats(report["detail"])
-    changes = []   # list of narrative lines
-    msgs    = []   # list of one-liner commit summary fragments
+    changes = []       # narrative lines
+    msgs    = []       # commit summary fragments
+    tune_records = []  # structured records for data/auto_tunes.json
 
     for setup_num, tuner in PANEL_TUNERS.items():
         st = stats.get(setup_num)
@@ -443,8 +444,6 @@ def apply_code_improvement(report):
         new = max(lo, min(hi, new))
 
         if new == old and "fresh_const" in tuner and direction == 1:
-            # Primary knob already saturated and panel is still underperforming —
-            # escalate to the freshness knob instead of doing nothing.
             flo, fhi = tuner["fresh_bounds"]
             fm, fraw_old = _read_const(content, tuner["fresh_const"])
             if fm:
@@ -459,13 +458,30 @@ def apply_code_improvement(report):
                         f"recently-formed setups will qualify, cutting late/stale low-conviction entries."
                     )
                     msgs.append(f"{tuner['fresh_const']} {fold}→{fnew}")
+                    tune_records.append({
+                        "date": TODAY_STR,
+                        "timestamp": NOW.isoformat(),
+                        "panel_name": tuner["name"],
+                        "setup_num": setup_num,
+                        "parameter": tuner["fresh_const"],
+                        "old_value": str(fold),
+                        "new_value": str(fnew),
+                        "direction": "tightened",
+                        "trigger": "primary_knob_saturated",
+                        "win_rate": w,
+                        "signals_evaluated": st["valid"],
+                        "wins": st["wins"],
+                        "losses": st["losses"],
+                        "expired": st["expired"],
+                        "commit": None,
+                    })
             continue
 
         if new == old:
-            continue  # already at floor and loosening further isn't possible
+            continue
 
         content = _write_const(content, m, new, as_int_underscore=tuner.get("ratio_int", False))
-        as_pct = f"{int(new):,}" if tuner.get("ratio_int") else new
+        as_pct     = f"{int(new):,}" if tuner.get("ratio_int") else new
         as_pct_old = f"{int(old):,}" if tuner.get("ratio_int") else old
         changes.append(
             f"{tuner['name']}: win rate {w}% over {st['valid']} valid signals "
@@ -473,11 +489,28 @@ def apply_code_improvement(report):
             f"{as_pct_old}→{as_pct}."
         )
         msgs.append(f"{tuner['ratio_const']} {as_pct_old}→{as_pct}")
+        tune_records.append({
+            "date": TODAY_STR,
+            "timestamp": NOW.isoformat(),
+            "panel_name": tuner["name"],
+            "setup_num": setup_num,
+            "parameter": tuner["ratio_const"],
+            "old_value": str(as_pct_old),
+            "new_value": str(as_pct),
+            "direction": verb.lower(),
+            "trigger": "win_rate_below_floor" if direction == 1 else "win_rate_above_ceiling",
+            "win_rate": w,
+            "signals_evaluated": st["valid"],
+            "wins": st["wins"],
+            "losses": st["losses"],
+            "expired": st["expired"],
+            "commit": None,
+        })
 
     if not changes:
         overall = report["win_rate_pct"]
         return None, (f"No panel had ≥{MIN_VALID_FOR_TUNING} valid signals with a win rate outside "
-                       f"{WIN_RATE_LOW_THRESHOLD}-{WIN_RATE_HIGH_THRESHOLD}% (overall win_rate={overall}%)")
+                       f"{WIN_RATE_LOW_THRESHOLD}-{WIN_RATE_HIGH_THRESHOLD}% (overall win_rate={overall}%)"), []
 
     api_path.write_text(content)
     msg = f"perf: per-panel tune — {'; '.join(msgs)} [auto-{TODAY_STR}]"
@@ -489,7 +522,7 @@ def apply_code_improvement(report):
           "because a weak one dragged the average down (and vice versa).\n"
         + "Commit: {commit_placeholder}"
     )
-    return msg, narrative
+    return msg, narrative, tune_records
 
 def git_commit_push(commit_msg):
     try:
@@ -579,15 +612,34 @@ def main():
         subprocess.run(["git", "add", "data/signal_outcomes.json"], check=False)
         print(f"[Outcomes] {len(existing_outcomes)} records in {outcomes_file}")
 
-    # Auto-improvement
-    commit_msg, change_note = apply_code_improvement(report)
+    # Auto-improvement (Agent 4)
+    commit_msg, change_note, tune_records = apply_code_improvement(report)
     commit_hash = None
     if commit_msg:
         commit_hash = git_commit_push(commit_msg)
         if commit_hash:
             change_note = change_note.replace("{commit_placeholder}", commit_hash)
+            for r in tune_records:
+                r["commit"] = commit_hash
         else:
             change_note = change_note.replace("{commit_placeholder}", "(push failed)")
+
+    # Persist Agent 4 tune records to data/auto_tunes.json
+    if tune_records:
+        tunes_file = Path("data/auto_tunes.json")
+        if tunes_file.exists():
+            try:
+                existing_tunes = json.loads(tunes_file.read_text())
+            except Exception:
+                existing_tunes = []
+        else:
+            existing_tunes = []
+        existing_tunes.extend(tune_records)
+        cutoff = (NOW - pd.Timedelta(days=90)).strftime("%Y-%m-%d")
+        existing_tunes = [r for r in existing_tunes if r.get("date", "") >= cutoff]
+        tunes_file.write_text(json.dumps(existing_tunes, indent=2))
+        subprocess.run(["git", "add", "data/auto_tunes.json"], check=False)
+        print(f"[AutoTunes] {len(tune_records)} new record(s) → {tunes_file} ({len(existing_tunes)} total)")
 
     # Post to Notion (existing audit log) and the dashboard's own
     # filterable/sortable history view (new — neither replaces the other)

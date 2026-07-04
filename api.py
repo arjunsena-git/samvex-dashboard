@@ -4098,6 +4098,22 @@ def sandbox_proposals():
     return jsonify(data)
 
 
+@app.route("/api/sandbox/autotunes")
+def sandbox_autotunes():
+    data = _sandbox_read("auto_tunes.json")
+    if data is None:
+        return jsonify([])
+    return jsonify(data)
+
+
+@app.route("/api/sandbox/weekly")
+def sandbox_weekly():
+    data = _sandbox_read("weekly_report.json")
+    if data is None:
+        return jsonify({"generated_at": None})
+    return jsonify(data)
+
+
 if __name__ == "__main__":
     print("Starting Samvex Dashboard API on http://localhost:5050")
     app.run(debug=True, port=5050, use_reloader=False)
