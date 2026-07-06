@@ -2766,7 +2766,8 @@
       ${_sbKpi('W / L / E', `${w.wins}W ${w.losses}L ${w.expired}E`, '')}
       ${_sbKpi('Missed', w.missed_count, '')}
       ${_sbKpi('Auto-tunes', (w.auto_tunes_this_week||[]).length, '')}
-      ${_sbKpi('Proposals', w.pending_proposals, w.pending_proposals ? 'var(--accent)' : '')}
+      ${_sbKpi('Applied', (w.proposals_applied_this_week||[]).length, (w.proposals_applied_this_week||[]).length ? 'var(--green)' : '')}
+      ${_sbKpi('Pending', w.pending_proposals, w.pending_proposals ? 'var(--accent)' : '')}
     </div>`;
 
     // Best / worst
@@ -2783,7 +2784,19 @@
     }).join('');
     let panelTable = panelRows ? `<div class="table-wrap"><table class="journal-table"><thead><tr><th>Panel</th><th>W/L/E</th><th>Win Rate</th></tr></thead><tbody>${panelRows}</tbody></table></div>` : '';
 
-    body.innerHTML = kpis + highlights + panelTable;
+    // Narrative block
+    let narrative = '';
+    if (w.narrative) {
+      narrative = `<div style="
+        background:var(--bg-card-2);border:1px solid var(--border);border-radius:8px;
+        padding:14px 16px;margin-bottom:14px;font-size:13px;line-height:1.7;
+        color:var(--text-muted);border-left:3px solid var(--accent);">
+        <span style="font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--accent);font-weight:700;display:block;margin-bottom:6px;">Weekly Summary</span>
+        ${w.narrative}
+      </div>`;
+    }
+
+    body.innerHTML = narrative + kpis + highlights + panelTable;
   }
 
   function _sbKpi(label, val, color) {

@@ -40,6 +40,59 @@ def load(path):
     return []
 
 
+def _build_narrative(win_rate, total, wins, losses, expired,
+                      tunes, applied_props, pending_props,
+                      missed_count, top_gate, gate_counts):
+    parts = []
+
+    # Signal performance
+    if total == 0:
+        parts.append("No signals were evaluated this week.")
+    else:
+        quality = "strong" if win_rate >= 55 else ("acceptable" if win_rate >= 40 else "below target")
+        parts.append(
+            f"Win rate this week was {win_rate}% ({wins}W / {losses}L / {expired}E "
+            f"across {total} signals) — {quality}."
+        )
+
+    # Agent 4 auto-tunes
+    if tunes:
+        tune_desc = "; ".join(
+            f"{t['panel_name']}: {t['parameter']} {t['old_value']}→{t['new_value']} "
+            f"({t['direction']}, wr was {t['win_rate']}%)"
+            for t in tunes
+        )
+        word = "change" if len(tunes) == 1 else "changes"
+        parts.append(f"Agent 4 made {len(tunes)} automatic {word}: {tune_desc}.")
+    else:
+        parts.append("Agent 4 made no automatic adjustments — all panels within healthy bounds.")
+
+    # Agent 3 applied proposals
+    if applied_props:
+        prop_desc = "; ".join(
+            f"{p['parameter']} {p['current_value']}→{p['proposed_value']} [{p['confidence']}]"
+            for p in applied_props
+        )
+        word = "change" if len(applied_props) == 1 else "changes"
+        parts.append(f"Agent 3 applied {len(applied_props)} parameter {word} on Sunday: {prop_desc}.")
+    if pending_props:
+        word = "proposal" if len(pending_props) == 1 else "proposals"
+        parts.append(f"{len(pending_props)} LOW confidence {word} noted but not auto-applied.")
+
+    # Agent 2 missed signals
+    if top_gate and missed_count > 0:
+        count = gate_counts.get(top_gate, 0)
+        pct   = round(count / missed_count * 100)
+        parts.append(
+            f"Agent 2 found {missed_count} missed setup{'s' if missed_count != 1 else ''} — "
+            f"{top_gate} was the top blocker ({count} stock{'s' if count != 1 else ''}, {pct}% of misses)."
+        )
+    elif missed_count == 0:
+        parts.append("Agent 2 found no missed setups — all qualifying movers were caught.")
+
+    return " ".join(parts)
+
+
 def main():
     outcomes  = [r for r in load(OUTCOMES_FILE)  if r.get("date", "") >= WEEK_AGO]
     missed    = [r for r in load(MISSED_FILE)     if r.get("date", "") >= WEEK_AGO]
@@ -76,7 +129,16 @@ def main():
     top_gate   = max(gate_counts, key=gate_counts.get) if gate_counts else None
     top_missed = sorted(missed, key=lambda r: r.get("actual_fall_pct", 0), reverse=True)[:5]
 
-    props = proposals.get("proposals", []) if isinstance(proposals, dict) else []
+    all_props = proposals.get("proposals", []) if isinstance(proposals, dict) else []
+    gen_at    = proposals.get("generated_at", "") if isinstance(proposals, dict) else ""
+    applied_this_week = [p for p in all_props if p.get("status") == "auto_applied" and gen_at >= WEEK_AGO]
+    pending_props     = [p for p in all_props if p.get("status") == "not_applied"]
+
+    narrative = _build_narrative(
+        win_rate, len(valid), len(wins), len(losses), len(expired),
+        tunes, applied_this_week, pending_props,
+        len(missed), top_gate, gate_counts,
+    )
 
     report = {
         "generated_at":  TODAY_STR,
@@ -94,8 +156,10 @@ def main():
         "top_gate":      top_gate,
         "gate_counts":   dict(sorted(gate_counts.items(), key=lambda x: -x[1])),
         "top_missed":    top_missed,
-        "auto_tunes_this_week": tunes,
-        "pending_proposals": len(props),
+        "auto_tunes_this_week":    tunes,
+        "proposals_applied_this_week": applied_this_week,
+        "pending_proposals": len(pending_props),
+        "narrative":     narrative,
     }
 
     WEEKLY_FILE.write_text(json.dumps(report, indent=2))
