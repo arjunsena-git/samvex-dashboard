@@ -2893,17 +2893,18 @@
     }).join('');
 
     bodyEl.innerHTML = insight + `
-      <details>
-        <summary style="cursor:pointer;font-size:12px;color:var(--text-muted);padding:6px 0;user-select:none;list-style:none">
-          &#9660; Show all ${total} signals
-        </summary>
+      <button onclick="var d=this.nextElementSibling,o=d.style.display!=='none';d.style.display=o?'none':'block';this.innerHTML=o?'&#9660; Show all ${total} signals':'&#9650; Hide signals';"
+        style="background:none;border:none;cursor:pointer;font-size:12px;color:var(--text-muted);padding:4px 0;display:block">
+        &#9660; Show all ${total} signals
+      </button>
+      <div style="display:none">
         <div class="table-wrap" style="margin-top:8px">
           <table class="journal-table">
             <thead><tr><th>Date</th><th>Symbol</th><th>Panel</th><th>Outcome</th><th>R</th></tr></thead>
             <tbody>${tableRows}</tbody>
           </table>
         </div>
-      </details>`;
+      </div>`;
   }
 
   function _renderSbMissed(rows) {
@@ -2948,17 +2949,18 @@
       </tr>`).join('');
 
     bodyEl.innerHTML = insight + `
-      <details>
-        <summary style="cursor:pointer;font-size:12px;color:var(--text-muted);padding:6px 0;user-select:none;list-style:none">
-          &#9660; Show all ${recent.length} missed signals
-        </summary>
+      <button onclick="var d=this.nextElementSibling,o=d.style.display!=='none';d.style.display=o?'none':'block';this.innerHTML=o?'&#9660; Show all ${recent.length} missed signals':'&#9650; Hide signals';"
+        style="background:none;border:none;cursor:pointer;font-size:12px;color:var(--text-muted);padding:4px 0;display:block">
+        &#9660; Show all ${recent.length} missed signals
+      </button>
+      <div style="display:none">
         <div class="table-wrap" style="margin-top:8px">
           <table class="journal-table">
             <thead><tr><th>Date</th><th>Symbol</th><th>Fell %</th><th>Blocking Gate</th><th>Actual</th><th>Threshold</th></tr></thead>
             <tbody>${tableRows}</tbody>
           </table>
         </div>
-      </details>`;
+      </div>`;
   }
 
   function _renderSbProposals(data) {
