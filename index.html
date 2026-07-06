@@ -2806,12 +2806,46 @@
     </div>`;
   }
 
+  function _shortPanel(name) {
+    if (!name) return '—';
+    if (name.includes('Momentum Breakdown') || (name.includes('PDL') && name.includes('Bearish'))) return 'Momentum Breakdown';
+    if (name.includes('Momentum Breakout') || (name.includes('PDH') && name.includes('Bullish'))) return 'Momentum Breakout';
+    if (name.includes('Bull Trap'))        return 'Bull Trap';
+    if (name.includes('Bear Trap'))        return 'Bear Trap';
+    if (name.includes('PDH Breakout'))     return 'PDH Breakout';
+    if (name.includes('Supply Zone'))      return 'Supply Zone';
+    if (name.includes('Demand Zone'))      return 'Demand Zone';
+    if (name.includes('Exhaustion Short')) return 'Exhaustion Short';
+    if (name.includes('ORB') && name.toLowerCase().includes('bull')) return 'ORB Bull';
+    if (name.includes('ORB') && name.toLowerCase().includes('bear')) return 'ORB Bear';
+    if (name.includes('ORB'))              return 'ORB';
+    const before = name.split('—')[0].trim();
+    return before.length > 24 ? before.substring(0, 22) + '…' : before;
+  }
+
   function _renderSbOutcomes(rows) {
     const cutStr = _cut30();
     const recent = rows.filter(r => r.date >= cutStr && !['invalid','no_data'].includes(r.outcome))
                        .sort((a,b) => b.date.localeCompare(a.date));
 
-    // Per-panel stat chips
+    const statsEl = document.getElementById('sb-panel-stats');
+    const bodyEl  = document.getElementById('sb-outcomes-body');
+
+    if (!recent.length) {
+      statsEl.innerHTML = '';
+      bodyEl.innerHTML  = '<div class="journal-empty" style="padding:24px">No outcome data yet — populated daily at market close</div>';
+      return;
+    }
+
+    // Aggregate
+    const total   = recent.length;
+    const wins    = recent.filter(r => ['T1_hit','T2_hit'].includes(r.outcome)).length;
+    const losses  = recent.filter(r => r.outcome === 'SL_hit').length;
+    const expired = total - wins - losses;
+    const wr      = Math.round(wins / total * 100);
+    const wrCol   = wr >= 55 ? 'var(--green)' : wr >= 40 ? 'var(--yellow)' : 'var(--red)';
+
+    // Per-panel
     const panels = {};
     recent.forEach(r => {
       const p = r.panel || 'unknown';
@@ -2820,29 +2854,56 @@
       else if (r.outcome === 'SL_hit')             panels[p].losses++;
       else                                          panels[p].expired++;
     });
-    document.getElementById('sb-panel-stats').innerHTML = Object.entries(panels).map(([p, s]) => {
+    const panelArr = Object.entries(panels).map(([name, s]) => {
       const tot = s.wins + s.losses + s.expired;
-      const wr  = tot ? Math.round(s.wins/tot*100) : 0;
-      const col = wr >= 55 ? 'var(--green)' : wr >= 40 ? 'var(--yellow)' : 'var(--red)';
-      return `<div style="background:var(--bg-card-2);border:1px solid var(--border);border-radius:8px;padding:8px 12px;font-size:12px;">
-        <span style="font-weight:700">${p}</span>
-        <span style="color:var(--text-muted);margin:0 6px">${s.wins}W/${s.losses}L/${s.expired}E</span>
-        <span style="color:${col};font-weight:700">${wr}%</span>
-      </div>`;
-    }).join('') || '';
+      return {...s, name, tot, wr: tot ? Math.round(s.wins/tot*100) : 0};
+    }).sort((a,b) => b.tot - a.tot);
 
-    const tbody = document.getElementById('sb-outcomes-body');
-    if (!recent.length) {
-      tbody.innerHTML = `<tr><td colspan="5"><div class="journal-empty" style="padding:24px">No outcome data yet — populated daily at market close</div></td></tr>`;
-      return;
-    }
-    tbody.innerHTML = recent.map(r => {
-      const pill  = `<span class="sb-outcome-pill sb-pill-${r.outcome}">${r.outcome}</span>`;
-      const rVal  = r.r_achieved != null
+    const qualified = panelArr.filter(p => p.tot >= 2);
+    const best  = qualified.length ? qualified.reduce((a,b) => a.wr >= b.wr ? a : b) : null;
+    const worst = qualified.length ? qualified.reduce((a,b) => a.wr <= b.wr ? a : b) : null;
+
+    // Insight card
+    let insight = `<div style="background:var(--bg-card-2);border:1px solid var(--border);border-radius:8px;
+        padding:13px 16px;margin-bottom:12px;font-size:13px;line-height:1.8;border-left:3px solid var(--accent);">
+      <strong style="color:${wrCol}">${wr}% win rate</strong> &nbsp;·&nbsp;
+      ${total} signals evaluated &nbsp;·&nbsp; ${wins}W / ${losses}L / ${expired}E`;
+    if (best)  insight += `<br>&#127942; Best panel: <strong>${_shortPanel(best.name)}</strong> — ${best.wr}% win rate (${best.tot} signals)`;
+    if (worst && worst.name !== (best||{}).name)
+               insight += `<br>&#9888; Worst panel: <strong>${_shortPanel(worst.name)}</strong> — ${worst.wr}% win rate (${worst.tot} signals)`;
+    insight += `</div>`;
+
+    // Compact panel chips
+    statsEl.innerHTML = panelArr.map(s => {
+      const col = s.wr >= 55 ? 'var(--green)' : s.wr >= 40 ? 'var(--yellow)' : 'var(--red)';
+      return `<div style="background:var(--bg-card-2);border:1px solid var(--border);border-radius:8px;padding:7px 11px;font-size:12px;white-space:nowrap" title="${s.name}">
+        <span style="font-weight:700">${_shortPanel(s.name)}</span>
+        <span style="color:var(--text-muted);margin:0 5px">${s.wins}W/${s.losses}L/${s.expired}E</span>
+        <span style="color:${col};font-weight:700">${s.wr}%</span>
+      </div>`;
+    }).join('');
+
+    // Collapsible raw table (top 10 shown inside, all inside details)
+    const tableRows = recent.map(r => {
+      const pill = `<span class="sb-outcome-pill sb-pill-${r.outcome}">${r.outcome}</span>`;
+      const rVal = r.r_achieved != null
         ? (r.r_achieved > 0 ? `<span style="color:var(--green)">+${r.r_achieved}R</span>` : `<span style="color:var(--red)">${r.r_achieved}R</span>`)
         : '—';
-      return `<tr><td>${r.date}</td><td><strong>${r.symbol}</strong></td><td>${r.panel||'—'}</td><td>${pill}</td><td>${rVal}</td></tr>`;
+      return `<tr><td>${r.date}</td><td><strong>${r.symbol}</strong></td><td>${_shortPanel(r.panel||'')}</td><td>${pill}</td><td>${rVal}</td></tr>`;
     }).join('');
+
+    bodyEl.innerHTML = insight + `
+      <details>
+        <summary style="cursor:pointer;font-size:12px;color:var(--text-muted);padding:6px 0;user-select:none;list-style:none">
+          &#9660; Show all ${total} signals
+        </summary>
+        <div class="table-wrap" style="margin-top:8px">
+          <table class="journal-table">
+            <thead><tr><th>Date</th><th>Symbol</th><th>Panel</th><th>Outcome</th><th>R</th></tr></thead>
+            <tbody>${tableRows}</tbody>
+          </table>
+        </div>
+      </details>`;
   }
 
   function _renderSbMissed(rows) {
@@ -2851,7 +2912,10 @@
 
     const gateCounts = {};
     recent.forEach(r => { const g = r.blocking_gate || 'unknown'; gateCounts[g] = (gateCounts[g]||0)+1; });
+    const topGate = Object.entries(gateCounts).sort((a,b) => b[1]-a[1])[0];
     const maxCount = Math.max(...Object.values(gateCounts), 1);
+
+    // Gate bar chart
     document.getElementById('sb-gate-bars').innerHTML =
       Object.entries(gateCounts).sort((a,b) => b[1]-a[1]).map(([gate, cnt]) => `
         <div class="sb-gate-bar-row">
@@ -2860,18 +2924,41 @@
           <span class="sb-gate-bar-count">${cnt}</span>
         </div>`).join('') || `<div class="journal-empty" style="padding:16px">No missed signals yet</div>`;
 
-    const tbody = document.getElementById('sb-missed-body');
+    const bodyEl = document.getElementById('sb-missed-body');
     if (!recent.length) {
-      tbody.innerHTML = `<tr><td colspan="6"><div class="journal-empty" style="padding:24px">Agent 2 hasn't run yet — fires weekdays 4:30 PM IST</div></td></tr>`;
+      bodyEl.innerHTML = '<div class="journal-empty" style="padding:24px">Agent 2 hasn\'t run yet — fires weekdays 4:30 PM IST</div>';
       return;
     }
-    tbody.innerHTML = recent.map(r => `
+
+    // Insight card
+    const pct = topGate ? Math.round(topGate[1] / recent.length * 100) : 0;
+    let insight = `<div style="background:var(--bg-card-2);border:1px solid var(--border);border-radius:8px;
+        padding:13px 16px;margin-bottom:12px;font-size:13px;line-height:1.8;border-left:3px solid var(--yellow);">
+      <strong>${recent.length} missed setup${recent.length !== 1 ? 's' : ''}</strong> this period.`;
+    if (topGate) insight += ` Top blocker: <strong style="color:var(--yellow)">${topGate[0]}</strong> — blocked ${topGate[1]} stocks (${pct}% of misses). Consider loosening this gate if the blocked stocks had genuine profit potential.`;
+    insight += `</div>`;
+
+    // Collapsible table
+    const tableRows = recent.map(r => `
       <tr>
         <td>${r.date}</td><td><strong>${r.symbol}</strong></td>
         <td style="color:var(--red)">&#8209;${r.actual_fall_pct}%</td>
         <td style="color:var(--yellow)">${r.blocking_gate}</td>
         <td>${r.actual_value ?? '—'}</td><td>${r.threshold ?? '—'}</td>
       </tr>`).join('');
+
+    bodyEl.innerHTML = insight + `
+      <details>
+        <summary style="cursor:pointer;font-size:12px;color:var(--text-muted);padding:6px 0;user-select:none;list-style:none">
+          &#9660; Show all ${recent.length} missed signals
+        </summary>
+        <div class="table-wrap" style="margin-top:8px">
+          <table class="journal-table">
+            <thead><tr><th>Date</th><th>Symbol</th><th>Fell %</th><th>Blocking Gate</th><th>Actual</th><th>Threshold</th></tr></thead>
+            <tbody>${tableRows}</tbody>
+          </table>
+        </div>
+      </details>`;
   }
 
   function _renderSbProposals(data) {
