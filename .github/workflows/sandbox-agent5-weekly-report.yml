@@ -1,0 +1,46 @@
+name: Sandbox — Agent 5 (Weekly Report)
+
+on:
+  schedule:
+    # Saturday 8:00 AM IST = Friday 02:30 UTC
+    - cron: '30 2 * * 6'
+  workflow_dispatch:
+
+jobs:
+  weekly-report:
+    name: Generate weekly performance report (sandbox branch)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout sandbox branch
+        uses: actions/checkout@v4
+        with:
+          ref: sandbox
+          token: ${{ secrets.SAMVEX_GH_PAT }}
+          fetch-depth: 0
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install --upgrade pip pytz requests
+
+      - name: Configure git
+        run: |
+          git config user.name  "Samvex AI"
+          git config user.email "ai@samvex.in"
+          git remote set-url origin https://x-access-token:${{ secrets.SAMVEX_GH_PAT }}@github.com/arjunsena-git/samvex-dashboard.git
+
+      - name: Run weekly report
+        run: python scripts/agent5_weekly_report.py
+
+      - name: Commit weekly_report.json
+        run: |
+          git add data/weekly_report.json
+          git diff --cached --quiet || git commit -m "agent5: weekly report $(date +%Y-%m-%d) [auto]"
+          git pull --rebase origin sandbox
+          git push origin sandbox

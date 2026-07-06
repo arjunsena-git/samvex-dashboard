@@ -1,0 +1,46 @@
+name: Sandbox — Agent 2 (Missed Signals)
+
+on:
+  schedule:
+    # 4:30 PM IST = 11:00 UTC, Monday–Friday
+    - cron: '0 11 * * 1-5'
+  workflow_dispatch:
+
+jobs:
+  missed-signals:
+    name: Scan for missed setups (sandbox branch)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout sandbox branch
+        uses: actions/checkout@v4
+        with:
+          ref: sandbox
+          token: ${{ secrets.SAMVEX_GH_PAT }}
+          fetch-depth: 0
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install --upgrade pip pytz requests yfinance pandas
+
+      - name: Configure git
+        run: |
+          git config user.name  "Samvex AI"
+          git config user.email "ai@samvex.in"
+          git remote set-url origin https://x-access-token:${{ secrets.SAMVEX_GH_PAT }}@github.com/arjunsena-git/samvex-dashboard.git
+
+      - name: Run missed signals agent
+        run: python scripts/agent2_missed_signals.py
+
+      - name: Commit updated missed_signals.json
+        run: |
+          git add data/missed_signals.json
+          git diff --cached --quiet || git commit -m "agent2: missed signals $(date +%Y-%m-%d) [auto]"
+          git pull --rebase origin sandbox
+          git push origin sandbox

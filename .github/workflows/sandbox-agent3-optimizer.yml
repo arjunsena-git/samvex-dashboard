@@ -1,0 +1,48 @@
+name: Sandbox — Agent 3 (Claude Parameter Proposals)
+
+on:
+  schedule:
+    # Sunday 9:00 PM IST = Sunday 15:30 UTC
+    - cron: '30 15 * * 0'
+  workflow_dispatch:
+
+jobs:
+  optimizer:
+    name: Generate parameter proposals via Claude API (sandbox branch)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout sandbox branch
+        uses: actions/checkout@v4
+        with:
+          ref: sandbox
+          token: ${{ secrets.SAMVEX_GH_PAT }}
+          fetch-depth: 0
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install --upgrade pip pytz requests pandas
+
+      - name: Configure git
+        run: |
+          git config user.name  "Samvex AI"
+          git config user.email "ai@samvex.in"
+          git remote set-url origin https://x-access-token:${{ secrets.SAMVEX_GH_PAT }}@github.com/arjunsena-git/samvex-dashboard.git
+
+      - name: Run optimizer
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: python scripts/agent3_optimizer.py
+
+      - name: Commit proposals.json
+        run: |
+          git add data/proposals.json
+          git diff --cached --quiet || git commit -m "agent3: weekly proposals $(date +%Y-%m-%d) [auto]"
+          git pull --rebase origin sandbox
+          git push origin sandbox
