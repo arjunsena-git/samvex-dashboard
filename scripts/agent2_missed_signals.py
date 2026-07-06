@@ -55,14 +55,35 @@ def fetch_today_signals():
         return set()
 
 
+_NIFTY100_FALLBACK = [
+    "RELIANCE","TCS","HDFCBANK","INFY","ICICIBANK","KOTAKBANK","HINDUNILVR","AXISBANK",
+    "BAJFINANCE","BHARTIARTL","MARUTI","SUNPHARMA","TITAN","WIPRO","LT","ULTRACEMCO",
+    "ONGC","TECHM","NTPC","POWERGRID","ADANIENT","ADANIPORTS","GRASIM","ASIANPAINT",
+    "HCLTECH","DIVISLAB","BRITANNIA","DRREDDY","EICHERMOT","CIPLA","COALINDIA","BPCL",
+    "IOC","TATACONSUM","HINDALCO","TATASTEEL","JSWSTEEL","TATAMOTORS","M&M","BAJAJ-AUTO",
+    "HEROMOTOCO","BAJAJFINSV","SBILIFE","HDFCLIFE","INDUSINDBK","NESTLEIND","ITC","BEL",
+    "SBIN","BANKBARODA","CANBK","PNB","FEDERALBNK","IDFCFIRSTB","BANDHANBNK","RBLBANK",
+    "SHRIRAMFIN","CHOLAFIN","MUTHOOTFIN","BAJAJHLDNG","PIDILITIND","BERGEPAINT","HAVELLS",
+    "SIEMENS","ABB","VOLTAS","COLPAL","GODREJCP","TATAPOWER","ADANIGREEN","VEDL",
+    "AMBUJACEM","ACC","SHREECEM","LTIM","MPHASIS","LTTS","PERSISTENT","COFORGE",
+    "ZOMATO","IRCTC","NYKAA","POLICYBZR","LICI","SBICARD","DMART","JUBLFOOD",
+    "MARICO","EMAMILTD","GODREJIND","WHIRLPOOL","CROMPTON","BATAINDIA","PAGEIND",
+    "APOLLOHOSP","MAXHEALTH","FORTIS","LUPIN","AUROPHARMA","ALKEM","TORNTPHARM",
+    "GLAND","LAURUSLABS","ABBOTINDIA","SANOFI","PFIZER","BIOCON","BALKRISIND",
+]
+
 def fetch_nifty500():
     try:
         r = requests.get(API_BASE + "/api/universe", timeout=20)
         r.raise_for_status()
-        return [s.replace(".NS", "") for s in r.json()]
+        universe = [s.replace(".NS", "") for s in r.json()]
+        if universe:
+            print(f"[Universe] fetched {len(universe)} symbols from API")
+            return universe
     except Exception as e:
-        print(f"[Universe] fetch failed: {e}")
-        return []
+        print(f"[Universe] API fetch failed: {e}")
+    print(f"[Universe] using hardcoded Nifty 100 fallback ({len(_NIFTY100_FALLBACK)} symbols)")
+    return _NIFTY100_FALLBACK
 
 
 def get_daily(symbol):
