@@ -1797,6 +1797,7 @@
   const API = (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1")
     ? "http://localhost:5050"
     : "https://samvex-api-sandbox.onrender.com";
+  const IS_SANDBOX = true;
   document.getElementById('download-all-btn').href = API + '/api/signals/all-today.csv';
 
   // ── Fetch with retry (handles Render cold-start wake-up) ────────
@@ -3548,6 +3549,7 @@
   const UPSTOX_WARN_THRESHOLD_MIN = 150;   // start warning 2.5h before expiry
 
   function _updateUpstoxBanner(data) {
+    if (IS_SANDBOX) return;
     const banner = document.getElementById('upstox-banner');
     const text   = document.getElementById('upstox-banner-text');
     const btn    = document.getElementById('upstox-banner-btn');
