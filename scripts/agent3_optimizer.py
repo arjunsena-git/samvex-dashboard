@@ -8,16 +8,17 @@ Reads:
   data/missed_signals.json   — last 30 days of missed signals (Agent 2)
   api.py                     — current parameter constants
 
-Calls Claude API with a structured prompt describing the data.
-Claude returns proposed parameter changes with reasoning.
+Calls Claude API with performance data.
+AUTO-APPLIES HIGH and MEDIUM confidence proposals to api.py.
+LOW confidence proposals are noted but not applied.
 
-Output: writes data/proposals.json for Arjun to review.
-Does NOT auto-apply. Human approval required before any change to code.
+Output: writes data/proposals.json with applied/skipped status.
+Commits api.py + proposals.json to sandbox branch.
 
 Requires env var: ANTHROPIC_API_KEY
 """
 
-import json, os, re
+import json, os, re, subprocess
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -35,7 +36,6 @@ MISSED_FILE       = Path("data/missed_signals.json")
 PROPOSALS_FILE    = Path("data/proposals.json")
 API_PY            = Path("api.py")
 
-# Parameters the optimizer is allowed to propose changes for
 TUNABLE_PARAMS = [
     "EXH_PREV_DAY_RALLY_PCT",
     "EXH_CUMUL_RALLY_PCT",
@@ -62,7 +62,6 @@ def load_json(path):
 
 
 def read_current_params():
-    """Extract current values of tunable params from api.py."""
     if not API_PY.exists():
         return {}
     content = API_PY.read_text()
@@ -75,7 +74,6 @@ def read_current_params():
 
 
 def summarise_outcomes(outcomes):
-    """Roll up 30-day outcomes into per-panel statistics."""
     recent = [r for r in outcomes if r.get("date", "") >= CUTOFF]
     panels = {}
     for r in recent:
@@ -98,7 +96,6 @@ def summarise_outcomes(outcomes):
 
 
 def summarise_missed(missed):
-    """Tally which gates blocked the most missed Exhaustion Short opportunities."""
     recent = [r for r in missed if r.get("date", "") >= CUTOFF]
     gate_counts = {}
     for r in recent:
@@ -112,7 +109,7 @@ def summarise_missed(missed):
         "total_missed_30d": total,
         "avg_fall_pct_of_missed": round(avg_fall, 2),
         "gate_blocking_counts": dict(sorted(gate_counts.items(), key=lambda x: -x[1])),
-        "sample_missed": recent[-5:],  # last 5 for context
+        "sample_missed": recent[-5:],
     }
 
 
@@ -188,7 +185,6 @@ def call_claude(prompt):
         )
         r.raise_for_status()
         text = r.json()["content"][0]["text"].strip()
-        # Strip markdown code fences if Claude wrapped the JSON
         if text.startswith("```"):
             text = text.split("```")[1]
             if text.startswith("json"):
@@ -197,6 +193,100 @@ def call_claude(prompt):
     except Exception as e:
         print(f"[Claude] API call failed: {e}")
         return None
+
+
+def _parse_numeric(val_str):
+    """Parse a numeric string (handles commas, underscores, floats)."""
+    cleaned = str(val_str).replace(",", "").replace("_", "").strip()
+    if "." in cleaned:
+        return float(cleaned), True   # (value, is_float)
+    return int(cleaned), False
+
+
+def _format_for_api(num, is_float, original_raw):
+    """Format a number to match api.py style (underscore integers, plain floats)."""
+    if is_float:
+        return str(float(num))
+    # Use underscores if original had them or value is large
+    if "_" in original_raw or num >= 100_000:
+        s = f"{int(num):_}"
+        return s
+    return str(int(num))
+
+
+def auto_apply_proposals(proposals_data):
+    """
+    Apply HIGH and MEDIUM confidence proposals directly to api.py.
+    Returns (applied_list, skipped_list).
+    """
+    if not API_PY.exists():
+        print("[AutoApply] api.py not found — skipping all proposals")
+        return [], list(proposals_data.get("proposals", []))
+
+    content = API_PY.read_text()
+    applied = []
+    skipped = []
+
+    for prop in proposals_data.get("proposals", []):
+        confidence  = prop.get("confidence", "LOW").upper()
+        param       = prop.get("parameter", "")
+        new_val_str = str(prop.get("proposed_value", ""))
+
+        if confidence == "LOW":
+            skipped.append({**prop, "status": "not_applied", "skip_reason": "LOW confidence — noted but not auto-applied"})
+            continue
+
+        if param not in TUNABLE_PARAMS:
+            skipped.append({**prop, "status": "not_applied", "skip_reason": f"{param} not in allowed parameter list"})
+            continue
+
+        m = re.search(rf'\b({re.escape(param)})\s*=\s*([\d_]+(?:\.\d+)?)', content)
+        if not m:
+            skipped.append({**prop, "status": "not_applied", "skip_reason": f"{param} not found in api.py"})
+            continue
+
+        original_raw = m.group(2)   # e.g. "1_600_000" or "1.3"
+        try:
+            new_num, is_float = _parse_numeric(new_val_str)
+            formatted = _format_for_api(new_num, is_float, original_raw)
+        except (ValueError, TypeError) as e:
+            skipped.append({**prop, "status": "not_applied", "skip_reason": f"Could not parse '{new_val_str}': {e}"})
+            continue
+
+        # Patch in place — replace only the value portion
+        old_span_start = m.start(2)
+        old_span_end   = m.end(2)
+        content = content[:old_span_start] + formatted + content[old_span_end:]
+
+        applied.append({**prop, "status": "auto_applied", "applied_at": TODAY_STR, "formatted_value": formatted})
+        print(f"[AutoApply] {param}: {original_raw} → {formatted} [{confidence}]")
+
+    if applied:
+        API_PY.write_text(content)
+        print(f"[AutoApply] api.py updated with {len(applied)} change(s)")
+
+    return applied, skipped
+
+
+def git_commit_changes(n_applied):
+    """Commit api.py and proposals.json back to sandbox branch."""
+    try:
+        subprocess.run(["git", "add", "api.py", "data/proposals.json"], check=False)
+        result = subprocess.run(
+            ["git", "commit", "-m", f"agent3: auto-applied {n_applied} proposals {TODAY_STR} [auto]"],
+            capture_output=True, text=True,
+        )
+        if result.returncode == 0:
+            subprocess.run(["git", "pull", "--rebase", "origin", "sandbox"], check=False)
+            push = subprocess.run(["git", "push"], capture_output=True, text=True)
+            if push.returncode != 0:
+                print(f"[AutoApply] Push failed: {push.stderr.strip()}")
+            else:
+                print(f"[AutoApply] Committed and pushed.")
+        else:
+            print(f"[AutoApply] Nothing to commit: {result.stdout.strip()}")
+    except Exception as e:
+        print(f"[AutoApply] Git error: {e}")
 
 
 def main():
@@ -231,8 +321,6 @@ def main():
     proposals = call_claude(prompt)
 
     if proposals is None:
-        print("[Optimizer] No proposals generated (API failed or no key).")
-        # Write empty proposals so the file reflects the attempt
         proposals = {
             "generated_at": TODAY_STR,
             "days_analysed": 30,
@@ -240,14 +328,26 @@ def main():
             "proposals": [],
         }
 
-    proposals["status"] = "pending_review"
+    # Auto-apply HIGH and MEDIUM confidence proposals
+    applied, skipped = auto_apply_proposals(proposals)
+
+    proposals["proposals"] = applied + skipped
+    proposals["applied_count"]  = len(applied)
+    proposals["skipped_count"]  = len(skipped)
+    proposals["status"] = "auto_applied" if applied else "no_changes"
+
     PROPOSALS_FILE.write_text(json.dumps(proposals, indent=2))
 
-    n = len(proposals.get("proposals", []))
-    print(f"\n[Done] {n} proposals written → {PROPOSALS_FILE}")
-    for p in proposals.get("proposals", []):
-        print(f"  {p['parameter']}: {p['current_value']} → {p['proposed_value']} [{p['confidence']}]")
+    n_applied = len(applied)
+    n_skipped = len(skipped)
+    print(f"\n[Done] {n_applied} proposals applied, {n_skipped} noted (LOW confidence)")
+    for p in applied:
+        print(f"  ✓ {p['parameter']}: {p['current_value']} → {p['proposed_value']} [{p['confidence']}]")
         print(f"    {p['reasoning'][:120]}...")
+    for p in skipped:
+        print(f"  ○ {p['parameter']}: {p.get('skip_reason','not applied')}")
+
+    git_commit_changes(n_applied)
 
 
 if __name__ == "__main__":
