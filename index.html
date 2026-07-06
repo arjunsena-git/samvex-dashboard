@@ -1184,13 +1184,14 @@
     <div class="sandbox-section">
       <div class="sandbox-section-title">Agent 1 — Signal Outcome Tracker (last 30 days)</div>
       <div id="sb-panel-stats" style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:12px;"></div>
-      <div class="table-wrap">
-        <table class="journal-table">
-          <thead><tr><th>Date</th><th>Symbol</th><th>Panel</th><th>Outcome</th><th>R Achieved</th></tr></thead>
-          <tbody id="sb-outcomes-body">
-            <tr><td colspan="5"><div class="journal-empty" style="padding:24px">No outcome data yet — populated daily at market close</div></td></tr>
-          </tbody>
-        </table>
+      <div id="sb-outcomes-insight"></div>
+      <div id="sb-outcomes-table" style="display:none;">
+        <div class="table-wrap">
+          <table class="journal-table">
+            <thead><tr><th>Date</th><th>Symbol</th><th>Panel</th><th>Outcome</th><th>R</th></tr></thead>
+            <tbody id="sb-outcomes-body"></tbody>
+          </table>
+        </div>
       </div>
     </div>
 
@@ -1198,13 +1199,14 @@
     <div class="sandbox-section">
       <div class="sandbox-section-title">Agent 2 — Missed Signals Analyst (last 30 days)</div>
       <div id="sb-gate-bars" style="margin-bottom:14px;"></div>
-      <div class="table-wrap">
-        <table class="journal-table">
-          <thead><tr><th>Date</th><th>Symbol</th><th>Fell %</th><th>Blocking Gate</th><th>Actual Value</th><th>Threshold</th></tr></thead>
-          <tbody id="sb-missed-body">
-            <tr><td colspan="6"><div class="journal-empty" style="padding:24px">Agent 2 hasn't run yet — fires weekdays 4:30 PM IST</div></td></tr>
-          </tbody>
-        </table>
+      <div id="sb-missed-insight"></div>
+      <div id="sb-missed-table" style="display:none;">
+        <div class="table-wrap">
+          <table class="journal-table">
+            <thead><tr><th>Date</th><th>Symbol</th><th>Fell %</th><th>Blocking Gate</th><th>Actual</th><th>Threshold</th></tr></thead>
+            <tbody id="sb-missed-body"></tbody>
+          </table>
+        </div>
       </div>
     </div>
 
@@ -2828,12 +2830,15 @@
     const recent = rows.filter(r => r.date >= cutStr && !['invalid','no_data'].includes(r.outcome))
                        .sort((a,b) => b.date.localeCompare(a.date));
 
-    const statsEl = document.getElementById('sb-panel-stats');
-    const bodyEl  = document.getElementById('sb-outcomes-body');
+    const statsEl   = document.getElementById('sb-panel-stats');
+    const insightEl = document.getElementById('sb-outcomes-insight');
+    const tableEl   = document.getElementById('sb-outcomes-table');
+    const bodyEl    = document.getElementById('sb-outcomes-body');
 
     if (!recent.length) {
-      statsEl.innerHTML = '';
-      bodyEl.innerHTML  = '<div class="journal-empty" style="padding:24px">No outcome data yet — populated daily at market close</div>';
+      statsEl.innerHTML   = '';
+      insightEl.innerHTML = '<div class="journal-empty" style="padding:24px">No outcome data yet — populated daily at market close</div>';
+      tableEl.style.display = 'none';
       return;
     }
 
@@ -2892,19 +2897,13 @@
       return `<tr><td>${r.date}</td><td><strong>${r.symbol}</strong></td><td>${_shortPanel(r.panel||'')}</td><td>${pill}</td><td>${rVal}</td></tr>`;
     }).join('');
 
-    bodyEl.innerHTML = insight + `
-      <button onclick="var d=this.nextElementSibling,o=d.style.display!=='none';d.style.display=o?'none':'block';this.innerHTML=o?'&#9660; Show all ${total} signals':'&#9650; Hide signals';"
+    insightEl.innerHTML = insight + `
+      <button onclick="var t=document.getElementById('sb-outcomes-table'),o=t.style.display!=='none';t.style.display=o?'none':'block';this.innerHTML=o?'&#9660; Show all ${total} signals':'&#9650; Hide signals';"
         style="background:none;border:none;cursor:pointer;font-size:12px;color:var(--text-muted);padding:4px 0;display:block">
         &#9660; Show all ${total} signals
-      </button>
-      <div style="display:none">
-        <div class="table-wrap" style="margin-top:8px">
-          <table class="journal-table">
-            <thead><tr><th>Date</th><th>Symbol</th><th>Panel</th><th>Outcome</th><th>R</th></tr></thead>
-            <tbody>${tableRows}</tbody>
-          </table>
-        </div>
-      </div>`;
+      </button>`;
+    bodyEl.innerHTML  = tableRows;
+    tableEl.style.display = 'none';
   }
 
   function _renderSbMissed(rows) {
@@ -2925,9 +2924,13 @@
           <span class="sb-gate-bar-count">${cnt}</span>
         </div>`).join('') || `<div class="journal-empty" style="padding:16px">No missed signals yet</div>`;
 
-    const bodyEl = document.getElementById('sb-missed-body');
+    const missedInsightEl = document.getElementById('sb-missed-insight');
+    const missedTableEl   = document.getElementById('sb-missed-table');
+    const bodyEl          = document.getElementById('sb-missed-body');
+
     if (!recent.length) {
-      bodyEl.innerHTML = '<div class="journal-empty" style="padding:24px">Agent 2 hasn\'t run yet — fires weekdays 4:30 PM IST</div>';
+      missedInsightEl.innerHTML = '<div class="journal-empty" style="padding:24px">Agent 2 hasn\'t run yet — fires weekdays 4:30 PM IST</div>';
+      missedTableEl.style.display = 'none';
       return;
     }
 
@@ -2939,7 +2942,6 @@
     if (topGate) insight += ` Top blocker: <strong style="color:var(--yellow)">${topGate[0]}</strong> — blocked ${topGate[1]} stocks (${pct}% of misses). Consider loosening this gate if the blocked stocks had genuine profit potential.`;
     insight += `</div>`;
 
-    // Collapsible table
     const tableRows = recent.map(r => `
       <tr>
         <td>${r.date}</td><td><strong>${r.symbol}</strong></td>
@@ -2948,19 +2950,13 @@
         <td>${r.actual_value ?? '—'}</td><td>${r.threshold ?? '—'}</td>
       </tr>`).join('');
 
-    bodyEl.innerHTML = insight + `
-      <button onclick="var d=this.nextElementSibling,o=d.style.display!=='none';d.style.display=o?'none':'block';this.innerHTML=o?'&#9660; Show all ${recent.length} missed signals':'&#9650; Hide signals';"
+    missedInsightEl.innerHTML = insight + `
+      <button onclick="var t=document.getElementById('sb-missed-table'),o=t.style.display!=='none';t.style.display=o?'none':'block';this.innerHTML=o?'&#9660; Show all ${recent.length} missed signals':'&#9650; Hide signals';"
         style="background:none;border:none;cursor:pointer;font-size:12px;color:var(--text-muted);padding:4px 0;display:block">
         &#9660; Show all ${recent.length} missed signals
-      </button>
-      <div style="display:none">
-        <div class="table-wrap" style="margin-top:8px">
-          <table class="journal-table">
-            <thead><tr><th>Date</th><th>Symbol</th><th>Fell %</th><th>Blocking Gate</th><th>Actual</th><th>Threshold</th></tr></thead>
-            <tbody>${tableRows}</tbody>
-          </table>
-        </div>
-      </div>`;
+      </button>`;
+    bodyEl.innerHTML          = tableRows;
+    missedTableEl.style.display = 'none';
   }
 
   function _renderSbProposals(data) {
