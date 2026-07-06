@@ -4061,15 +4061,16 @@ def insights_setup_explain():
     return jsonify({"explanations": explanations, "enabled": True})
 
 
-_SANDBOX_DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
+_SANDBOX_GITHUB_RAW = (
+    "https://raw.githubusercontent.com/arjunsena-git/samvex-dashboard/sandbox/data/"
+)
 
 def _sandbox_read(filename):
-    path = os.path.join(_SANDBOX_DATA_DIR, filename)
-    if not os.path.exists(path):
-        return None
+    """Fetch sandbox data files directly from GitHub — always current, no redeploy needed."""
     try:
-        with open(path) as f:
-            return json.load(f)
+        import urllib.request
+        with urllib.request.urlopen(_SANDBOX_GITHUB_RAW + filename, timeout=10) as resp:
+            return json.loads(resp.read().decode())
     except Exception:
         return None
 
