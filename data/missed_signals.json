@@ -1,1 +1,12 @@
-[]
+[
+  {
+    "date": "2026-07-08",
+    "symbol": "JUBLFOOD",
+    "actual_fall_pct": 5.22,
+    "day_high": 451.85,
+    "day_close": 428.25,
+    "blocking_gate": "prev_day_rally",
+    "actual_value": 3.81,
+    "threshold": 6.0
+  }
+]
