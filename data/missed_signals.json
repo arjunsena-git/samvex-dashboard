@@ -8,5 +8,15 @@
     "blocking_gate": "prev_day_rally",
     "actual_value": 3.81,
     "threshold": 6.0
+  },
+  {
+    "date": "2026-07-09",
+    "symbol": "DRREDDY",
+    "actual_fall_pct": 5.75,
+    "day_high": 1348.7,
+    "day_close": 1271.2,
+    "blocking_gate": "prev_day_rally",
+    "actual_value": -0.41,
+    "threshold": 6.0
   }
 ]
