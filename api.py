@@ -2199,7 +2199,7 @@ def _screen_pdh_trend(_debug: dict = None) -> list:
 # effectively a fresh intraday BOS with a well-defined risk level (the
 # opposite side of the range).
 ORB_MAX_RANGE_PCT         = 0.4    # opening 5-min candle range must be <= 0.4% of price (narrow)
-ORB_VOL_RATIO             = 1.7    # breakout candle volume vs avg volume of the consolidation bars
+ORB_VOL_RATIO             = 1.8    # breakout candle volume vs avg volume of the consolidation bars
 ORB_FRESHNESS_BARS        = 6      # breakout candle must be within the last 6 5-min bars (30 min)
 ORB_NO_REVERSAL_PCT       = 1.5    # current price must stay within 1.5% of the day extreme (one-side rally, no round-trip)
 ORB_PRIOR_DAYS            = 3      # also require the stock to have been rangebound over the last N trading days
