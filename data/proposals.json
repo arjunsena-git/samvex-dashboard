@@ -1,1 +1,9 @@
-{"proposals": [], "generated_at": null, "status": "pending"}
+{
+  "generated_at": "2026-07-12",
+  "days_analysed": 30,
+  "summary": "Optimizer ran but Claude API was unavailable.",
+  "proposals": [],
+  "applied_count": 0,
+  "skipped_count": 0,
+  "status": "no_changes"
+}
