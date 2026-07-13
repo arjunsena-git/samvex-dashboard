@@ -1,1 +1,133 @@
-{"generated_at": null}
+{
+  "generated_at": "2026-07-13",
+  "week_start": "2026-07-06",
+  "week_end": "2026-07-13",
+  "total_signals": 89,
+  "wins": 9,
+  "losses": 41,
+  "expired": 39,
+  "win_rate": 10.1,
+  "best_signal": {
+    "symbol": "BERGEPAINT",
+    "panel": "Momentum Breakdown \u2014 Range Open + Clean PDL Break (Bearish)",
+    "setup_num": 7,
+    "direction": "bearish",
+    "is_active": false,
+    "detected_at": "11:55",
+    "score": 73,
+    "vol_ratio": 7.05,
+    "entry": 517.55,
+    "sl": 518.55,
+    "t1": 516.05,
+    "t2": 514.55,
+    "outcome": "T2_hit",
+    "entry_price": 517.15,
+    "exit_price": 514.55,
+    "r_achieved": 3.0,
+    "bars_to_outcome": 26,
+    "max_fav_pct": 0.53,
+    "date": "2026-07-06"
+  },
+  "worst_signal": {
+    "symbol": "CRAFTSMAN",
+    "panel": "Momentum Breakdown \u2014 Range Open + Clean PDL Break (Bearish)",
+    "setup_num": 7,
+    "direction": "bearish",
+    "is_active": false,
+    "detected_at": "15:10",
+    "score": 47,
+    "vol_ratio": 2.62,
+    "entry": 9053.5,
+    "sl": 9113.76,
+    "t1": 8963.11,
+    "t2": 8872.72,
+    "outcome": "SL_hit",
+    "entry_price": 9119.5,
+    "exit_price": 9113.76,
+    "r_achieved": -1.0,
+    "bars_to_outcome": 1,
+    "max_fav_pct": 0.12,
+    "date": "2026-07-06"
+  },
+  "panels": {
+    "Momentum Breakdown \u2014 Range Open + Clean PDL Break (Bearish)": {
+      "wins": 4,
+      "losses": 8,
+      "expired": 5,
+      "win_rate": 23.5
+    },
+    "Momentum Breakout \u2014 Range Open + Clean PDH Break (Bullish)": {
+      "wins": 2,
+      "losses": 7,
+      "expired": 5,
+      "win_rate": 14.3
+    },
+    "Bull Trap Reversal \u2014 Failed PDH Breakout (Bearish)": {
+      "wins": 1,
+      "losses": 6,
+      "expired": 7,
+      "win_rate": 7.1
+    },
+    "PDH Breakout \u2014 Trend + Momentum (Close > PDH \u00b7 Price > 200 EMA(15m) \u00b7 RSI(14) \u2265 60 \u00b7 Vol \u2265 10L)": {
+      "wins": 0,
+      "losses": 17,
+      "expired": 4,
+      "win_rate": 0.0
+    },
+    "Bear Trap Reversal \u2014 Failed PDL Breakdown (Bullish)": {
+      "wins": 2,
+      "losses": 1,
+      "expired": 10,
+      "win_rate": 15.4
+    },
+    "Supply Zone \u2014 Institutional Order Block Retest (Bearish)": {
+      "wins": 0,
+      "losses": 0,
+      "expired": 1,
+      "win_rate": 0.0
+    },
+    "ORB \u2014 Opening Range Breakout (Bullish \u00b7 Narrow OR \u00b7 Multi-day Consolidation \u00b7 Breakout on Volume)": {
+      "wins": 0,
+      "losses": 1,
+      "expired": 7,
+      "win_rate": 0.0
+    },
+    "ORB \u2014 Opening Range Breakout (Bearish \u00b7 Narrow OR \u00b7 Multi-day Consolidation \u00b7 Breakdown on Volume)": {
+      "wins": 0,
+      "losses": 1,
+      "expired": 0,
+      "win_rate": 0.0
+    }
+  },
+  "missed_count": 2,
+  "top_gate": "prev_day_rally",
+  "gate_counts": {
+    "prev_day_rally": 2
+  },
+  "top_missed": [
+    {
+      "date": "2026-07-09",
+      "symbol": "DRREDDY",
+      "actual_fall_pct": 5.75,
+      "day_high": 1348.7,
+      "day_close": 1271.2,
+      "blocking_gate": "prev_day_rally",
+      "actual_value": -0.41,
+      "threshold": 6.0
+    },
+    {
+      "date": "2026-07-08",
+      "symbol": "JUBLFOOD",
+      "actual_fall_pct": 5.22,
+      "day_high": 451.85,
+      "day_close": 428.25,
+      "blocking_gate": "prev_day_rally",
+      "actual_value": 3.81,
+      "threshold": 6.0
+    }
+  ],
+  "auto_tunes_this_week": [],
+  "proposals_applied_this_week": [],
+  "pending_proposals": 0,
+  "narrative": "Win rate this week was 10.1% (9W / 41L / 39E across 89 signals) \u2014 below target. Agent 4 made no automatic adjustments \u2014 all panels within healthy bounds. Agent 2 found 2 missed setups \u2014 prev_day_rally was the top blocker (2 stocks, 100% of misses)."
+}
