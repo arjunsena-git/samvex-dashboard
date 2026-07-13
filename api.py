@@ -226,7 +226,7 @@ def _persist_signals(date_str: str) -> None:
         blob = {"date": date_str, "panels": payload}
         with open(_signals_path(date_str), "w") as fh:
             json.dump(blob, fh)
-        _upstash(["SETEX", f"samvex_signal_store_{date_str}", "259200", json.dumps(blob)])
+        _upstash(["SETEX", f"{_REDIS_KEY_PREFIX}samvex_signal_store_{date_str}", "259200", json.dumps(blob)])
     except Exception as exc:
         print(f"[Signals] persist error: {exc}")
 
@@ -237,7 +237,7 @@ def _load_persisted_signals() -> None:
     today_str = datetime.now(ist).strftime("%Y-%m-%d")
     data = None
     try:
-        raw = _upstash(["GET", f"samvex_signal_store_{today_str}"])
+        raw = _upstash(["GET", f"{_REDIS_KEY_PREFIX}samvex_signal_store_{today_str}"])
         if raw:
             data = json.loads(raw)
     except Exception as exc:
@@ -280,7 +280,7 @@ def _persist_history(date_str: str) -> None:
         blob = {"date": date_str, "panels": payload}
         with open(_history_path(date_str), "w") as fh:
             json.dump(blob, fh)
-        _upstash(["SETEX", f"samvex_smc_history_{date_str}", "259200", json.dumps(blob)])
+        _upstash(["SETEX", f"{_REDIS_KEY_PREFIX}samvex_smc_history_{date_str}", "259200", json.dumps(blob)])
     except Exception as exc:
         print(f"[History] persist error: {exc}")
 
@@ -291,7 +291,7 @@ def _load_persisted_history() -> None:
     today_str = datetime.now(ist).strftime("%Y-%m-%d")
     data = None
     try:
-        raw = _upstash(["GET", f"samvex_smc_history_{today_str}"])
+        raw = _upstash(["GET", f"{_REDIS_KEY_PREFIX}samvex_smc_history_{today_str}"])
         if raw:
             data = json.loads(raw)
     except Exception as exc:
@@ -400,7 +400,15 @@ TOKEN_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "token.jso
 # ── Upstash Redis — persistent token store across deploys/restarts ──
 UPSTASH_URL   = os.environ.get("UPSTASH_REDIS_REST_URL", "").rstrip("/")
 UPSTASH_TOKEN = os.environ.get("UPSTASH_REDIS_REST_TOKEN", "")
-_REDIS_KEY    = "samvex_upstox_token"
+# Sandbox and production point at the same Upstash instance, so every
+# samvex_* key needs a deployment-specific prefix or the two silently
+# overwrite each other's token/journal/history/signal-store entries.
+# Empty on production (unset DEPLOY_ENV); set DEPLOY_ENV=sandbox on the
+# sandbox Render service to namespace it.
+_REDIS_KEY_PREFIX = os.environ.get("DEPLOY_ENV", "").strip()
+if _REDIS_KEY_PREFIX:
+    _REDIS_KEY_PREFIX += "_"
+_REDIS_KEY    = _REDIS_KEY_PREFIX + "samvex_upstox_token"
 
 
 def _upstash(cmd: list):
@@ -424,7 +432,7 @@ def _upstash(cmd: list):
 # Stored as one JSON blob in Upstash Redis (survives Render free-tier
 # cold-starts, unlike /tmp) with a local-disk copy as a fallback/backup
 # for when Redis isn't configured.
-_JOURNAL_REDIS_KEY = "samvex_trade_journal"
+_JOURNAL_REDIS_KEY = _REDIS_KEY_PREFIX + "samvex_trade_journal"
 _JOURNAL_FILE       = os.path.join(_SIGNALS_DIR, "trade_journal.json")
 _JOURNAL_DIRECTIONS = {"Long", "Short"}
 _JOURNAL_OUTCOMES   = {"Open", "Win", "Loss", "Breakeven"}
@@ -461,7 +469,7 @@ def _save_journal(entries: list) -> None:
 # Render cold-starts. The GitHub Actions daily_analysis.py script pushes
 # one report per trading day here (in addition to Notion); the dashboard
 # renders the last 30 days as a filterable/sortable table client-side.
-_DAILY_REPORTS_REDIS_KEY      = "samvex_daily_reports"
+_DAILY_REPORTS_REDIS_KEY      = _REDIS_KEY_PREFIX + "samvex_daily_reports"
 _DAILY_REPORTS_FILE           = os.path.join(_SIGNALS_DIR, "daily_reports.json")
 DAILY_REPORTS_RETENTION_DAYS  = 30
 REPORT_PUSH_SECRET            = os.environ.get("REPORT_PUSH_SECRET", "")
