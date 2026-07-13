@@ -707,6 +707,16 @@ def _send_alert(subject: str, message: str) -> None:
             print(f"[Alert] Telegram send failed: {e}")
 
 
+# Background thread has no Flask request context, so _upstox_redirect_uri()'s
+# Host-header trick doesn't apply here — reuse _REDIS_KEY_PREFIX (already set
+# correctly per deployment via DEPLOY_ENV) instead of hardcoding prod's URL.
+_ALERT_DEPLOY_LABEL = "Samvex Sandbox" if _REDIS_KEY_PREFIX else "Samvex Dashboard"
+_ALERT_LOGIN_URL    = (
+    "https://samvex-api-sandbox.onrender.com/auth/login" if _REDIS_KEY_PREFIX
+    else "https://samvex-api.onrender.com/auth/login"
+)
+
+
 def _check_token_expiry_and_alert() -> None:
     """Runs periodically in the background. Fires a reminder ~2.5h before
     expiry and an urgent alert once it actually lapses — each only once per
@@ -721,9 +731,8 @@ def _check_token_expiry_and_alert() -> None:
     if mins_left <= 0:
         if _alert_state["expired_sent_for"] != expires_at:
             _send_alert(
-                "Samvex Dashboard — Upstox session expired",
-                "Live data has dropped to delayed Yahoo Finance. Re-authenticate: "
-                "https://samvex-api.onrender.com/auth/login",
+                f"{_ALERT_DEPLOY_LABEL} — Upstox session expired",
+                f"Live data has dropped to delayed Yahoo Finance. Re-authenticate: {_ALERT_LOGIN_URL}",
             )
             _alert_state["expired_sent_for"] = expires_at
         return
@@ -732,9 +741,9 @@ def _check_token_expiry_and_alert() -> None:
         if _alert_state["reminder_sent_for"] != expires_at:
             h, m = int(mins_left // 60), int(mins_left % 60)
             _send_alert(
-                "Samvex Dashboard — Upstox session expiring soon",
+                f"{_ALERT_DEPLOY_LABEL} — Upstox session expiring soon",
                 f"Live data expires in {h}h {m}m. Re-authenticate before then to avoid "
-                f"dropping to delayed data mid-trade: https://samvex-api.onrender.com/auth/login",
+                f"dropping to delayed data mid-trade: {_ALERT_LOGIN_URL}",
             )
             _alert_state["reminder_sent_for"] = expires_at
 
