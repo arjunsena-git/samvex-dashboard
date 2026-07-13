@@ -386,8 +386,22 @@ def _merge_with_history(active: list, setup: int, direction: str) -> list:
 # ── Upstox OAuth + live data ───────────────────────────────────────
 UPSTOX_API_KEY    = os.environ.get("UPSTOX_API_KEY", "")
 UPSTOX_API_SECRET = os.environ.get("UPSTOX_API_SECRET", "")
-UPSTOX_REDIRECT   = "https://samvex-api.onrender.com/oauth/callback"
 UPSTOX_BASE       = "https://api.upstox.com/v2"
+
+
+def _upstox_redirect_uri():
+    """Derived from the incoming request's host, not hardcoded — so each
+    deployment (production, sandbox) round-trips through its OWN callback
+    instead of every environment silently completing OAuth on production's
+    server. Built from the Host header rather than request.url_root's
+    scheme guess, since Render terminates TLS at the edge and forwards
+    plain HTTP internally without ProxyFix — url_root would resolve to
+    http:// even though the public URL (and Upstox's registered redirect
+    URI) is https://. Each deployment's host must be added to the allowed
+    redirect URIs in the Upstox Developer Console for this to work."""
+    return f"https://{flask_req.host}/oauth/callback"
+
+
 FRONTEND_URL      = os.environ.get("FRONTEND_URL", "")
 
 _upstox_token   = {"access_token": None, "expires_at": 0.0}
@@ -3063,7 +3077,7 @@ def auth_login():
         f"https://api.upstox.com/v2/login/authorization/dialog"
         f"?response_type=code"
         f"&client_id={UPSTOX_API_KEY}"
-        f"&redirect_uri={UPSTOX_REDIRECT}"
+        f"&redirect_uri={_upstox_redirect_uri()}"
     )
     return redirect(url)
 
@@ -3080,7 +3094,7 @@ def oauth_callback():
             "code":          code,
             "client_id":     UPSTOX_API_KEY,
             "client_secret": UPSTOX_API_SECRET,
-            "redirect_uri":  UPSTOX_REDIRECT,
+            "redirect_uri":  _upstox_redirect_uri(),
             "grant_type":    "authorization_code",
         },
         headers={
