@@ -196,7 +196,7 @@ def main():
     if not tunes:
         lines.append("  None — all panels within healthy range")
 
-    lines += ["", f"CLAUDE PROPOSALS PENDING: {len(props)}", "", f"{'='*65}", ""]
+    lines += ["", f"CLAUDE PROPOSALS PENDING: {len(pending_props)}", "", f"{'='*65}", ""]
     print("\n".join(lines))
 
 

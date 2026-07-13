@@ -29,5 +29,18 @@ jobs:
       - name: Install dependencies
         run: pip install --upgrade pip pytz requests
 
+      - name: Configure git
+        run: |
+          git config user.name  "Samvex AI"
+          git config user.email "ai@samvex.in"
+          git remote set-url origin https://x-access-token:${{ secrets.SAMVEX_GH_PAT }}@github.com/arjunsena-git/samvex-dashboard.git
+
       - name: Run weekly report
         run: python scripts/agent5_weekly_report.py
+
+      - name: Commit weekly_report.json
+        run: |
+          git add data/weekly_report.json
+          git diff --cached --quiet || git commit -m "agent5: weekly report $(date +%Y-%m-%d) [auto]"
+          git pull --rebase origin sandbox
+          git push origin sandbox

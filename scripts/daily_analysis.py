@@ -524,11 +524,11 @@ def apply_code_improvement(report):
     )
     return msg, narrative, tune_records
 
-def git_commit_push(commit_msg):
+def git_commit_push(commit_msg, files=("api.py",)):
     try:
         subprocess.run(["git", "config", "user.email", "ai@samvex.in"], check=True)
         subprocess.run(["git", "config", "user.name", "Samvex AI"], check=True)
-        subprocess.run(["git", "add", "api.py"], check=True)
+        subprocess.run(["git", "add", *files], check=True)
         result = subprocess.run(["git", "commit", "-m", commit_msg],
                                 capture_output=True, text=True)
         if result.returncode != 0:
@@ -638,8 +638,13 @@ def main():
         cutoff = (NOW - pd.Timedelta(days=90)).strftime("%Y-%m-%d")
         existing_tunes = [r for r in existing_tunes if r.get("date", "") >= cutoff]
         tunes_file.write_text(json.dumps(existing_tunes, indent=2))
-        subprocess.run(["git", "add", "data/auto_tunes.json"], check=False)
-        print(f"[AutoTunes] {len(tune_records)} new record(s) → {tunes_file} ({len(existing_tunes)} total)")
+        # Separate commit+push — the api.py commit above already ran, so this
+        # file has to be pushed on its own or it never leaves the runner.
+        tunes_commit_msg = f"agent4: record {len(tune_records)} tune(s) → auto_tunes.json [auto-{TODAY_STR}]"
+        if git_commit_push(tunes_commit_msg, files=("data/auto_tunes.json",)):
+            print(f"[AutoTunes] {len(tune_records)} new record(s) → {tunes_file} ({len(existing_tunes)} total)")
+        else:
+            print(f"[AutoTunes] Push failed — {tunes_file} updated locally only")
 
     # Post to Notion (existing audit log) and the dashboard's own
     # filterable/sortable history view (new — neither replaces the other)
