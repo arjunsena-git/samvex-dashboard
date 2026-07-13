@@ -349,79 +349,6 @@
 
     .pill-blue   { background: #1a2a4a; color: var(--accent); }
 
-    /* ── Global Intelligence section ────────────────────────────── */
-    .geo-panel {
-      background: var(--bg-card);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      overflow: hidden;
-      margin-bottom: 28px;
-    }
-    .geo-header {
-      display: flex; align-items: center; gap: 12px;
-      padding: 14px 20px;
-      cursor: pointer;
-      user-select: none;
-      transition: background .15s;
-    }
-    .geo-header:hover { background: var(--bg-card-2); }
-    .geo-title {
-      font-size: 13px; font-weight: 700; flex: 1;
-      display: flex; align-items: center; gap: 8px;
-    }
-    .geo-globe { font-size: 16px; }
-    .geo-layers {
-      display: flex; gap: 5px; flex-wrap: wrap;
-      align-items: center;
-    }
-    .geo-chip {
-      font-size: 9px; font-weight: 700; letter-spacing: .4px;
-      padding: 2px 7px; border-radius: 20px;
-      text-transform: uppercase; border: 1px solid;
-    }
-    .geo-chip-red    { color:#ef4444;border-color:#ef444455;background:#3d151522; }
-    .geo-chip-orange { color:#fb923c;border-color:#fb923c55;background:#2d1a0022; }
-    .geo-chip-blue   { color:#4f8ef7;border-color:#4f8ef755;background:#1a2a4a22; }
-    .geo-chip-purple { color:#a78bfa;border-color:#a78bfa55;background:#2d1a5022; }
-    .geo-chip-yellow { color:#f59e0b;border-color:#f59e0b55;background:#2a1e0022; }
-    .geo-chip-teal   { color:#22d3ee;border-color:#22d3ee55;background:#0a2a3022; }
-    .geo-chip-green  { color:#22c55e;border-color:#22c55e55;background:#16422b22; }
-    .geo-expand-btn {
-      font-size: 11px; font-weight: 700; color: var(--accent);
-      background: none; border: 1px solid var(--border);
-      border-radius: 6px; padding: 4px 10px; cursor: pointer;
-      transition: background .15s;
-      white-space: nowrap;
-    }
-    .geo-expand-btn:hover { background: var(--bg-card-2); }
-    .geo-open-btn {
-      font-size: 11px; font-weight: 700; color: var(--text-muted);
-      background: none; border: 1px solid var(--border);
-      border-radius: 6px; padding: 4px 10px; cursor: pointer;
-      text-decoration: none; display: inline-block;
-      transition: background .15s;
-      white-space: nowrap;
-    }
-    .geo-open-btn:hover { background: var(--bg-card-2); color: var(--text); }
-    .geo-body {
-      border-top: 1px solid var(--border);
-      overflow: hidden;
-      transition: max-height .4s ease;
-    }
-    .geo-body.collapsed { max-height: 0; border-top: none; }
-    .geo-body.expanded  { max-height: 620px; }
-    .geo-iframe {
-      width: 100%; height: 580px;
-      border: none; display: block;
-      background: #0d0f18;
-    }
-    .geo-note {
-      padding: 10px 20px;
-      font-size: 11px; color: var(--text-muted);
-      background: var(--bg-card-2);
-      border-top: 1px solid var(--border);
-    }
-
     /* ── OI section divider ──────────────────────────────────────── */
     .section-divider {
       display: flex; align-items: center; gap: 14px;
@@ -593,9 +520,6 @@
 
       .ai-brief-card { padding: 12px 14px; }
       .ai-brief-text { font-size: 13px; }
-
-      .geo-layers { display: none; }
-      .geo-title span:last-child { display: none; }
 
       footer { font-size: 10px; padding: 14px 12px; }
     }
@@ -1705,72 +1629,6 @@
 
   </div>
 
-  <!-- ── Global Indices: overnight / pre-market cues ───────────── -->
-  <div class="section-divider" id="global-idx-divider">
-    <div class="section-divider-line"></div>
-    <div class="section-divider-title">Global Indices — Overnight / Pre-Market Cues (Delayed)</div>
-    <div class="section-divider-line"></div>
-  </div>
-  <div class="panel" id="global-idx-panel" style="margin-bottom:24px;">
-    <div class="table-wrap">
-    <table>
-      <thead><tr><th>Index</th><th>Value</th><th>Change %</th></tr></thead>
-      <tbody id="global-idx-body">
-        <tr><td colspan="3"><div class="empty-state"><div class="spinner"></div>Loading…</div></td></tr>
-      </tbody>
-    </table>
-    </div>
-  </div>
-
-  <!-- ── Global Market Intelligence ──────────────────────────── -->
-  <div class="section-divider" id="geo-divider">
-    <div class="section-divider-line"></div>
-    <div class="section-divider-title">Global Market Intelligence</div>
-    <div class="section-divider-line"></div>
-  </div>
-
-  <div class="geo-panel" id="geo-panel">
-    <div class="geo-header" onclick="toggleGeo()">
-      <div class="geo-title">
-        <span class="geo-globe">🌐</span>
-        World Monitor
-        <span style="font-size:10px;font-weight:400;color:var(--text-muted);">— Geopolitical &amp; macro signals · 7-day live feed</span>
-      </div>
-      <div class="geo-layers">
-        <span class="geo-chip geo-chip-red">Conflicts</span>
-        <span class="geo-chip geo-chip-red">Hotspots</span>
-        <span class="geo-chip geo-chip-orange">Sanctions</span>
-        <span class="geo-chip geo-chip-purple">Military</span>
-        <span class="geo-chip geo-chip-yellow">Nuclear</span>
-        <span class="geo-chip geo-chip-blue">Economic</span>
-        <span class="geo-chip geo-chip-teal">Weather</span>
-        <span class="geo-chip geo-chip-green">Natural</span>
-        <span class="geo-chip geo-chip-orange">Outages</span>
-      </div>
-      <a class="geo-open-btn"
-         href="https://www.worldmonitor.app/?lat=20.0000&lon=0.0000&zoom=1.56&view=global&timeRange=7d&layers=conflicts%2Cbases%2Chotspots%2Cnuclear%2Csanctions%2Cweather%2Ceconomic%2Cwaterways%2Coutages%2Cmilitary%2Cnatural%2CiranAttacks"
-         target="_blank" rel="noopener noreferrer"
-         onclick="event.stopPropagation()">↗ Full Screen</a>
-      <button class="geo-expand-btn" id="geo-toggle-btn">▼ Expand</button>
-    </div>
-    <div class="geo-body collapsed" id="geo-body">
-      <iframe
-        id="geo-iframe"
-        class="geo-iframe"
-        src="about:blank"
-        data-src="https://www.worldmonitor.app/?lat=20.0000&lon=0.0000&zoom=1.56&view=global&timeRange=7d&layers=conflicts%2Cbases%2Chotspots%2Cnuclear%2Csanctions%2Cweather%2Ceconomic%2Cwaterways%2Coutages%2Cmilitary%2Cnatural%2CiranAttacks"
-        allow="fullscreen"
-        loading="lazy"
-        title="World Monitor — Global Geopolitical Intelligence">
-      </iframe>
-      <div class="geo-note">
-        Tracks: conflicts · military bases · nuclear sites · sanctions · economic events · weather · natural disasters · waterways · outages · Iran activity &nbsp;·&nbsp;
-        Use this to gauge macro tail risks before taking or holding positions &nbsp;·&nbsp;
-        <a href="https://www.worldmonitor.app" target="_blank" rel="noopener noreferrer" style="color:var(--accent);">worldmonitor.app</a>
-      </div>
-    </div>
-  </div>
-
 </main>
 
 <footer>
@@ -2437,7 +2295,7 @@
   // Sections below the signal panels that aren't part of Live Panels /
   // Full Table View toggling, but should still get out of the way when
   // the journal is open — it should be the only thing on screen.
-  const _JOURNAL_HIDE_ELS = ['oi-divider', 'oi-table-grid', 'geo-divider', 'geo-panel'];
+  const _JOURNAL_HIDE_ELS = ['oi-divider', 'oi-table-grid'];
 
   function toggleJournalView() {
     if (_analysisActive) _closeAnalysisView();
@@ -2649,7 +2507,7 @@
   // otherwise a Set of allowed values for that column.
   let _analysisColFilters = { outcome: null, panel: null, direction: null };
 
-  const _ANALYSIS_HIDE_ELS = ['oi-divider', 'oi-table-grid', 'geo-divider', 'geo-panel'];
+  const _ANALYSIS_HIDE_ELS = ['oi-divider', 'oi-table-grid'];
 
   function toggleAnalysisView() {
     _analysisActive = !_analysisActive;
@@ -3424,33 +3282,6 @@
     return _loadSetup("trap/bearish", "trap-bear-body", "bearish", "pdh", null,
                       "Bull Trap Reversal — Failed PDH Breakout (Bearish)");
   }
-  // ── Global Indices (overnight / pre-market cues) ──────────────
-  async function loadGlobalIndices() {
-    const tbody = document.getElementById('global-idx-body');
-    try {
-      const res  = await fetch(`${API}/api/global-indices`);
-      const data = await res.json();
-      const order = ["Dow Futures", "Nikkei 225", "Hang Seng", "Shanghai Composite"];
-      const rows = order.filter(name => data[name]).map(name => {
-        const d  = data[name];
-        const up = d.change_pct >= 0;
-        return `<tr>
-          <td style="font-weight:700;">${name}</td>
-          <td class="price">${d.price.toLocaleString("en-IN")}</td>
-          <td><span class="pill pill-${up ? "green" : "red"}">${up ? "+" : ""}${d.change_pct}%</span></td>
-        </tr>`;
-      });
-      tbody.innerHTML = rows.length
-        ? rows.join("")
-        : `<tr><td colspan="3"><div class="empty-state">Global indices unavailable</div></td></tr>`;
-    } catch (e) {
-      tbody.innerHTML = `<tr><td colspan="3"><div class="empty-state">
-        Server unreachable —
-        <a href="javascript:void(0)" onclick="loadGlobalIndices()" style="color:var(--accent);text-decoration:underline;">Retry</a>
-      </div></td></tr>`;
-    }
-  }
-
   // ── AI Market Brief ───────────────────────────────────────────
   async function loadMarketBrief() {
     const card   = document.getElementById("ai-brief-card");
@@ -3541,24 +3372,6 @@
           `<span style="color:var(--${c})">${sign(bank.change_pct)}${bank.change_pct}%</span>`;
       }
     } catch (_) {}
-  }
-
-  // ── Global Intelligence panel ─────────────────────────────────
-  let _geoExpanded = false;
-  function toggleGeo() {
-    _geoExpanded = !_geoExpanded;
-    const body = document.getElementById("geo-body");
-    const btn  = document.getElementById("geo-toggle-btn");
-    body.classList.toggle("collapsed", !_geoExpanded);
-    body.classList.toggle("expanded",   _geoExpanded);
-    btn.textContent = _geoExpanded ? "▲ Collapse" : "▼ Expand";
-    // Lazy-load iframe src only on first expand
-    if (_geoExpanded) {
-      const fr = document.getElementById("geo-iframe");
-      if (fr.src === "about:blank" || !fr.src || fr.src === window.location.href) {
-        fr.src = fr.dataset.src;
-      }
-    }
   }
 
   // ── Toast notification ────────────────────────────────────────
@@ -3766,7 +3579,7 @@
   async function refreshAll() {
     await Promise.all([loadMarket(), loadStatus()]);
     await Promise.all([loadExhaustionShort(), loadPdhBreakout(), loadOrbBullish(), loadOrbBearish(), loadDemandZone(), loadSupplyZone(), loadMomentumBreakoutBullish(), loadMomentumBreakoutBearish(), loadBearTrap(), loadBullTrap()]);
-    await Promise.all([loadTicker(), loadOiOptionsBullish(), loadOiOptionsBearish(), loadMarketBrief(), loadGlobalIndices()]);
+    await Promise.all([loadTicker(), loadOiOptionsBullish(), loadOiOptionsBearish(), loadMarketBrief()]);
     stampUpdated();
   }
 
