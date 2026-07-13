@@ -22,7 +22,7 @@ IST              = pytz.timezone("Asia/Kolkata")
 NOW              = datetime.now(IST)
 TODAY_STR        = NOW.strftime("%Y-%m-%d")
 TODAY_DISPLAY    = NOW.strftime("%d-%b-%y")
-API_BASE         = "https://samvex-api.onrender.com"
+API_BASE         = "https://samvex-api-sandbox.onrender.com"
 NOTION_KEY       = os.environ.get("NOTION_API_KEY", "")
 NOTION_DB_ID     = "1696c985-fc7e-4409-967a-5ceb650bfc5f"
 NOTION_IMPR_PAGE = "381c1120a5e5812d9f36c10005d13644"
@@ -370,27 +370,54 @@ PANEL_TUNERS = {
         "fresh_const": "TRAP_FRESHNESS_BARS",  "fresh_bounds": (3, 12),    "fresh_step": 1},
 }
 
-WIN_RATE_LOW_THRESHOLD  = 25
-WIN_RATE_HIGH_THRESHOLD = 65
-MIN_VALID_FOR_TUNING    = 3
+# 2026-07-13: production hit a ~4-week one-way ratchet (never once loosened
+# — WIN_RATE_HIGH_THRESHOLD is nearly unreachable off tiny single-day samples
+# when true win rate runs ~10-15%) that tightened volume thresholds nearly
+# every day and collapsed daily signal volume from ~60-70 to 0-7 with NO
+# win-rate improvement to show for it. Sandbox stays live (that's its job —
+# production is the one paused) but runs the same fixed decision logic below
+# so it can't repeat the same collapse while iterating.
+AUTO_TUNE_ENABLED = True
 
-def panel_stats(detail):
-    groups = {}
-    for d in detail:
-        groups.setdefault(d.get("setup_num"), []).append(d)
+WIN_RATE_LOW_THRESHOLD     = 25
+WIN_RATE_HIGH_THRESHOLD    = 65
+TREND_WINDOW_DAYS          = 10   # trailing window a tuning decision is based on, not a single noisy day
+MIN_VALID_FOR_TUNING       = 15   # min valid trades across that window before touching a panel's filter
+TARGET_MIN_SIGNALS_PER_DAY = 5    # per-panel volume floor — the actual goal, not just win rate
+
+def fetch_history_signals():
+    """Pulls this deployment's own rolling signal-outcome history (up to 30
+    days) — used for trailing per-panel stats instead of a single day's
+    handful of trades, which is too noisy to tune off reliably."""
+    try:
+        r = requests.get(API_BASE + "/api/signals/history", timeout=30)
+        r.raise_for_status()
+        return r.json().get("signals", [])
+    except Exception as e:
+        print(f"[Fetch] /api/signals/history failed: {e}")
+        return []
+
+def trailing_panel_stats(setup_nums):
+    hist   = fetch_history_signals()
+    cutoff = (NOW - pd.Timedelta(days=TREND_WINDOW_DAYS)).strftime("%Y-%m-%d")
+    recent = [s for s in hist if s.get("date", "") >= cutoff]
+    n_days = max(len({s["date"] for s in recent}), 1)
+
     stats = {}
-    for setup_num, items in groups.items():
-        valid   = [d for d in items if d["outcome"] not in ("invalid", "no_data")]
-        wins    = [d for d in valid if d["outcome"] in ("T1_hit", "T2_hit")]
-        losses  = [d for d in valid if d["outcome"] == "SL_hit"]
-        expired = [d for d in valid if d["outcome"] == "expired"]
+    for setup_num in setup_nums:
+        items   = [s for s in recent if s.get("setup_num") == setup_num]
+        valid   = [s for s in items if s.get("outcome") not in ("invalid", "no_data")]
+        wins    = [s for s in valid if s.get("outcome") in ("T1_hit", "T2_hit")]
+        losses  = [s for s in valid if s.get("outcome") == "SL_hit"]
+        expired = [s for s in valid if s.get("outcome") == "expired"]
         stats[setup_num] = {
-            "valid":        len(valid),
-            "wins":         len(wins),
-            "losses":       len(losses),
-            "expired":      len(expired),
-            "win_rate":     round(len(wins) / len(valid) * 100, 1) if valid else 0,
-            "expired_rate": round(len(expired) / len(valid) * 100, 1) if valid else 0,
+            "valid":           len(valid),
+            "wins":            len(wins),
+            "losses":          len(losses),
+            "expired":         len(expired),
+            "win_rate":        round(len(wins) / len(valid) * 100, 1) if valid else 0,
+            "avg_signals_day": round(len(items) / n_days, 1),
+            "days_seen":       n_days,
         }
     return stats
 
@@ -411,27 +438,45 @@ def apply_code_improvement(report):
     if not api_path.exists():
         print("[AutoImpr] api.py not found in working directory")
         return None, "api.py not found", []
+    if not AUTO_TUNE_ENABLED:
+        return None, "Auto-tune is paused (AUTO_TUNE_ENABLED = False in daily_analysis.py)", []
     if tot == 0:
         return None, "No signals today — no code change basis", []
 
     content = api_path.read_text()
-    stats   = panel_stats(report["detail"])
+    stats   = trailing_panel_stats(PANEL_TUNERS.keys())
     changes = []       # narrative lines
     msgs    = []       # commit summary fragments
     tune_records = []  # structured records for data/auto_tunes.json
 
     for setup_num, tuner in PANEL_TUNERS.items():
         st = stats.get(setup_num)
-        if not st or st["valid"] < MIN_VALID_FOR_TUNING:
+        if not st:
             continue
-        w = st["win_rate"]
 
-        if w < WIN_RATE_LOW_THRESHOLD:
-            direction, verb = 1, "Tightened"
-        elif w >= WIN_RATE_HIGH_THRESHOLD:
+        # A panel averaging below the volume floor gets loosened regardless of
+        # win rate — it's not producing enough trades to trust a win-rate read
+        # on anyway, and starving it further only moves it away from the goal.
+        starved = st["avg_signals_day"] < TARGET_MIN_SIGNALS_PER_DAY
+
+        if starved:
             direction, verb = -1, "Loosened"
-        else:
+            trigger = "volume_starved"
+            reason = (f"volume-starved — averaging {st['avg_signals_day']}/day over "
+                      f"{st['days_seen']}d (target ≥{TARGET_MIN_SIGNALS_PER_DAY}/day)")
+        elif st["valid"] < MIN_VALID_FOR_TUNING:
             continue
+        else:
+            w = st["win_rate"]
+            if w < WIN_RATE_LOW_THRESHOLD:
+                direction, verb = 1, "Tightened"
+                trigger = "win_rate_below_floor"
+            elif w >= WIN_RATE_HIGH_THRESHOLD:
+                direction, verb = -1, "Loosened"
+                trigger = "win_rate_above_ceiling"
+            else:
+                continue
+            reason = f"win rate {w}% over {st['valid']} valid signals over {st['days_seen']}d ({st['wins']}W/{st['losses']}L/{st['expired']}E)"
 
         lo, hi = tuner["ratio_bounds"]
         step   = tuner["ratio_step"] * direction
@@ -443,19 +488,22 @@ def apply_code_improvement(report):
         new = round(old + step, 2)
         new = max(lo, min(hi, new))
 
-        if new == old and "fresh_const" in tuner and direction == 1:
+        if new == old and "fresh_const" in tuner:
+            # Primary knob already saturated (ceiling while tightening, floor
+            # while loosening) — escalate to the freshness knob instead of
+            # doing nothing.
             flo, fhi = tuner["fresh_bounds"]
             fm, fraw_old = _read_const(content, tuner["fresh_const"])
             if fm:
                 fold = int(float(fraw_old))
-                fnew = max(flo, fold - tuner["fresh_step"])
+                fstep = tuner["fresh_step"] * (-1 if direction == 1 else 1)
+                fnew = max(flo, min(fhi, fold + fstep))
                 if fnew != fold:
                     content = _write_const(content, fm, fnew)
                     changes.append(
-                        f"{tuner['name']}: win rate {w}% over {st['valid']} signals, but "
-                        f"{tuner['ratio_const']} was already at its ceiling ({old}). "
-                        f"Tightened {tuner['fresh_const']} {fold}→{fnew} instead — only the most "
-                        f"recently-formed setups will qualify, cutting late/stale low-conviction entries."
+                        f"{tuner['name']}: {reason}, but {tuner['ratio_const']} was already "
+                        f"at its {'ceiling' if direction == 1 else 'floor'} ({old}). "
+                        f"{verb} {tuner['fresh_const']} {fold}→{fnew} instead."
                     )
                     msgs.append(f"{tuner['fresh_const']} {fold}→{fnew}")
                     tune_records.append({
@@ -466,9 +514,9 @@ def apply_code_improvement(report):
                         "parameter": tuner["fresh_const"],
                         "old_value": str(fold),
                         "new_value": str(fnew),
-                        "direction": "tightened",
-                        "trigger": "primary_knob_saturated",
-                        "win_rate": w,
+                        "direction": verb.lower(),
+                        "trigger": f"primary_knob_saturated_{trigger}",
+                        "win_rate": st["win_rate"],
                         "signals_evaluated": st["valid"],
                         "wins": st["wins"],
                         "losses": st["losses"],
@@ -484,9 +532,7 @@ def apply_code_improvement(report):
         as_pct     = f"{int(new):,}" if tuner.get("ratio_int") else new
         as_pct_old = f"{int(old):,}" if tuner.get("ratio_int") else old
         changes.append(
-            f"{tuner['name']}: win rate {w}% over {st['valid']} valid signals "
-            f"({st['wins']}W/{st['losses']}L/{st['expired']}E). {verb} {tuner['ratio_const']} "
-            f"{as_pct_old}→{as_pct}."
+            f"{tuner['name']}: {reason}. {verb} {tuner['ratio_const']} {as_pct_old}→{as_pct}."
         )
         msgs.append(f"{tuner['ratio_const']} {as_pct_old}→{as_pct}")
         tune_records.append({
@@ -498,8 +544,8 @@ def apply_code_improvement(report):
             "old_value": str(as_pct_old),
             "new_value": str(as_pct),
             "direction": verb.lower(),
-            "trigger": "win_rate_below_floor" if direction == 1 else "win_rate_above_ceiling",
-            "win_rate": w,
+            "trigger": trigger,
+            "win_rate": st["win_rate"],
             "signals_evaluated": st["valid"],
             "wins": st["wins"],
             "losses": st["losses"],
@@ -509,17 +555,19 @@ def apply_code_improvement(report):
 
     if not changes:
         overall = report["win_rate_pct"]
-        return None, (f"No panel had ≥{MIN_VALID_FOR_TUNING} valid signals with a win rate outside "
-                       f"{WIN_RATE_LOW_THRESHOLD}-{WIN_RATE_HIGH_THRESHOLD}% (overall win_rate={overall}%)"), []
+        return None, (f"No panel was volume-starved (<{TARGET_MIN_SIGNALS_PER_DAY}/day) or had "
+                       f"≥{MIN_VALID_FOR_TUNING} trailing valid signals with a win rate outside "
+                       f"{WIN_RATE_LOW_THRESHOLD}-{WIN_RATE_HIGH_THRESHOLD}% (today's win_rate={overall}%)"), []
 
     api_path.write_text(content)
     msg = f"perf: per-panel tune — {'; '.join(msgs)} [auto-{TODAY_STR}]"
     narrative = (
         "🤖 Auto-improvement applied — per-panel tuning\n"
         + "\n".join(f"• {c}" for c in changes)
-        + "\nGoal: each panel's volume/freshness gate moves independently based on its OWN "
-          "win rate, not the aggregate across all 16 panels, so a strong panel isn't loosened "
-          "because a weak one dragged the average down (and vice versa).\n"
+        + "\nGoal: each panel's volume/freshness gate moves independently off its OWN trailing "
+          f"win rate, with a {TARGET_MIN_SIGNALS_PER_DAY}/day floor per panel — a panel never "
+          "gets tightened below that floor, and gets loosened first if it's already under it, "
+          "so tuning can't repeat the volume collapse this design was fixed for.\n"
         + "Commit: {commit_placeholder}"
     )
     return msg, narrative, tune_records

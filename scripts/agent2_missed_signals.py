@@ -22,7 +22,7 @@ import pytz, requests, yfinance as yf, pandas as pd
 IST       = pytz.timezone("Asia/Kolkata")
 NOW       = datetime.now(IST)
 TODAY_STR = NOW.strftime("%Y-%m-%d")
-API_BASE  = "https://samvex-api.onrender.com"
+API_BASE  = "https://samvex-api-sandbox.onrender.com"
 
 MISS_THRESHOLD_PCT   = 5.0   # stock must have fallen ≥5% from intraday high to count as "missed short"
 MISS_RALLY_1D_PCT    = 6.0   # same as EXH_PREV_DAY_RALLY_PCT
