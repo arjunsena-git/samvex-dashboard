@@ -18,5 +18,15 @@
     "blocking_gate": "prev_day_rally",
     "actual_value": -0.41,
     "threshold": 6.0
+  },
+  {
+    "date": "2026-07-16",
+    "symbol": "SIEMENS",
+    "actual_fall_pct": 5.09,
+    "day_high": 3853.9,
+    "day_close": 3657.6,
+    "blocking_gate": "prev_day_rally",
+    "actual_value": 1.75,
+    "threshold": 6.0
   }
 ]
