@@ -1769,8 +1769,8 @@ def _get_ticker_df(batch, ticker):
 #   • That same 5-min candle's volume > avg volume of the same time slot
 #     on the previous 2–3 trading days (unusual participation, not routine)
 #   • Nifty 50 not up more than 1% (don't fight a strongly bullish market)
-EXH_PREV_DAY_RALLY_PCT = 6.0      # min single-day (prev session) gain — OR use cumulative below
-EXH_CUMUL_RALLY_PCT    = 10.0     # min 3-day cumulative gain (catches distributed rallies)
+EXH_PREV_DAY_RALLY_PCT = 2.5      # min single-day (prev session) gain — OR use cumulative below
+EXH_CUMUL_RALLY_PCT    = 6.0     # min 3-day cumulative gain (catches distributed rallies)
 EXH_VOL_RATIO          = 1.2      # min paced-volume ratio vs prev day
 EXH_IMPULSE_MOVE_PCT      = 1.5   # min % move (close vs open) on the confirming 5-min candle
 EXH_IMPULSE_TURNOVER_PCT  = 5.0   # spike candle turnover must be ≥ this % of avg daily turnover (last 5 sessions)

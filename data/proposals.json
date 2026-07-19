@@ -1,9 +1,76 @@
 {
-  "generated_at": "2026-07-12",
+  "generated_at": "2026-07-19",
   "days_analysed": 30,
-  "summary": "Optimizer ran but Claude API was unavailable.",
-  "proposals": [],
-  "applied_count": 0,
+  "summary": "The clearest story in the data is PDH Breakout's 0% win rate across 21 signals \u2014 17 losses and 4 expired \u2014 which is catastrophic and not a sample-size issue; the panel is firing on real breakouts that immediately fail, suggesting it is catching late entries above PDH with no pullback requirement and no Nifty regime filter, so longs are initiated into extended moves. Exhaustion Short has no live signals tracked but 3 clean misses all blocked by prev_day_rally being set at 6% \u2014 DRREDDY was actually down -0.41% the prior day yet fell 5.75%, meaning the gate is conceptually wrong for stocks that exhaust on sector/news catalysts rather than prior-day momentum. Momentum Breakout Bullish (12.5% win rate, 7 losses) and Bull Trap Bearish (6.2% win rate, 6 losses) both show heavy loss counts suggesting the setups fire correctly on structure but lack a broader market regime gate or trend-direction alignment check that would filter out counter-trend signals on the wrong side of the daily trend.",
+  "proposals": [
+    {
+      "type": "parameter_tune",
+      "panel": "Exhaustion Short \u2014 Profit Booking",
+      "parameter": "EXH_PREV_DAY_RALLY_PCT",
+      "current_value": "6.0",
+      "proposed_value": "2.5",
+      "reasoning": "The missed-signals data shows all 3 misses (100% of missed signals) were blocked solely by prev_day_rally. JUBLFOOD had a prior-day rally of 3.81% and fell 5.22%; SIEMENS had 1.75% and fell 5.09%; DRREDDY had -0.41% (actually a DOWN day prior) and fell 5.75%. The current threshold of 6.0% is far too high \u2014 it is demanding a large prior-day rally as a precondition, but exhaustion selling clearly happens on stocks that have rallied cumulatively or are getting a sector/news spike on an otherwise quiet prior day. The cumul_rally_pct OR gate (EXH_CUMUL_RALLY_PCT) already handles the multi-day case, so reducing EXH_PREV_DAY_RALLY_PCT to 2.5% preserves the intent (some prior strength required) while catching the missed cases: JUBLFOOD at 3.81% and SIEMENS at 1.75% would both pass at 2.5%, and DRREDDY with -0.41% would still fail this gate but may pass via cumul_rally_pct if the 3-day cumulative move is sufficient.",
+      "expected_impact": "Recovers at least 2 of the 3 documented missed signals. May increase signal frequency modestly; the impulse-candle gates (EXH_IMPULSE_MOVE_PCT, EXH_IMPULSE_TURNOVER_PCT, same-slot volume check) still act as quality filters so noise increase should be limited.",
+      "confidence": "HIGH",
+      "status": "auto_applied",
+      "applied_at": "2026-07-19",
+      "formatted_value": "2.5"
+    },
+    {
+      "type": "parameter_tune",
+      "panel": "Exhaustion Short \u2014 Profit Booking",
+      "parameter": "EXH_CUMUL_RALLY_PCT",
+      "current_value": "12.0",
+      "proposed_value": "6.0",
+      "reasoning": "DRREDDY (-0.41% prior day, blocked by prev_day_rally gate) would still fail even after reducing EXH_PREV_DAY_RALLY_PCT to 2.5 unless the cumulative 3-day gate is also reachable. DRREDDY fell 5.75% on a day when prior-day was flat/down, which is consistent with a multi-day cumulative rally topping out \u2014 the 3-day cumul gate is the correct one to catch this, but at 12% it requires a sustained 4%/day average rally which is rare. Lowering to 6% (2%/day average over 3 days) is still a meaningful filter for 'the stock has been moving up recently' while being achievable for mid-cap stocks like DRREDDY. The two gates are OR-combined in the code (reject only if BOTH fail), so this reduction expands coverage specifically for the slow-grind-up exhaustion pattern that the prior-day gate misses.",
+      "expected_impact": "Catches the DRREDDY-type missed signal where prior day was flat but 3-day trend was up. Small increase in false positives possible, mitigated by the 5-gate impulse candle check stack.",
+      "confidence": "MEDIUM",
+      "status": "auto_applied",
+      "applied_at": "2026-07-19",
+      "formatted_value": "6.0"
+    },
+    {
+      "type": "logic_change",
+      "panel": "PDH Breakout \u2014 Trend + Momentum",
+      "title": "Add Nifty regime filter and require a pullback-then-retest entry rather than chasing price above PDH",
+      "proposed_change": "Insert two new gates immediately after the freshness check (n_bars - 1 - bos_bar > _PDH_FRESH): (1) Nifty regime gate \u2014 add a constant PDH_NIFTY_MIN_CHG = -0.3 and reject the signal if nifty_chg < PDH_NIFTY_MIN_CHG, mirroring the nifty_chg > 1.0 short-side filter used in ORB and Momentum; (2) Pullback-retest entry gate \u2014 instead of using current_price as entry at any point above PDH, require that after bos_bar the price has at least once traded back to within PDH * 1.005 (a constant PDH_RETEST_BAND_PCT = 0.5, meaning within 0.5% of PDH from above) before the current bar, confirming the level was retested as support. Concretely: scan bars from bos_bar+1 to n_bars-2 for any low <= pdh * (1 + PDH_RETEST_BAND_PCT/100); if none found, reject with _dbg_fail(_debug, 'no_retest_of_pdh', symbol). This gate sits between the freshness check and the EMA filter.",
+      "reasoning": "PDH Breakout has 0 wins across 21 signals (17 losses, 4 expired) over 30 days \u2014 this is not a small-sample issue. The current code enters at current_price which can be 2-4% above PDH by the time the screener fires, giving a poor risk/reward and catching breakouts that are already extended. There is no Nifty direction filter at all on this bullish panel, meaning it fires on days when Nifty is falling. Every other bullish panel in the codebase (ORB bullish, Momentum Breakout bullish, Trap bullish) already rejects when nifty_chg < -1.0; PDH Breakout uniquely lacks this. The combination of late entry + no market filter plausibly explains 17 consecutive losses.",
+      "expected_impact": "Signal count drops significantly (estimated 60-75% reduction) but the surviving signals should have defined risk at PDH rather than chasing; win rate should recover toward 40%+ if the retest gate is effective. The Nifty filter alone would have blocked signals on down-market days which account for a meaningful share of the 17 losses.",
+      "confidence": "MEDIUM",
+      "status": "proposed_for_review"
+    },
+    {
+      "type": "logic_change",
+      "panel": "Momentum Breakout \u2014 Range Open + Clean PDH Break (Bullish)",
+      "title": "Add daily trend filter: require price above 20-day EMA on daily chart before firing bullish Momentum Breakout",
+      "proposed_change": "Add a new constant MB_DAILY_EMA_PERIOD = 20. After the gapped_open check and before the breakout_bar search loop, compute the 20-period EMA of daily closes using the existing _ema() helper: daily_closes_list = daily['Close'].astype(float).tolist(); ema20d = _ema(daily_closes_list, MB_DAILY_EMA_PERIOD). Reject with _dbg_fail(_debug, 'below_daily_ema20', symbol) if bullish and the previous close (daily['Close'].iloc[-2]) < ema20d, or if bearish and the previous close > ema20d. This gate sits immediately after the pdh/pdl validity check and before the gapped_open check.",
+      "reasoning": "Momentum Breakout Bullish has a 12.5% win rate (2 wins, 7 losses, 7 expired over 16 signals). The current code has no daily trend filter whatsoever \u2014 it will fire a bullish PDH breakout on a stock that is in a multi-week downtrend, where PDH breaks are routinely sold into. The PDH Breakout panel has RSI >= 60 and 200-period EMA (15m) as trend filters and still scores 0%; the Momentum Breakout panel has neither. A simple 20-day EMA on the daily chart is the minimal trend confirmation used in most Indian trading frameworks and would have filtered stocks breaking PDH while trending below their 20-day mean. The bearish side (22.7% win rate, 5 wins) is relatively better \u2014 bearish breakdown signals on stocks below 20-day EMA would be naturally more numerous and correct, consistent with the asymmetry in win rates between the two directions.",
+      "expected_impact": "Reduces bullish signal count by an estimated 30-40%; should meaningfully improve win rate by eliminating counter-trend long setups. Bearish direction gets the symmetric benefit (only fires on stocks already below 20d EMA).",
+      "confidence": "MEDIUM",
+      "status": "proposed_for_review"
+    },
+    {
+      "type": "logic_change",
+      "panel": "Bull Trap Reversal \u2014 Failed PDH Breakout (Bearish)",
+      "title": "Require that the trap bar closed meaningfully above PDH (not just a 1-tick break) before accepting the reversal",
+      "proposed_change": "Add a constant TRAP_MIN_BREAK_PCT = 0.3. After trap_bar is found (closes[i] > pdh for bearish), add a check: break_pct = (closes[trap_bar] - pdh) / pdh * 100; if break_pct < TRAP_MIN_BREAK_PCT: reject with _dbg_fail(_debug, 'trap_break_too_shallow', symbol, break_pct=round(break_pct,2), needed=TRAP_MIN_BREAK_PCT). This gate sits immediately after the trap_bar assignment block, before the reversal_bar search. A symmetric constant TRAP_MIN_BREAK_PCT applies to both directions (for bullish bear trap: (pdl - closes[trap_bar]) / pdl * 100 >= TRAP_MIN_BREAK_PCT).",
+      "reasoning": "Bull Trap Bearish has 6.2% win rate \u2014 1 win, 6 losses, 9 expired across 16 signals. The current code accepts any close above PDH as a valid 'bull trap' breakout bar, including 1-tick or noise closes that barely exceed the level. A shallow break above PDH followed by a close back below it is not a true bull trap \u2014 it is just price oscillating around resistance, and fading it produces losses because there is no real squeeze of trapped buyers. A minimum break of 0.3% above PDH means buyers had to commit meaningfully (roughly 0.3% slippage through the level) before being reversed, making the reversal signal structurally sounder. The 9 expired signals also suggest the setups are not decisive enough \u2014 a minimum break threshold helps select only the cases where a real crowd of breakout buyers exists to be trapped.",
+      "expected_impact": "Reduces signal count on both trap directions; Bull Trap Bearish reduction estimated 40-50% as many signals are likely shallow breaks. Win rate should improve materially if shallow-break noise is the primary driver of the 6.2% rate. Bear Trap Bullish (14.3% win rate, better but still low) gets the same quality improvement.",
+      "confidence": "MEDIUM",
+      "status": "proposed_for_review"
+    },
+    {
+      "type": "logic_change",
+      "panel": "ORB \u2014 Opening Range Breakout (Bullish and Bearish)",
+      "title": "Flag small-sample caveat and add ADR (Average Daily Range) filter to exclude low-volatility stocks where ORB has no follow-through room",
+      "proposed_change": "Add a constant ORB_MIN_ADR_PCT = 1.5 (minimum average daily range as % of price over 5 days). After the prior_range_pct consolidation check, compute: recent_daily = daily.iloc[-6:-1]; adr_pct = float(((recent_daily['High'].astype(float) - recent_daily['Low'].astype(float)) / recent_daily['Close'].astype(float) * 100).mean()); if adr_pct < ORB_MIN_ADR_PCT: reject with _dbg_fail(_debug, 'adr_too_low', symbol, adr_pct=round(adr_pct,2), needed=ORB_MIN_ADR_PCT). This gate sits immediately after the prior_range_pct check and before the today_bars5 construction. Note: ORB has only 8 bullish and 1 bearish signal in 30 days \u2014 the 0% win rate on both is flagged as potentially small-sample (9 total signals), but the ADR filter is still warranted because the ORB concept requires the stock to have enough daily range to move to T1 (1.5x risk) after a 0.4% opening range breakout, and low-ADR stocks structurally cannot do this.",
+      "expected_impact": "Modest signal reduction (estimated 20-30%) by excluding tightly-ranged stocks where ORB targets are unreachable. Does not address the sample-size problem \u2014 30 more days of data needed to draw confident conclusions \u2014 but removes a structurally unsound subset of signals regardless of win rate.",
+      "confidence": "LOW",
+      "status": "proposed_for_review"
+    }
+  ],
+  "applied_count": 2,
   "skipped_count": 0,
-  "status": "no_changes"
+  "structural_count": 4,
+  "status": "auto_applied"
 }
