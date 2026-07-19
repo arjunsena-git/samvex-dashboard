@@ -2628,6 +2628,7 @@
       ${_sbKpi('Auto-tunes', (w.auto_tunes_this_week||[]).length, '')}
       ${_sbKpi('Applied', (w.proposals_applied_this_week||[]).length, (w.proposals_applied_this_week||[]).length ? 'var(--green)' : '')}
       ${_sbKpi('Pending', w.pending_proposals, w.pending_proposals ? 'var(--accent)' : '')}
+      ${_sbKpi('Structural Ideas', (w.structural_proposals||[]).length, (w.structural_proposals||[]).length ? 'var(--yellow)' : '')}
     </div>`;
 
     // Best / worst
@@ -2644,6 +2645,32 @@
     }).join('');
     let panelTable = panelRows ? `<div class="table-wrap"><table class="journal-table"><thead><tr><th>Panel</th><th>W/L/E</th><th>Win Rate</th></tr></thead><tbody>${panelRows}</tbody></table></div>` : '';
 
+    // Structural ideas — new gates/parameters Claude proposed that aren't
+    // simple value swaps, so they never auto-apply. This is the one section
+    // meant to actually be read and acted on, not just skimmed as a KPI.
+    const structural = w.structural_proposals || [];
+    let structuralBlock = '';
+    if (structural.length) {
+      const cards = structural.map(p => {
+        const confColor = p.confidence === 'HIGH' ? 'var(--green)' : p.confidence === 'MEDIUM' ? 'var(--yellow)' : 'var(--text-muted)';
+        return `<div style="background:var(--bg-card-2);border:1px solid var(--border);border-left:3px solid var(--yellow);
+          border-radius:8px;padding:12px 14px;margin-bottom:8px;">
+          <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px;">
+            <strong style="font-size:13px;">${p.panel || '?'} — ${p.title || 'Untitled idea'}</strong>
+            <span style="font-size:10px;font-weight:700;color:${confColor};text-transform:uppercase;">${p.confidence || '?'}</span>
+          </div>
+          <div style="font-size:12px;color:var(--text);margin-bottom:6px;">${p.proposed_change || ''}</div>
+          ${p.reasoning ? `<div style="font-size:11px;color:var(--text-muted);">Why: ${p.reasoning}</div>` : ''}
+        </div>`;
+      }).join('');
+      structuralBlock = `<div style="margin-bottom:14px;">
+        <span style="font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--yellow);font-weight:700;display:block;margin-bottom:8px;">
+          Structural Ideas — Not Auto-Applied, Needs Review
+        </span>
+        ${cards}
+      </div>`;
+    }
+
     // Narrative block
     let narrative = '';
     if (w.narrative) {
@@ -2656,7 +2683,7 @@
       </div>`;
     }
 
-    body.innerHTML = narrative + kpis + highlights + panelTable;
+    body.innerHTML = narrative + kpis + structuralBlock + highlights + panelTable;
   }
 
   function _sbKpi(label, val, color) {

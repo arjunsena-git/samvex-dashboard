@@ -41,7 +41,7 @@ def load(path):
 
 
 def _build_narrative(win_rate, total, wins, losses, expired,
-                      tunes, applied_props, pending_props,
+                      tunes, applied_props, pending_props, structural_props,
                       missed_count, top_gate, gate_counts):
     parts = []
 
@@ -78,6 +78,13 @@ def _build_narrative(win_rate, total, wins, losses, expired,
     if pending_props:
         word = "proposal" if len(pending_props) == 1 else "proposals"
         parts.append(f"{len(pending_props)} LOW confidence {word} noted but not auto-applied.")
+    if structural_props:
+        titles = "; ".join(f"{p.get('panel','?')}: {p.get('title','')}" for p in structural_props)
+        word = "idea" if len(structural_props) == 1 else "ideas"
+        parts.append(
+            f"Agent 3 also flagged {len(structural_props)} structural {word} — new gates/parameters "
+            f"the current code doesn't have, not auto-applied, needs real review: {titles}."
+        )
 
     # Agent 2 missed signals
     if top_gate and missed_count > 0:
@@ -133,10 +140,11 @@ def main():
     gen_at    = proposals.get("generated_at", "") if isinstance(proposals, dict) else ""
     applied_this_week = [p for p in all_props if p.get("status") == "auto_applied" and gen_at >= WEEK_AGO]
     pending_props     = [p for p in all_props if p.get("status") == "not_applied"]
+    structural_props  = [p for p in all_props if p.get("status") == "proposed_for_review"]
 
     narrative = _build_narrative(
         win_rate, len(valid), len(wins), len(losses), len(expired),
-        tunes, applied_this_week, pending_props,
+        tunes, applied_this_week, pending_props, structural_props,
         len(missed), top_gate, gate_counts,
     )
 
@@ -159,6 +167,7 @@ def main():
         "auto_tunes_this_week":    tunes,
         "proposals_applied_this_week": applied_this_week,
         "pending_proposals": len(pending_props),
+        "structural_proposals": structural_props,
         "narrative":     narrative,
     }
 
@@ -196,7 +205,16 @@ def main():
     if not tunes:
         lines.append("  None — all panels within healthy range")
 
-    lines += ["", f"CLAUDE PROPOSALS PENDING: {len(pending_props)}", "", f"{'='*65}", ""]
+    lines += ["", f"CLAUDE PROPOSALS PENDING: {len(pending_props)}"]
+
+    lines += ["", f"STRUCTURAL IDEAS — NEEDS REVIEW ({len(structural_props)})"]
+    for p in structural_props:
+        lines.append(f"  [{p.get('confidence','?')}] {p.get('panel','?')} — {p.get('title','')}")
+        lines.append(f"    {p.get('proposed_change','')}")
+    if not structural_props:
+        lines.append("  None this week")
+
+    lines += ["", f"{'='*65}", ""]
     print("\n".join(lines))
 
 
