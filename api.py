@@ -654,6 +654,175 @@ def _load_token_on_startup():
     return None, 0.0, None
 
 
+# ── Dhan — realised P&L sync ─────────────────────────────────────────
+# Same shape as the Upstox token: a static access token generated manually
+# at web.dhan.co, ~24h validity, no refresh token. Set/renewed daily via
+# GET /auth/set-dhan-token?secret=...&token=... (same SET_TOKEN_SECRET as
+# Upstox), same Redis-first/disk-fallback/env-var-bootstrap persistence.
+DHAN_BASE      = "https://api.dhan.co/v2"
+DHAN_TOKEN_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dhan_token.json")
+_DHAN_REDIS_KEY = _REDIS_KEY_PREFIX + "samvex_dhan_token"
+_dhan_token     = {"access_token": None, "expires_at": 0.0}
+
+
+def _save_dhan_token_to_redis(token: str, expires_at: float):
+    ttl = max(60, int(expires_at - time.time()))
+    _upstash(["SETEX", _DHAN_REDIS_KEY, str(ttl), token])
+
+
+def _load_dhan_token_from_redis():
+    token = _upstash(["GET", _DHAN_REDIS_KEY])
+    if not token:
+        return None, 0.0
+    ttl = _upstash(["TTL", _DHAN_REDIS_KEY]) or 3600
+    return token, time.time() + int(ttl)
+
+
+def _save_dhan_token_to_disk(token: str, expires_at: float):
+    try:
+        with open(DHAN_TOKEN_FILE, "w") as f:
+            json.dump({"access_token": token, "expires_at": expires_at}, f)
+    except Exception as e:
+        print(f"[DhanToken] Disk save error: {e}")
+
+
+def _load_dhan_token_from_disk():
+    try:
+        if os.path.exists(DHAN_TOKEN_FILE):
+            with open(DHAN_TOKEN_FILE) as f:
+                data = json.load(f)
+            if float(data.get("expires_at", 0)) > time.time():
+                return data.get("access_token"), float(data["expires_at"])
+    except Exception as e:
+        print(f"[DhanToken] Disk load error: {e}")
+    return None, 0.0
+
+
+def _save_dhan_token(token: str, expires_at: float):
+    _save_dhan_token_to_redis(token, expires_at)
+    _save_dhan_token_to_disk(token, expires_at)
+
+
+def _load_dhan_token_on_startup():
+    t, exp = _load_dhan_token_from_redis()
+    if t:
+        return t, exp, "redis"
+    t, exp = _load_dhan_token_from_disk()
+    if t:
+        return t, exp, "disk"
+    env = os.environ.get("DHAN_ACCESS_TOKEN", "")
+    if env:
+        return env, time.time() + 23 * 3600, "env"
+    return None, 0.0, None
+
+
+def _dhan_is_live() -> bool:
+    return bool(_dhan_token["access_token"] and time.time() < _dhan_token["expires_at"])
+
+
+def _fetch_dhan_positions():
+    """GET /v2/positions — Dhan computes realizedProfit/unrealizedProfit per
+    position itself (buy/sell leg matching already done server-side), so
+    this is the source of truth rather than reconstructing P&L from the
+    raw trade book. Only reflects TODAY's book — closed positions vanish
+    from this response on a later day, hence the daily sync/accumulate."""
+    if not _dhan_is_live():
+        return None
+    try:
+        r = _http.get(
+            f"{DHAN_BASE}/positions",
+            headers={"Accept": "application/json", "access-token": _dhan_token["access_token"]},
+            timeout=15,
+        )
+        if r.status_code != 200:
+            print(f"[DhanPnL] positions fetch failed: {r.status_code} {r.text[:200]}")
+            return None
+        return r.json()
+    except Exception as e:
+        print(f"[DhanPnL] positions fetch error: {e}")
+        return None
+
+
+# ── Dhan realised P&L history — persistent across restarts ──────────
+# Same Redis-first/disk-fallback pattern as daily reports/trade journal.
+_DHAN_PNL_REDIS_KEY     = _REDIS_KEY_PREFIX + "samvex_dhan_pnl"
+_DHAN_PNL_FILE          = os.path.join(_SIGNALS_DIR, "dhan_pnl.json")
+DHAN_PNL_RETENTION_DAYS = 90
+_dhan_sync_state        = {"synced_for": None}
+
+
+def _load_dhan_pnl_history() -> dict:
+    """date_str -> list of that day's closed positions from Dhan."""
+    raw = _upstash(["GET", _DHAN_PNL_REDIS_KEY])
+    if raw:
+        try:
+            return json.loads(raw)
+        except Exception as e:
+            print(f"[DhanPnL] Redis parse error: {e}")
+    try:
+        if os.path.exists(_DHAN_PNL_FILE):
+            with open(_DHAN_PNL_FILE) as fh:
+                return json.load(fh)
+    except Exception as e:
+        print(f"[DhanPnL] disk load error: {e}")
+    return {}
+
+
+def _save_dhan_pnl_history(history: dict) -> None:
+    payload = json.dumps(history)
+    _upstash(["SET", _DHAN_PNL_REDIS_KEY, payload])
+    try:
+        with open(_DHAN_PNL_FILE, "w") as fh:
+            fh.write(payload)
+    except Exception as e:
+        print(f"[DhanPnL] disk save error: {e}")
+
+
+def _dhan_pnl_sync(force: bool = False) -> dict:
+    ist       = pytz.timezone("Asia/Kolkata")
+    now       = datetime.now(ist)
+    today_str = now.strftime("%Y-%m-%d")
+
+    if not force and _dhan_sync_state.get("synced_for") == today_str:
+        return {"status": "already_synced", "date": today_str}
+    if not _dhan_is_live():
+        return {"status": "no_token"}
+
+    positions = _fetch_dhan_positions()
+    if positions is None:
+        return {"status": "fetch_failed"}
+
+    closed = [
+        p for p in positions
+        if p.get("positionType") == "CLOSED" or (p.get("netQty", 0) == 0 and p.get("realizedProfit"))
+    ]
+
+    history = _load_dhan_pnl_history()
+    history[today_str] = closed
+    cutoff  = (now - timedelta(days=DHAN_PNL_RETENTION_DAYS)).strftime("%Y-%m-%d")
+    history = {d: v for d, v in history.items() if d >= cutoff}
+    _save_dhan_pnl_history(history)
+    _dhan_sync_state["synced_for"] = today_str
+
+    total_pnl = round(sum(p.get("realizedProfit", 0) for p in closed), 2)
+    print(f"[DhanPnL] Synced {len(closed)} closed position(s) for {today_str} — realised P&L ₹{total_pnl}")
+    return {"status": "synced", "date": today_str, "count": len(closed), "realized_pnl": total_pnl}
+
+
+def _dhan_pnl_watch_loop() -> None:
+    """Positions only reflect today's book, so this only makes sense to run
+    once markets have effectively closed — earlier than that, today's
+    trades may still be open and wouldn't show as CLOSED yet anyway."""
+    while True:
+        try:
+            ist = pytz.timezone("Asia/Kolkata")
+            if datetime.now(ist).time() >= _dtime(15, 45):
+                _dhan_pnl_sync()
+        except Exception as e:
+            print(f"[DhanPnL] watch loop error: {e}")
+        time.sleep(600)
+
+
 # ── Upstox session expiry alerting ──────────────────────────────────
 # Upstox tokens expire daily by SEBI mandate — there is no refresh token
 # and no long-lived option (confirmed directly with Upstox support: "you
@@ -748,10 +917,47 @@ def _check_token_expiry_and_alert() -> None:
             _alert_state["reminder_sent_for"] = expires_at
 
 
+_dhan_alert_state = {"reminder_sent_for": None, "expired_sent_for": None}
+
+
+def _check_dhan_token_expiry_and_alert() -> None:
+    """Same shape as the Upstox check — Dhan tokens also expire ~24h with
+    no refresh token, and a lapsed one silently stops the daily realised
+    P&L sync rather than breaking anything visibly, so this is the only
+    thing that would ever surface it."""
+    expires_at = _dhan_token.get("expires_at", 0.0)
+    if not _dhan_token.get("access_token") or expires_at <= 0:
+        return
+
+    now = time.time()
+    mins_left = (expires_at - now) / 60
+
+    if mins_left <= 0:
+        if _dhan_alert_state["expired_sent_for"] != expires_at:
+            _send_alert(
+                f"{_ALERT_DEPLOY_LABEL} — Dhan session expired",
+                "Realised P&L sync has stopped. Generate a fresh token at web.dhan.co "
+                "and set it via your saved /auth/set-dhan-token link.",
+            )
+            _dhan_alert_state["expired_sent_for"] = expires_at
+        return
+
+    if mins_left <= ALERT_REMINDER_LEAD_MIN:
+        if _dhan_alert_state["reminder_sent_for"] != expires_at:
+            h, m = int(mins_left // 60), int(mins_left % 60)
+            _send_alert(
+                f"{_ALERT_DEPLOY_LABEL} — Dhan session expiring soon",
+                f"Dhan token expires in {h}h {m}m. Refresh it before then or the daily "
+                "realised P&L sync will stop.",
+            )
+            _dhan_alert_state["reminder_sent_for"] = expires_at
+
+
 def _token_expiry_watch_loop() -> None:
     while True:
         try:
             _check_token_expiry_and_alert()
+            _check_dhan_token_expiry_and_alert()
         except Exception as e:
             print(f"[Alert] watch loop error: {e}")
         time.sleep(600)   # check every 10 min
@@ -799,7 +1005,14 @@ else:
         print("[Token] All retry attempts failed — will require manual OAuth")
     threading.Thread(target=_retry_token_load, daemon=True).start()
 
+_dhan_startup_token, _dhan_startup_expires, _dhan_startup_source = _load_dhan_token_on_startup()
+if _dhan_startup_token:
+    _dhan_token["access_token"] = _dhan_startup_token
+    _dhan_token["expires_at"]   = _dhan_startup_expires
+    print(f"[DhanToken] Loaded from {_dhan_startup_source}")
+
 threading.Thread(target=_token_expiry_watch_loop, daemon=True).start()
+threading.Thread(target=_dhan_pnl_watch_loop,     daemon=True).start()
 
 
 def _is_live():
@@ -3197,6 +3410,76 @@ def auth_status():
         "is_live":        _is_live(),
         "data_source":    "upstox_live" if _is_live() else "yahoo_delayed",
         "expires_in_min": expires_in,
+    })
+
+
+@app.route("/auth/set-dhan-token")
+def set_dhan_token():
+    """Daily Dhan token refresh: /auth/set-dhan-token?secret=XXX&token=YYY
+    Same pattern as /auth/set-token for Upstox — bookmark it with your
+    secret filled in and just paste the fresh token each morning."""
+    secret = flask_req.args.get("secret", "")
+    token  = flask_req.args.get("token", "")
+    if not SET_TOKEN_SECRET or secret != SET_TOKEN_SECRET:
+        return jsonify({"error": "Unauthorized"}), 403
+    if not token:
+        return jsonify({"error": "token param required"}), 400
+    _dhan_token["access_token"] = token
+    _dhan_token["expires_at"]   = time.time() + 23 * 3600
+    _save_dhan_token(_dhan_token["access_token"], _dhan_token["expires_at"])
+    return """
+    <!DOCTYPE html><html>
+    <head><title>Samvex — Dhan Token Updated</title>
+    <style>body{font-family:sans-serif;text-align:center;padding:80px;
+    background:#0f1117;color:#e2e8f0;}h2{color:#22c55e;}p{color:#8892a4;}</style>
+    </head><body>
+      <h2>&#10003; Dhan Token Accepted</h2>
+      <p>Realised P&amp;L sync will use this token until it expires (~24h).</p>
+      <p style="margin-top:24px;font-size:13px;">You can close this tab.</p>
+    </body></html>
+    """
+
+
+@app.route("/api/dhan/status")
+def dhan_status():
+    expires_in = max(0, int((_dhan_token["expires_at"] - time.time()) / 60)) if _dhan_is_live() else 0
+    return jsonify({
+        "connected":      _dhan_is_live(),
+        "expires_in_min": expires_in,
+        "last_synced":    _dhan_sync_state.get("synced_for"),
+    })
+
+
+@app.route("/api/admin/sync-dhan-pnl", methods=["POST"])
+def admin_sync_dhan_pnl():
+    """Manual trigger — bypasses the 3:45pm time gate, useful for testing
+    or backfilling right after connecting a token mid-session."""
+    body = flask_req.get_json(force=True, silent=True) or {}
+    if not SET_TOKEN_SECRET or body.get("secret") != SET_TOKEN_SECRET:
+        return jsonify({"error": "Unauthorized"}), 403
+    return jsonify(_dhan_pnl_sync(force=True))
+
+
+@app.route("/api/dhan/pnl")
+def api_dhan_pnl():
+    ist    = pytz.timezone("Asia/Kolkata")
+    cutoff = (datetime.now(ist) - timedelta(days=30)).strftime("%Y-%m-%d")
+    history = {d: v for d, v in _load_dhan_pnl_history().items() if d >= cutoff}
+
+    days = []
+    for d, positions in sorted(history.items()):
+        realized = round(sum(p.get("realizedProfit", 0) for p in positions), 2)
+        days.append({
+            "date": d,
+            "realized_pnl": realized,
+            "trade_count": len(positions),
+            "positions": positions,
+        })
+    total = round(sum(day["realized_pnl"] for day in days), 2)
+    return jsonify({
+        "days": days,
+        "total_realized_pnl_30d": total,
+        "connected": _dhan_is_live(),
     })
 
 

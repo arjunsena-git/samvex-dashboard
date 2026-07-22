@@ -1084,6 +1084,23 @@
       <div class="journal-stats" id="journal-stats"></div>
       <button class="csv-btn" onclick="openJournalForm()">+ Add Trade</button>
     </div>
+
+    <!-- ── Dhan Realised P&L — broker-verified, synced daily after close ── -->
+    <div id="dhan-pnl-card" style="
+      background:var(--bg-card-2);border:1px solid var(--border);border-radius:8px;
+      padding:12px 16px;margin-bottom:4px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+        <span style="font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--accent);font-weight:700;">
+          Realised P&amp;L — Dhan (broker-verified)
+        </span>
+        <span id="dhan-pnl-conn" style="font-size:11px;color:var(--text-muted);"></span>
+      </div>
+      <div id="dhan-pnl-summary" style="display:flex;gap:18px;flex-wrap:wrap;font-size:12px;color:var(--text-muted);margin-top:8px;">
+        <span>Loading…</span>
+      </div>
+      <div id="dhan-pnl-days" style="margin-top:10px;"></div>
+    </div>
+
     <div class="analysis-filters" style="padding:0 0 2px;">
       <span style="font-size:12px;color:var(--text-muted);font-weight:600;">Filter by date:</span>
       <input type="date" id="jf-filter-from" onchange="_renderJournalTable()" title="From date">
@@ -2349,6 +2366,7 @@
       document.getElementById('chart-fullpage').classList.remove('visible');
       _SCANNER_ELS.forEach(id => { const el = document.getElementById(id); if (el) el.style.display = 'none'; });
       loadJournal();
+      loadDhanPnl();
     } else {
       _applyChartModeDisplay();
     }
@@ -2376,6 +2394,68 @@
       _renderJournalTable();
     } catch (e) {
       tbody.innerHTML = `<tr><td colspan="14"><div class="journal-empty">Failed to load journal — ${e.message}</div></td></tr>`;
+    }
+  }
+
+  // ── Dhan Realised P&L — broker-verified, synced daily after close ──
+  let _dhanPnlDaysExpanded = false;
+
+  async function loadDhanPnl() {
+    const conn    = document.getElementById('dhan-pnl-conn');
+    const summary = document.getElementById('dhan-pnl-summary');
+    const daysEl  = document.getElementById('dhan-pnl-days');
+    try {
+      const res = await fetch(`${API}/api/dhan/pnl`);
+      const d   = await res.json();
+
+      conn.innerHTML = d.connected
+        ? `<span style="color:var(--green);">&#9679; Connected</span>`
+        : `<span style="color:var(--red);">&#9679; Not connected</span>`;
+
+      const days = d.days || [];
+      if (!days.length) {
+        summary.innerHTML = `<span>No synced trades yet${d.connected ? ' — first sync runs after today\'s market close' : ' — connect a Dhan token to start syncing'}.</span>`;
+        daysEl.innerHTML = '';
+        return;
+      }
+
+      const today   = new Date().toISOString().slice(0, 10);
+      const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
+      const sumSince = cutoff => days.filter(x => x.date >= cutoff).reduce((s, x) => s + x.realized_pnl, 0);
+      const todayPnl = days.find(x => x.date === today)?.realized_pnl ?? 0;
+      const weekPnl  = sumSince(weekAgo);
+      const totalPnl = d.total_realized_pnl_30d ?? 0;
+
+      const fmt = v => {
+        const col = v > 0 ? 'var(--green)' : v < 0 ? 'var(--red)' : 'var(--text-muted)';
+        return `<b style="color:${col}">₹${v.toLocaleString('en-IN', {maximumFractionDigits: 0})}</b>`;
+      };
+      summary.innerHTML = `
+        <span>Today: ${fmt(todayPnl)}</span>
+        <span>This week: ${fmt(weekPnl)}</span>
+        <span>Last 30d: ${fmt(totalPnl)}</span>
+        <span>${days.reduce((s, x) => s + x.trade_count, 0)} closed trades synced</span>
+      `;
+
+      const rows = days.slice().reverse().map(x => `
+        <tr>
+          <td>${x.date}</td>
+          <td>${x.trade_count}</td>
+          <td style="color:${x.realized_pnl > 0 ? 'var(--green)' : x.realized_pnl < 0 ? 'var(--red)' : 'var(--text-muted)'};font-weight:700;">
+            ₹${x.realized_pnl.toLocaleString('en-IN', {maximumFractionDigits: 0})}
+          </td>
+        </tr>`).join('');
+      daysEl.innerHTML = `
+        <button class="csv-btn" style="margin-bottom:8px;" onclick="_dhanPnlDaysExpanded=!_dhanPnlDaysExpanded;loadDhanPnl();">
+          ${_dhanPnlDaysExpanded ? '▲ Hide daily breakdown' : '▼ Show daily breakdown'}
+        </button>
+        ${_dhanPnlDaysExpanded ? `<div class="table-wrap"><table class="journal-table">
+          <thead><tr><th>Date</th><th>Closed Trades</th><th>Realised P&amp;L</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table></div>` : ''}
+      `;
+    } catch (e) {
+      summary.innerHTML = `<span>Failed to load Dhan P&amp;L — ${e.message}</span>`;
     }
   }
 
