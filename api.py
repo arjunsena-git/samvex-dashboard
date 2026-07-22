@@ -720,6 +720,72 @@ def _dhan_is_live() -> bool:
     return bool(_dhan_token["access_token"] and time.time() < _dhan_token["expires_at"])
 
 
+# ── Dhan TOTP auto-renewal — no daily manual paste, unlike Upstox ──
+# Upstox has no programmatic login path at all (confirmed against their
+# own docs: "There is no public endpoint for other applications to
+# directly log the customer into their upstox.com" — TOTP there is only
+# a UI option on the interactive browser login, still needs a human).
+# Dhan is genuinely different: generateAccessToken takes a client id,
+# trading PIN, and a live TOTP code, and returns a fresh 24h token — no
+# browser involved. The TOTP code itself is just the standard RFC 6238
+# algorithm run against the one-time shared secret Dhan hands out during
+# "Setup TOTP" (the same secret you'd normally scan into an authenticator
+# app) — anything holding that secret can compute the same valid code an
+# app would, with no human needed.
+def _dhan_generate_token_via_totp():
+    """Returns (token, expires_at) or (None, 0.0) if not configured / failed."""
+    client_id   = os.environ.get("DHAN_CLIENT_ID", "")
+    pin         = os.environ.get("DHAN_PIN", "")
+    totp_secret = os.environ.get("DHAN_TOTP_SECRET", "")
+    if not (client_id and pin and totp_secret):
+        return None, 0.0
+    try:
+        import pyotp
+        code = pyotp.TOTP(totp_secret).now()
+        r = _http.get(
+            "https://auth.dhan.co/app/generateAccessToken",
+            params={"dhanClientId": client_id, "pin": pin, "totp": code},
+            timeout=15,
+        )
+        if r.status_code != 200:
+            print(f"[DhanToken] TOTP auto-renew failed: {r.status_code} {r.text[:200]}")
+            return None, 0.0
+        token = r.json().get("accessToken")
+        if not token:
+            print(f"[DhanToken] TOTP auto-renew: no accessToken in response")
+            return None, 0.0
+        # Compute our own expiry rather than trust-parse Dhan's expiryTime
+        # field format — same 23h-of-headroom convention used everywhere
+        # else in this file, and it's what we control renewal timing off of.
+        return token, time.time() + 23 * 3600
+    except Exception as e:
+        print(f"[DhanToken] TOTP auto-renew error: {e}")
+        return None, 0.0
+
+
+def _dhan_token_renew_loop() -> None:
+    """No-op unless DHAN_CLIENT_ID/DHAN_PIN/DHAN_TOTP_SECRET are all set —
+    the manual /auth/set-dhan-token path keeps working either way. Checks
+    hourly, renews once under 2h remain (or nothing's loaded yet), so this
+    also serves as the startup bootstrap when Redis/disk have nothing."""
+    while True:
+        try:
+            mins_left = (
+                (_dhan_token["expires_at"] - time.time()) / 60
+                if _dhan_token.get("access_token") else 0
+            )
+            if mins_left <= 120:
+                token, expires_at = _dhan_generate_token_via_totp()
+                if token:
+                    _dhan_token["access_token"] = token
+                    _dhan_token["expires_at"]   = expires_at
+                    _save_dhan_token(token, expires_at)
+                    print("[DhanToken] Auto-renewed via TOTP")
+        except Exception as e:
+            print(f"[DhanToken] renew loop error: {e}")
+        time.sleep(3600)   # check hourly
+
+
 def _fetch_dhan_positions():
     """GET /v2/positions — Dhan computes realizedProfit/unrealizedProfit per
     position itself (buy/sell leg matching already done server-side), so
@@ -1013,6 +1079,7 @@ if _dhan_startup_token:
 
 threading.Thread(target=_token_expiry_watch_loop, daemon=True).start()
 threading.Thread(target=_dhan_pnl_watch_loop,     daemon=True).start()
+threading.Thread(target=_dhan_token_renew_loop,   daemon=True).start()
 
 
 def _is_live():
