@@ -1098,6 +1098,7 @@
       <div id="dhan-pnl-summary" style="display:flex;gap:18px;flex-wrap:wrap;font-size:12px;color:var(--text-muted);margin-top:8px;">
         <span>Loading…</span>
       </div>
+      <div id="dhan-pnl-historical" style="margin-top:10px;"></div>
       <div id="dhan-pnl-days" style="margin-top:10px;"></div>
     </div>
 
@@ -2400,10 +2401,18 @@
   // ── Dhan Realised P&L — broker-verified, synced daily after close ──
   let _dhanPnlDaysExpanded = false;
 
+  let _dhanHistRowsExpanded = false;
+
   async function loadDhanPnl() {
-    const conn    = document.getElementById('dhan-pnl-conn');
-    const summary = document.getElementById('dhan-pnl-summary');
-    const daysEl  = document.getElementById('dhan-pnl-days');
+    const conn     = document.getElementById('dhan-pnl-conn');
+    const summary  = document.getElementById('dhan-pnl-summary');
+    const histEl   = document.getElementById('dhan-pnl-historical');
+    const daysEl   = document.getElementById('dhan-pnl-days');
+    const fmt = v => {
+      const col = v > 0 ? 'var(--green)' : v < 0 ? 'var(--red)' : 'var(--text-muted)';
+      return `<b style="color:${col}">₹${v.toLocaleString('en-IN', {maximumFractionDigits: 0})}</b>`;
+    };
+
     try {
       const res = await fetch(`${API}/api/dhan/pnl`);
       const d   = await res.json();
@@ -2413,29 +2422,65 @@
         : `<span style="color:var(--red);">&#9679; Not connected</span>`;
 
       const days = d.days || [];
-      if (!days.length) {
+      const hist = d.historical || null;
+
+      if (!days.length && !hist) {
         summary.innerHTML = `<span>No synced trades yet${d.connected ? ' — first sync runs after today\'s market close' : ' — connect a Dhan token to start syncing'}.</span>`;
+        histEl.innerHTML = '';
         daysEl.innerHTML = '';
         return;
       }
 
-      const today   = new Date().toISOString().slice(0, 10);
-      const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
-      const sumSince = cutoff => days.filter(x => x.date >= cutoff).reduce((s, x) => s + x.realized_pnl, 0);
+      // Today/this-week only ever reflect the daily-tracked series — the
+      // historical import has no per-day breakdown to slice by date, so
+      // it's shown as its own distinct total, not folded into these.
+      const today    = new Date().toISOString().slice(0, 10);
+      const weekAgo  = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
       const todayPnl = days.find(x => x.date === today)?.realized_pnl ?? 0;
-      const weekPnl  = sumSince(weekAgo);
-      const totalPnl = d.total_realized_pnl_30d ?? 0;
+      const weekPnl  = days.filter(x => x.date >= weekAgo).reduce((s, x) => s + x.realized_pnl, 0);
 
-      const fmt = v => {
-        const col = v > 0 ? 'var(--green)' : v < 0 ? 'var(--red)' : 'var(--text-muted)';
-        return `<b style="color:${col}">₹${v.toLocaleString('en-IN', {maximumFractionDigits: 0})}</b>`;
-      };
-      summary.innerHTML = `
-        <span>Today: ${fmt(todayPnl)}</span>
-        <span>This week: ${fmt(weekPnl)}</span>
-        <span>Last 30d: ${fmt(totalPnl)}</span>
-        <span>${days.reduce((s, x) => s + x.trade_count, 0)} closed trades synced</span>
-      `;
+      const summaryParts = [`<span>Today: ${fmt(todayPnl)}</span>`, `<span>This week: ${fmt(weekPnl)}</span>`];
+      if (d.all_time_pnl !== null && d.all_time_pnl !== undefined) {
+        summaryParts.push(`<span>All-time: ${fmt(d.all_time_pnl)}</span>`);
+      }
+      summary.innerHTML = summaryParts.join('');
+
+      // Historical snapshot — imported once from Dhan's own Realised PnL
+      // Report, aggregated per-symbol over its whole date range (no
+      // per-day breakdown exists in that export).
+      if (hist) {
+        const histRows = (hist.rows || []).slice().sort((a, b) => a.realised_pnl - b.realised_pnl).map(r => `
+          <tr>
+            <td>${r.scrip}</td>
+            <td>${r.quantity}</td>
+            <td style="color:${r.realised_pnl > 0 ? 'var(--green)' : r.realised_pnl < 0 ? 'var(--red)' : 'var(--text-muted)'};font-weight:700;">
+              ₹${r.realised_pnl.toLocaleString('en-IN', {maximumFractionDigits: 0})}
+            </td>
+            <td>${r.realised_pnl_pct}%</td>
+          </tr>`).join('');
+        histEl.innerHTML = `
+          <div style="border-top:1px solid var(--border);padding-top:8px;">
+            <div style="font-size:11px;color:var(--text-muted);margin-bottom:6px;">
+              Historical (imported, ${hist.from_date} → ${hist.to_date}, ${hist.row_count} scrips):
+              ${fmt(hist.net_pnl)} <span style="color:var(--text-muted);">(net of charges)</span>
+            </div>
+            <button class="csv-btn" onclick="_dhanHistRowsExpanded=!_dhanHistRowsExpanded;loadDhanPnl();">
+              ${_dhanHistRowsExpanded ? '▲ Hide per-symbol breakdown' : '▼ Show per-symbol breakdown'}
+            </button>
+            ${_dhanHistRowsExpanded ? `<div class="table-wrap" style="margin-top:8px;"><table class="journal-table">
+              <thead><tr><th>Scrip</th><th>Qty</th><th>Realised P&amp;L (gross)</th><th>%</th></tr></thead>
+              <tbody>${histRows}</tbody>
+            </table></div>` : ''}
+          </div>
+        `;
+      } else {
+        histEl.innerHTML = '';
+      }
+
+      if (!days.length) {
+        daysEl.innerHTML = '';
+        return;
+      }
 
       const rows = days.slice().reverse().map(x => `
         <tr>
@@ -2446,13 +2491,15 @@
           </td>
         </tr>`).join('');
       daysEl.innerHTML = `
-        <button class="csv-btn" style="margin-bottom:8px;" onclick="_dhanPnlDaysExpanded=!_dhanPnlDaysExpanded;loadDhanPnl();">
-          ${_dhanPnlDaysExpanded ? '▲ Hide daily breakdown' : '▼ Show daily breakdown'}
-        </button>
-        ${_dhanPnlDaysExpanded ? `<div class="table-wrap"><table class="journal-table">
-          <thead><tr><th>Date</th><th>Closed Trades</th><th>Realised P&amp;L</th></tr></thead>
-          <tbody>${rows}</tbody>
-        </table></div>` : ''}
+        <div style="border-top:1px solid var(--border);padding-top:8px;margin-top:4px;">
+          <button class="csv-btn" onclick="_dhanPnlDaysExpanded=!_dhanPnlDaysExpanded;loadDhanPnl();">
+            ${_dhanPnlDaysExpanded ? '▲ Hide daily-tracked breakdown' : '▼ Show daily-tracked breakdown'}
+          </button>
+          ${_dhanPnlDaysExpanded ? `<div class="table-wrap" style="margin-top:8px;"><table class="journal-table">
+            <thead><tr><th>Date</th><th>Closed Trades</th><th>Realised P&amp;L</th></tr></thead>
+            <tbody>${rows}</tbody>
+          </table></div>` : ''}
+        </div>
       `;
     } catch (e) {
       summary.innerHTML = `<span>Failed to load Dhan P&amp;L — ${e.message}</span>`;
