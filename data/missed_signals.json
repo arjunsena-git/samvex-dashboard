@@ -28,5 +28,15 @@
     "blocking_gate": "prev_day_rally",
     "actual_value": 1.75,
     "threshold": 6.0
+  },
+  {
+    "date": "2026-07-22",
+    "symbol": "BANDHANBNK",
+    "actual_fall_pct": 7.32,
+    "day_high": 187.95,
+    "day_close": 174.2,
+    "blocking_gate": "prev_day_rally",
+    "actual_value": -0.87,
+    "threshold": 6.0
   }
 ]
