@@ -875,6 +875,85 @@ def _dhan_pnl_sync(force: bool = False) -> dict:
     return {"status": "synced", "date": today_str, "count": len(closed), "realized_pnl": total_pnl}
 
 
+# ── Dhan bulk historical import — one-off, from Dhan's own "Realised
+# PnL Report" CSV export (Statements & Reports on web.dhan.co) ──────
+# The live daily sync only ever sees TODAY's book (Positions API has no
+# history), so this covers everything before the day the daily sync
+# started actually running. Per-symbol totals aggregated across the
+# whole imported range, NOT per-day — Dhan's export has no date-of-trade
+# column, so there's no way to break it down further than that. Kept as
+# a separate store rather than merged into _dhan_pnl_history's per-day
+# shape, and pruning any daily-synced dates <= to_date on import is what
+# actually prevents double-counting a day the live sync already caught
+# (this happened for real once: a same-day trade was missing from a
+# report pulled a few hours after close, then present in one pulled
+# later the same evening — Dhan's report generation has settlement lag,
+# not a clean date boundary).
+_DHAN_PNL_BULK_REDIS_KEY = _REDIS_KEY_PREFIX + "samvex_dhan_pnl_bulk"
+_DHAN_PNL_BULK_FILE      = os.path.join(_SIGNALS_DIR, "dhan_pnl_bulk.json")
+
+
+def _load_dhan_pnl_bulk() -> dict:
+    raw = _upstash(["GET", _DHAN_PNL_BULK_REDIS_KEY])
+    if raw:
+        try:
+            return json.loads(raw)
+        except Exception as e:
+            print(f"[DhanPnL] bulk Redis parse error: {e}")
+    try:
+        if os.path.exists(_DHAN_PNL_BULK_FILE):
+            with open(_DHAN_PNL_BULK_FILE) as fh:
+                return json.load(fh)
+    except Exception as e:
+        print(f"[DhanPnL] bulk disk load error: {e}")
+    return {}
+
+
+def _save_dhan_pnl_bulk(bulk: dict) -> None:
+    payload = json.dumps(bulk)
+    _upstash(["SET", _DHAN_PNL_BULK_REDIS_KEY, payload])
+    try:
+        with open(_DHAN_PNL_BULK_FILE, "w") as fh:
+            fh.write(payload)
+    except Exception as e:
+        print(f"[DhanPnL] bulk disk save error: {e}")
+
+
+def _import_dhan_pnl_bulk(bulk: dict) -> dict:
+    required = ("from_date", "to_date", "net_pnl", "gross_pnl", "brokerage", "total_charges", "rows")
+    missing = [k for k in required if k not in bulk]
+    if missing:
+        return {"status": "invalid_payload", "missing": missing}
+
+    computed_gross = round(sum(r.get("realised_pnl", 0) for r in bulk["rows"]), 2)
+    if computed_gross != round(bulk["gross_pnl"], 2):
+        return {"status": "validation_failed", "reason": f"sum(rows.realised_pnl)={computed_gross} != gross_pnl={bulk['gross_pnl']}"}
+    computed_net = round(bulk["gross_pnl"] - bulk["total_charges"], 2)
+    if computed_net != round(bulk["net_pnl"], 2):
+        return {"status": "validation_failed", "reason": f"gross_pnl - total_charges={computed_net} != net_pnl={bulk['net_pnl']}"}
+
+    bulk["imported_at"] = datetime.now(pytz.timezone("Asia/Kolkata")).isoformat()
+    _save_dhan_pnl_bulk(bulk)
+
+    # Prune any daily-synced entries already covered by this import so
+    # they can't be double-counted alongside it going forward.
+    history = _load_dhan_pnl_history()
+    to_date = bulk["to_date"]
+    pruned  = [d for d in history if d <= to_date]
+    if pruned:
+        history = {d: v for d, v in history.items() if d > to_date}
+        _save_dhan_pnl_history(history)
+
+    return {
+        "status": "imported",
+        "from_date": bulk["from_date"],
+        "to_date": bulk["to_date"],
+        "row_count": len(bulk["rows"]),
+        "net_pnl": bulk["net_pnl"],
+        "pruned_daily_dates": pruned,
+    }
+
+
 def _dhan_pnl_watch_loop() -> None:
     """Positions only reflect today's book, so this only makes sense to run
     once markets have effectively closed — earlier than that, today's
@@ -3527,11 +3606,30 @@ def admin_sync_dhan_pnl():
     return jsonify(_dhan_pnl_sync(force=True))
 
 
+@app.route("/api/admin/import-dhan-pnl-bulk", methods=["POST"])
+def admin_import_dhan_pnl_bulk():
+    """One-off historical backfill from Dhan's own Realised PnL Report CSV
+    (parsed into JSON before posting here). Validates the payload's own
+    internal math (rows sum to gross_pnl, gross_pnl - charges = net_pnl)
+    before storing, and prunes any daily-synced dates the import now
+    covers to prevent double-counting."""
+    body = flask_req.get_json(force=True, silent=True) or {}
+    if not SET_TOKEN_SECRET or body.get("secret") != SET_TOKEN_SECRET:
+        return jsonify({"error": "Unauthorized"}), 403
+    bulk = body.get("bulk")
+    if not isinstance(bulk, dict):
+        return jsonify({"error": "body.bulk (object) required"}), 400
+    result = _import_dhan_pnl_bulk(bulk)
+    status_code = 200 if result.get("status") == "imported" else 400
+    return jsonify(result), status_code
+
+
 @app.route("/api/dhan/pnl")
 def api_dhan_pnl():
     ist    = pytz.timezone("Asia/Kolkata")
     cutoff = (datetime.now(ist) - timedelta(days=30)).strftime("%Y-%m-%d")
-    history = {d: v for d, v in _load_dhan_pnl_history().items() if d >= cutoff}
+    full_history = _load_dhan_pnl_history()
+    history = {d: v for d, v in full_history.items() if d >= cutoff}
 
     days = []
     for d, positions in sorted(history.items()):
@@ -3542,11 +3640,26 @@ def api_dhan_pnl():
             "trade_count": len(positions),
             "positions": positions,
         })
-    total = round(sum(day["realized_pnl"] for day in days), 2)
+    total_30d = round(sum(day["realized_pnl"] for day in days), 2)
+
+    bulk = _load_dhan_pnl_bulk()
+    tracked_total = round(sum(
+        p.get("realizedProfit", 0) for positions in full_history.values() for p in positions
+    ), 2)
+    all_time = round(bulk.get("net_pnl", 0) + tracked_total, 2) if bulk else None
+
     return jsonify({
         "days": days,
-        "total_realized_pnl_30d": total,
+        "total_realized_pnl_30d": total_30d,
         "connected": _dhan_is_live(),
+        "historical": {
+            "from_date": bulk.get("from_date"),
+            "to_date": bulk.get("to_date"),
+            "net_pnl": bulk.get("net_pnl"),
+            "row_count": len(bulk.get("rows", [])),
+            "rows": bulk.get("rows", []),
+        } if bulk else None,
+        "all_time_pnl": all_time,
     })
 
 
