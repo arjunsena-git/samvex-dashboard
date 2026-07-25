@@ -1,118 +1,116 @@
 {
-  "generated_at": "2026-07-18",
-  "week_start": "2026-07-11",
-  "week_end": "2026-07-18",
-  "total_signals": 13,
-  "wins": 1,
-  "losses": 1,
-  "expired": 11,
-  "win_rate": 7.7,
+  "generated_at": "2026-07-25",
+  "week_start": "2026-07-18",
+  "week_end": "2026-07-25",
+  "total_signals": 10,
+  "wins": 0,
+  "losses": 2,
+  "expired": 8,
+  "win_rate": 0.0,
   "best_signal": {
-    "symbol": "BANKINDIA",
-    "panel": "Momentum Breakdown \u2014 Range Open + Clean PDL Break (Bearish)",
-    "setup_num": 7,
-    "direction": "bearish",
-    "is_active": false,
-    "detected_at": "13:35",
-    "score": 52,
-    "vol_ratio": 1.58,
-    "entry": 142.45,
-    "sl": 142.99,
-    "t1": 141.64,
-    "t2": 140.83,
-    "outcome": "T1_hit",
-    "entry_price": 142.64,
-    "exit_price": 141.64,
-    "r_achieved": 1.5,
-    "bars_to_outcome": 109,
-    "max_fav_pct": 0.86,
-    "date": "2026-07-14"
-  },
-  "worst_signal": {
-    "symbol": "BLS",
+    "symbol": "TBOTEK",
     "panel": "Momentum Breakdown \u2014 Range Open + Clean PDL Break (Bearish)",
     "setup_num": 7,
     "direction": "bearish",
     "is_active": true,
-    "detected_at": "14:50",
-    "score": 67,
-    "vol_ratio": 7.82,
-    "entry": 234.0,
-    "sl": 234.55,
-    "t1": 233.17,
-    "t2": 232.35,
+    "detected_at": "14:55",
+    "score": 50,
+    "vol_ratio": 2.61,
+    "entry": 1436.1,
+    "sl": 1452.75,
+    "t1": 1411.12,
+    "t2": 1386.15,
+    "outcome": "expired",
+    "entry_price": 1448.7,
+    "exit_price": 1436.1,
+    "r_achieved": 0.76,
+    "bars_to_outcome": 35,
+    "max_fav_pct": 1.81,
+    "date": "2026-07-23"
+  },
+  "worst_signal": {
+    "symbol": "RRKABEL",
+    "panel": "Momentum Breakdown \u2014 Range Open + Clean PDL Break (Bearish)",
+    "setup_num": 7,
+    "direction": "bearish",
+    "is_active": true,
+    "detected_at": "15:15",
+    "score": 74,
+    "vol_ratio": 4.0,
+    "entry": 2368.0,
+    "sl": 2383.13,
+    "t1": 2345.3,
+    "t2": 2322.61,
     "outcome": "SL_hit",
-    "entry_price": 235.35,
-    "exit_price": 234.55,
+    "entry_price": 2387.8,
+    "exit_price": 2383.13,
     "r_achieved": -1.0,
     "bars_to_outcome": 1,
-    "max_fav_pct": 0.04,
-    "date": "2026-07-14"
+    "max_fav_pct": 0.11,
+    "date": "2026-07-23"
   },
   "panels": {
-    "Momentum Breakout \u2014 Range Open + Clean PDH Break (Bullish)": {
-      "wins": 0,
-      "losses": 0,
-      "expired": 2,
-      "win_rate": 0.0
-    },
-    "Momentum Breakdown \u2014 Range Open + Clean PDL Break (Bearish)": {
-      "wins": 1,
-      "losses": 1,
-      "expired": 3,
-      "win_rate": 20.0
-    },
     "Bear Trap Reversal \u2014 Failed PDL Breakdown (Bullish)": {
       "wins": 0,
       "losses": 0,
-      "expired": 1,
+      "expired": 4,
       "win_rate": 0.0
     },
     "Bull Trap Reversal \u2014 Failed PDH Breakout (Bearish)": {
       "wins": 0,
       "losses": 0,
-      "expired": 2,
+      "expired": 3,
       "win_rate": 0.0
     },
-    "Demand Zone \u2014 Institutional Order Block Retest (Bullish)": {
+    "Momentum Breakdown \u2014 Range Open + Clean PDL Break (Bearish)": {
       "wins": 0,
-      "losses": 0,
-      "expired": 2,
-      "win_rate": 0.0
-    },
-    "Supply Zone \u2014 Institutional Order Block Retest (Bearish)": {
-      "wins": 0,
-      "losses": 0,
+      "losses": 1,
       "expired": 1,
+      "win_rate": 0.0
+    },
+    "Momentum Breakout \u2014 Range Open + Clean PDH Break (Bullish)": {
+      "wins": 0,
+      "losses": 1,
+      "expired": 0,
       "win_rate": 0.0
     }
   },
-  "missed_count": 1,
+  "missed_count": 2,
   "top_gate": "prev_day_rally",
   "gate_counts": {
-    "prev_day_rally": 1
+    "prev_day_rally": 2
   },
   "top_missed": [
     {
-      "date": "2026-07-16",
-      "symbol": "SIEMENS",
-      "actual_fall_pct": 5.09,
-      "day_high": 3853.9,
-      "day_close": 3657.6,
+      "date": "2026-07-22",
+      "symbol": "BANDHANBNK",
+      "actual_fall_pct": 7.32,
+      "day_high": 187.95,
+      "day_close": 174.2,
       "blocking_gate": "prev_day_rally",
-      "actual_value": 1.75,
+      "actual_value": -0.87,
+      "threshold": 6.0
+    },
+    {
+      "date": "2026-07-23",
+      "symbol": "BANDHANBNK",
+      "actual_fall_pct": 5.72,
+      "day_high": 175.91,
+      "day_close": 165.84,
+      "blocking_gate": "prev_day_rally",
+      "actual_value": -6.21,
       "threshold": 6.0
     }
   ],
   "auto_tunes_this_week": [
     {
-      "date": "2026-07-14",
-      "timestamp": "2026-07-14T17:45:03.213808+05:30",
+      "date": "2026-07-23",
+      "timestamp": "2026-07-23T17:54:36.118865+05:30",
       "panel_name": "Exhaustion Short",
       "setup_num": 2,
       "parameter": "EXH_VOL_RATIO",
-      "old_value": "1.3",
-      "new_value": "1.2",
+      "old_value": "1.2",
+      "new_value": "1.1",
       "direction": "loosened",
       "trigger": "volume_starved",
       "win_rate": 0,
@@ -120,16 +118,16 @@
       "wins": 0,
       "losses": 0,
       "expired": 0,
-      "commit": "d5827a9"
+      "commit": "e870e89"
     },
     {
-      "date": "2026-07-14",
-      "timestamp": "2026-07-14T17:45:03.213808+05:30",
+      "date": "2026-07-23",
+      "timestamp": "2026-07-23T17:54:36.118865+05:30",
       "panel_name": "PDH Breakout",
       "setup_num": 3,
       "parameter": "PDH_VOL_MIN",
-      "old_value": "1,000,000",
-      "new_value": "900,000",
+      "old_value": "900,000",
+      "new_value": "800,000",
       "direction": "loosened",
       "trigger": "volume_starved",
       "win_rate": 0,
@@ -137,16 +135,16 @@
       "wins": 0,
       "losses": 0,
       "expired": 0,
-      "commit": "d5827a9"
+      "commit": "e870e89"
     },
     {
-      "date": "2026-07-14",
-      "timestamp": "2026-07-14T17:45:03.213808+05:30",
+      "date": "2026-07-23",
+      "timestamp": "2026-07-23T17:54:36.118865+05:30",
       "panel_name": "ORB",
       "setup_num": 4,
       "parameter": "ORB_VOL_RATIO",
-      "old_value": "1.5",
-      "new_value": "1.4",
+      "old_value": "1.4",
+      "new_value": "1.3",
       "direction": "loosened",
       "trigger": "volume_starved",
       "win_rate": 0,
@@ -154,16 +152,16 @@
       "wins": 0,
       "losses": 0,
       "expired": 0,
-      "commit": "d5827a9"
+      "commit": "e870e89"
     },
     {
-      "date": "2026-07-14",
-      "timestamp": "2026-07-14T17:45:03.213808+05:30",
+      "date": "2026-07-23",
+      "timestamp": "2026-07-23T17:54:36.118865+05:30",
       "panel_name": "OI Options",
       "setup_num": 5,
       "parameter": "OI_OPT_REL_VOL_MIN",
-      "old_value": "2.0",
-      "new_value": "1.8",
+      "old_value": "1.8",
+      "new_value": "1.6",
       "direction": "loosened",
       "trigger": "volume_starved",
       "win_rate": 0,
@@ -171,16 +169,16 @@
       "wins": 0,
       "losses": 0,
       "expired": 0,
-      "commit": "d5827a9"
+      "commit": "e870e89"
     },
     {
-      "date": "2026-07-14",
-      "timestamp": "2026-07-14T17:45:03.213808+05:30",
+      "date": "2026-07-23",
+      "timestamp": "2026-07-23T17:54:36.118865+05:30",
       "panel_name": "Demand/Supply Zone",
       "setup_num": 6,
       "parameter": "DZ_IMPULSE_VOL_RATIO",
-      "old_value": "1.8",
-      "new_value": "1.7",
+      "old_value": "1.7",
+      "new_value": "1.6",
       "direction": "loosened",
       "trigger": "volume_starved",
       "win_rate": 0,
@@ -188,16 +186,16 @@
       "wins": 0,
       "losses": 0,
       "expired": 0,
-      "commit": "d5827a9"
+      "commit": "e870e89"
     },
     {
-      "date": "2026-07-14",
-      "timestamp": "2026-07-14T17:45:03.213808+05:30",
+      "date": "2026-07-23",
+      "timestamp": "2026-07-23T17:54:36.118865+05:30",
       "panel_name": "Momentum Breakout/Breakdown",
       "setup_num": 7,
       "parameter": "MB_VOL_RATIO",
-      "old_value": "1.5",
-      "new_value": "1.4",
+      "old_value": "1.4",
+      "new_value": "1.3",
       "direction": "loosened",
       "trigger": "volume_starved",
       "win_rate": 0,
@@ -205,16 +203,16 @@
       "wins": 0,
       "losses": 0,
       "expired": 0,
-      "commit": "d5827a9"
+      "commit": "e870e89"
     },
     {
-      "date": "2026-07-14",
-      "timestamp": "2026-07-14T17:45:03.213808+05:30",
+      "date": "2026-07-23",
+      "timestamp": "2026-07-23T17:54:36.118865+05:30",
       "panel_name": "Trap Reversal",
       "setup_num": 8,
       "parameter": "TRAP_VOL_RATIO",
-      "old_value": "1.5",
-      "new_value": "1.4",
+      "old_value": "1.4",
+      "new_value": "1.3",
       "direction": "loosened",
       "trigger": "volume_starved",
       "win_rate": 0,
@@ -222,10 +220,78 @@
       "wins": 0,
       "losses": 0,
       "expired": 0,
-      "commit": "d5827a9"
+      "commit": "e870e89"
     }
   ],
-  "proposals_applied_this_week": [],
+  "proposals_applied_this_week": [
+    {
+      "type": "parameter_tune",
+      "panel": "Exhaustion Short \u2014 Profit Booking",
+      "parameter": "EXH_PREV_DAY_RALLY_PCT",
+      "current_value": "6.0",
+      "proposed_value": "2.5",
+      "reasoning": "The missed-signals data shows all 3 misses (100% of missed signals) were blocked solely by prev_day_rally. JUBLFOOD had a prior-day rally of 3.81% and fell 5.22%; SIEMENS had 1.75% and fell 5.09%; DRREDDY had -0.41% (actually a DOWN day prior) and fell 5.75%. The current threshold of 6.0% is far too high \u2014 it is demanding a large prior-day rally as a precondition, but exhaustion selling clearly happens on stocks that have rallied cumulatively or are getting a sector/news spike on an otherwise quiet prior day. The cumul_rally_pct OR gate (EXH_CUMUL_RALLY_PCT) already handles the multi-day case, so reducing EXH_PREV_DAY_RALLY_PCT to 2.5% preserves the intent (some prior strength required) while catching the missed cases: JUBLFOOD at 3.81% and SIEMENS at 1.75% would both pass at 2.5%, and DRREDDY with -0.41% would still fail this gate but may pass via cumul_rally_pct if the 3-day cumulative move is sufficient.",
+      "expected_impact": "Recovers at least 2 of the 3 documented missed signals. May increase signal frequency modestly; the impulse-candle gates (EXH_IMPULSE_MOVE_PCT, EXH_IMPULSE_TURNOVER_PCT, same-slot volume check) still act as quality filters so noise increase should be limited.",
+      "confidence": "HIGH",
+      "status": "auto_applied",
+      "applied_at": "2026-07-19",
+      "formatted_value": "2.5"
+    },
+    {
+      "type": "parameter_tune",
+      "panel": "Exhaustion Short \u2014 Profit Booking",
+      "parameter": "EXH_CUMUL_RALLY_PCT",
+      "current_value": "12.0",
+      "proposed_value": "6.0",
+      "reasoning": "DRREDDY (-0.41% prior day, blocked by prev_day_rally gate) would still fail even after reducing EXH_PREV_DAY_RALLY_PCT to 2.5 unless the cumulative 3-day gate is also reachable. DRREDDY fell 5.75% on a day when prior-day was flat/down, which is consistent with a multi-day cumulative rally topping out \u2014 the 3-day cumul gate is the correct one to catch this, but at 12% it requires a sustained 4%/day average rally which is rare. Lowering to 6% (2%/day average over 3 days) is still a meaningful filter for 'the stock has been moving up recently' while being achievable for mid-cap stocks like DRREDDY. The two gates are OR-combined in the code (reject only if BOTH fail), so this reduction expands coverage specifically for the slow-grind-up exhaustion pattern that the prior-day gate misses.",
+      "expected_impact": "Catches the DRREDDY-type missed signal where prior day was flat but 3-day trend was up. Small increase in false positives possible, mitigated by the 5-gate impulse candle check stack.",
+      "confidence": "MEDIUM",
+      "status": "auto_applied",
+      "applied_at": "2026-07-19",
+      "formatted_value": "6.0"
+    }
+  ],
   "pending_proposals": 0,
-  "narrative": "Win rate this week was 7.7% (1W / 1L / 11E across 13 signals) \u2014 below target. Agent 4 made 7 automatic changes: Exhaustion Short: EXH_VOL_RATIO 1.3\u21921.2 (loosened, wr was 0%); PDH Breakout: PDH_VOL_MIN 1,000,000\u2192900,000 (loosened, wr was 0%); ORB: ORB_VOL_RATIO 1.5\u21921.4 (loosened, wr was 0%); OI Options: OI_OPT_REL_VOL_MIN 2.0\u21921.8 (loosened, wr was 0%); Demand/Supply Zone: DZ_IMPULSE_VOL_RATIO 1.8\u21921.7 (loosened, wr was 0%); Momentum Breakout/Breakdown: MB_VOL_RATIO 1.5\u21921.4 (loosened, wr was 0%); Trap Reversal: TRAP_VOL_RATIO 1.5\u21921.4 (loosened, wr was 0%). Agent 2 found 1 missed setup \u2014 prev_day_rally was the top blocker (1 stock, 100% of misses)."
+  "structural_proposals": [
+    {
+      "type": "logic_change",
+      "panel": "PDH Breakout \u2014 Trend + Momentum",
+      "title": "Add Nifty regime filter and require a pullback-then-retest entry rather than chasing price above PDH",
+      "proposed_change": "Insert two new gates immediately after the freshness check (n_bars - 1 - bos_bar > _PDH_FRESH): (1) Nifty regime gate \u2014 add a constant PDH_NIFTY_MIN_CHG = -0.3 and reject the signal if nifty_chg < PDH_NIFTY_MIN_CHG, mirroring the nifty_chg > 1.0 short-side filter used in ORB and Momentum; (2) Pullback-retest entry gate \u2014 instead of using current_price as entry at any point above PDH, require that after bos_bar the price has at least once traded back to within PDH * 1.005 (a constant PDH_RETEST_BAND_PCT = 0.5, meaning within 0.5% of PDH from above) before the current bar, confirming the level was retested as support. Concretely: scan bars from bos_bar+1 to n_bars-2 for any low <= pdh * (1 + PDH_RETEST_BAND_PCT/100); if none found, reject with _dbg_fail(_debug, 'no_retest_of_pdh', symbol). This gate sits between the freshness check and the EMA filter.",
+      "reasoning": "PDH Breakout has 0 wins across 21 signals (17 losses, 4 expired) over 30 days \u2014 this is not a small-sample issue. The current code enters at current_price which can be 2-4% above PDH by the time the screener fires, giving a poor risk/reward and catching breakouts that are already extended. There is no Nifty direction filter at all on this bullish panel, meaning it fires on days when Nifty is falling. Every other bullish panel in the codebase (ORB bullish, Momentum Breakout bullish, Trap bullish) already rejects when nifty_chg < -1.0; PDH Breakout uniquely lacks this. The combination of late entry + no market filter plausibly explains 17 consecutive losses.",
+      "expected_impact": "Signal count drops significantly (estimated 60-75% reduction) but the surviving signals should have defined risk at PDH rather than chasing; win rate should recover toward 40%+ if the retest gate is effective. The Nifty filter alone would have blocked signals on down-market days which account for a meaningful share of the 17 losses.",
+      "confidence": "MEDIUM",
+      "status": "proposed_for_review"
+    },
+    {
+      "type": "logic_change",
+      "panel": "Momentum Breakout \u2014 Range Open + Clean PDH Break (Bullish)",
+      "title": "Add daily trend filter: require price above 20-day EMA on daily chart before firing bullish Momentum Breakout",
+      "proposed_change": "Add a new constant MB_DAILY_EMA_PERIOD = 20. After the gapped_open check and before the breakout_bar search loop, compute the 20-period EMA of daily closes using the existing _ema() helper: daily_closes_list = daily['Close'].astype(float).tolist(); ema20d = _ema(daily_closes_list, MB_DAILY_EMA_PERIOD). Reject with _dbg_fail(_debug, 'below_daily_ema20', symbol) if bullish and the previous close (daily['Close'].iloc[-2]) < ema20d, or if bearish and the previous close > ema20d. This gate sits immediately after the pdh/pdl validity check and before the gapped_open check.",
+      "reasoning": "Momentum Breakout Bullish has a 12.5% win rate (2 wins, 7 losses, 7 expired over 16 signals). The current code has no daily trend filter whatsoever \u2014 it will fire a bullish PDH breakout on a stock that is in a multi-week downtrend, where PDH breaks are routinely sold into. The PDH Breakout panel has RSI >= 60 and 200-period EMA (15m) as trend filters and still scores 0%; the Momentum Breakout panel has neither. A simple 20-day EMA on the daily chart is the minimal trend confirmation used in most Indian trading frameworks and would have filtered stocks breaking PDH while trending below their 20-day mean. The bearish side (22.7% win rate, 5 wins) is relatively better \u2014 bearish breakdown signals on stocks below 20-day EMA would be naturally more numerous and correct, consistent with the asymmetry in win rates between the two directions.",
+      "expected_impact": "Reduces bullish signal count by an estimated 30-40%; should meaningfully improve win rate by eliminating counter-trend long setups. Bearish direction gets the symmetric benefit (only fires on stocks already below 20d EMA).",
+      "confidence": "MEDIUM",
+      "status": "proposed_for_review"
+    },
+    {
+      "type": "logic_change",
+      "panel": "Bull Trap Reversal \u2014 Failed PDH Breakout (Bearish)",
+      "title": "Require that the trap bar closed meaningfully above PDH (not just a 1-tick break) before accepting the reversal",
+      "proposed_change": "Add a constant TRAP_MIN_BREAK_PCT = 0.3. After trap_bar is found (closes[i] > pdh for bearish), add a check: break_pct = (closes[trap_bar] - pdh) / pdh * 100; if break_pct < TRAP_MIN_BREAK_PCT: reject with _dbg_fail(_debug, 'trap_break_too_shallow', symbol, break_pct=round(break_pct,2), needed=TRAP_MIN_BREAK_PCT). This gate sits immediately after the trap_bar assignment block, before the reversal_bar search. A symmetric constant TRAP_MIN_BREAK_PCT applies to both directions (for bullish bear trap: (pdl - closes[trap_bar]) / pdl * 100 >= TRAP_MIN_BREAK_PCT).",
+      "reasoning": "Bull Trap Bearish has 6.2% win rate \u2014 1 win, 6 losses, 9 expired across 16 signals. The current code accepts any close above PDH as a valid 'bull trap' breakout bar, including 1-tick or noise closes that barely exceed the level. A shallow break above PDH followed by a close back below it is not a true bull trap \u2014 it is just price oscillating around resistance, and fading it produces losses because there is no real squeeze of trapped buyers. A minimum break of 0.3% above PDH means buyers had to commit meaningfully (roughly 0.3% slippage through the level) before being reversed, making the reversal signal structurally sounder. The 9 expired signals also suggest the setups are not decisive enough \u2014 a minimum break threshold helps select only the cases where a real crowd of breakout buyers exists to be trapped.",
+      "expected_impact": "Reduces signal count on both trap directions; Bull Trap Bearish reduction estimated 40-50% as many signals are likely shallow breaks. Win rate should improve materially if shallow-break noise is the primary driver of the 6.2% rate. Bear Trap Bullish (14.3% win rate, better but still low) gets the same quality improvement.",
+      "confidence": "MEDIUM",
+      "status": "proposed_for_review"
+    },
+    {
+      "type": "logic_change",
+      "panel": "ORB \u2014 Opening Range Breakout (Bullish and Bearish)",
+      "title": "Flag small-sample caveat and add ADR (Average Daily Range) filter to exclude low-volatility stocks where ORB has no follow-through room",
+      "proposed_change": "Add a constant ORB_MIN_ADR_PCT = 1.5 (minimum average daily range as % of price over 5 days). After the prior_range_pct consolidation check, compute: recent_daily = daily.iloc[-6:-1]; adr_pct = float(((recent_daily['High'].astype(float) - recent_daily['Low'].astype(float)) / recent_daily['Close'].astype(float) * 100).mean()); if adr_pct < ORB_MIN_ADR_PCT: reject with _dbg_fail(_debug, 'adr_too_low', symbol, adr_pct=round(adr_pct,2), needed=ORB_MIN_ADR_PCT). This gate sits immediately after the prior_range_pct check and before the today_bars5 construction. Note: ORB has only 8 bullish and 1 bearish signal in 30 days \u2014 the 0% win rate on both is flagged as potentially small-sample (9 total signals), but the ADR filter is still warranted because the ORB concept requires the stock to have enough daily range to move to T1 (1.5x risk) after a 0.4% opening range breakout, and low-ADR stocks structurally cannot do this.",
+      "expected_impact": "Modest signal reduction (estimated 20-30%) by excluding tightly-ranged stocks where ORB targets are unreachable. Does not address the sample-size problem \u2014 30 more days of data needed to draw confident conclusions \u2014 but removes a structurally unsound subset of signals regardless of win rate.",
+      "confidence": "LOW",
+      "status": "proposed_for_review"
+    }
+  ],
+  "narrative": "Win rate this week was 0.0% (0W / 2L / 8E across 10 signals) \u2014 below target. Agent 4 made 7 automatic changes: Exhaustion Short: EXH_VOL_RATIO 1.2\u21921.1 (loosened, wr was 0%); PDH Breakout: PDH_VOL_MIN 900,000\u2192800,000 (loosened, wr was 0%); ORB: ORB_VOL_RATIO 1.4\u21921.3 (loosened, wr was 0%); OI Options: OI_OPT_REL_VOL_MIN 1.8\u21921.6 (loosened, wr was 0%); Demand/Supply Zone: DZ_IMPULSE_VOL_RATIO 1.7\u21921.6 (loosened, wr was 0%); Momentum Breakout/Breakdown: MB_VOL_RATIO 1.4\u21921.3 (loosened, wr was 0%); Trap Reversal: TRAP_VOL_RATIO 1.4\u21921.3 (loosened, wr was 0%). Agent 3 applied 2 parameter changes on Sunday: EXH_PREV_DAY_RALLY_PCT 6.0\u21922.5 [HIGH]; EXH_CUMUL_RALLY_PCT 12.0\u21926.0 [MEDIUM]. Agent 3 also flagged 4 structural ideas \u2014 new gates/parameters the current code doesn't have, not auto-applied, needs real review: PDH Breakout \u2014 Trend + Momentum: Add Nifty regime filter and require a pullback-then-retest entry rather than chasing price above PDH; Momentum Breakout \u2014 Range Open + Clean PDH Break (Bullish): Add daily trend filter: require price above 20-day EMA on daily chart before firing bullish Momentum Breakout; Bull Trap Reversal \u2014 Failed PDH Breakout (Bearish): Require that the trap bar closed meaningfully above PDH (not just a 1-tick break) before accepting the reversal; ORB \u2014 Opening Range Breakout (Bullish and Bearish): Flag small-sample caveat and add ADR (Average Daily Range) filter to exclude low-volatility stocks where ORB has no follow-through room. Agent 2 found 2 missed setups \u2014 prev_day_rally was the top blocker (2 stocks, 100% of misses)."
 }
