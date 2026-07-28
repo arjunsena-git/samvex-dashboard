@@ -3706,6 +3706,14 @@ def admin_backfill_dhan_charges():
     if not entry["positions"]:
         return jsonify({"status": "no_entry_for_date", "date": date_str})
 
+    if body.get("raw_diag"):
+        url = f"{DHAN_BASE}/trades/{date_str}/{date_str}/0"
+        try:
+            r = _http.get(url, headers={"Accept": "application/json", "access-token": _dhan_token["access_token"]}, timeout=15)
+            return jsonify({"url": url, "http_status": r.status_code, "response_body": r.text[:1500]})
+        except Exception as e:
+            return jsonify({"url": url, "exception": str(e)})
+
     trades = _fetch_dhan_trades(date_str)
     if trades is None:
         return jsonify({"status": "fetch_failed", "date": date_str})
