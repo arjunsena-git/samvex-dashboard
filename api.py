@@ -3647,9 +3647,14 @@ def admin_dhan_totp_diag():
             "https://auth.dhan.co/app/generateAccessToken",
             params={"dhanClientId": client_id, "pin": pin, "totp": code},
             timeout=15,
+            allow_redirects=False,
         )
         diag["http_status"] = r.status_code
         diag["response_body"] = r.text[:500]
+        diag["allow_header"] = r.headers.get("Allow")
+        diag["location_header"] = r.headers.get("Location")
+        diag["request_url"] = r.request.url
+        diag["request_method"] = r.request.method
         if r.status_code == 200:
             token = r.json().get("accessToken")
             diag["accessToken_present"] = bool(token)
