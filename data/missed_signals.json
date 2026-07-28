@@ -48,5 +48,25 @@
     "blocking_gate": "prev_day_rally",
     "actual_value": -6.21,
     "threshold": 6.0
+  },
+  {
+    "date": "2026-07-28",
+    "symbol": "HINDUNILVR",
+    "actual_fall_pct": 8.72,
+    "day_high": 2213.0,
+    "day_close": 2020.0,
+    "blocking_gate": "prev_day_rally",
+    "actual_value": 1.38,
+    "threshold": 6.0
+  },
+  {
+    "date": "2026-07-28",
+    "symbol": "DMART",
+    "actual_fall_pct": 6.02,
+    "day_high": 4092.8,
+    "day_close": 3846.6,
+    "blocking_gate": "prev_day_rally",
+    "actual_value": 0.23,
+    "threshold": 6.0
   }
 ]
