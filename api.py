@@ -3714,6 +3714,12 @@ def admin_backfill_dhan_charges():
     entry["total_charges"]    = total_charges
     entry["net_pnl"]          = round(entry["gross_pnl"] - total_charges, 2)
     entry["charges_verified"] = True
+    if body.get("diag"):
+        return jsonify({
+            "trade_count": len(trades),
+            "sample_trades": trades[:3],
+            "total_charges": total_charges,
+        })
     history[date_str] = entry
     _save_dhan_pnl_history(history)
 
