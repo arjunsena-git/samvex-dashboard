@@ -3684,6 +3684,45 @@ def admin_sync_dhan_pnl():
     return jsonify(_dhan_pnl_sync(force=True))
 
 
+@app.route("/api/admin/backfill-dhan-charges", methods=["POST"])
+def admin_backfill_dhan_charges():
+    """One-off migration: _dhan_pnl_sync() can only ever target TODAY
+    (Positions is a live, today-only endpoint), so an already-stored day
+    from before charges were netted out can't go through the normal sync
+    path again. Trade History, unlike Positions, does take an arbitrary
+    date — so this fetches just the charges for a past date already in
+    the store and fills them into its existing entry, leaving the
+    already-correct positions/gross_pnl untouched.
+    POST body: {"secret": "...", "date": "YYYY-MM-DD"}"""
+    body = flask_req.get_json(force=True, silent=True) or {}
+    if not SET_TOKEN_SECRET or body.get("secret") != SET_TOKEN_SECRET:
+        return jsonify({"error": "Unauthorized"}), 403
+    date_str = body.get("date", "")
+    if not date_str:
+        return jsonify({"error": "date (YYYY-MM-DD) required"}), 400
+
+    history = _load_dhan_pnl_history()
+    entry = _dhan_day_entry_normalized(history.get(date_str))
+    if not entry["positions"]:
+        return jsonify({"status": "no_entry_for_date", "date": date_str})
+
+    trades = _fetch_dhan_trades(date_str)
+    if trades is None:
+        return jsonify({"status": "fetch_failed", "date": date_str})
+
+    total_charges = _sum_dhan_charges(trades)
+    entry["total_charges"]    = total_charges
+    entry["net_pnl"]          = round(entry["gross_pnl"] - total_charges, 2)
+    entry["charges_verified"] = True
+    history[date_str] = entry
+    _save_dhan_pnl_history(history)
+
+    return jsonify({
+        "status": "backfilled", "date": date_str,
+        "gross_pnl": entry["gross_pnl"], "total_charges": total_charges, "net_pnl": entry["net_pnl"],
+    })
+
+
 @app.route("/api/admin/dhan-totp-diag", methods=["POST"])
 def admin_dhan_totp_diag():
     """Diagnostic-only version of _dhan_generate_token_via_totp() — the
