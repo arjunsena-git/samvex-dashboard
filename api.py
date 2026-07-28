@@ -3616,6 +3616,54 @@ def admin_sync_dhan_pnl():
     return jsonify(_dhan_pnl_sync(force=True))
 
 
+@app.route("/api/admin/dhan-totp-diag", methods=["POST"])
+def admin_dhan_totp_diag():
+    """Diagnostic-only version of _dhan_generate_token_via_totp() — the
+    real function only print()s failures to Render's own logs, which
+    aren't reachable from here, so this duplicates the call and returns
+    the actual HTTP status/response instead of swallowing it. Never
+    returns the token or TOTP code itself, only enough to diagnose."""
+    body = flask_req.get_json(force=True, silent=True) or {}
+    if not SET_TOKEN_SECRET or body.get("secret") != SET_TOKEN_SECRET:
+        return jsonify({"error": "Unauthorized"}), 403
+
+    client_id   = os.environ.get("DHAN_CLIENT_ID", "")
+    pin         = os.environ.get("DHAN_PIN", "")
+    totp_secret = os.environ.get("DHAN_TOTP_SECRET", "")
+    diag = {
+        "DHAN_CLIENT_ID_set": bool(client_id),
+        "DHAN_PIN_set": bool(pin),
+        "DHAN_TOTP_SECRET_set": bool(totp_secret),
+    }
+    if not (client_id and pin and totp_secret):
+        diag["result"] = "missing_config"
+        return jsonify(diag)
+
+    try:
+        import pyotp
+        code = pyotp.TOTP(totp_secret).now()
+        diag["totp_code_generated"] = len(code) == 6 and code.isdigit()
+        r = _http.get(
+            "https://auth.dhan.co/app/generateAccessToken",
+            params={"dhanClientId": client_id, "pin": pin, "totp": code},
+            timeout=15,
+        )
+        diag["http_status"] = r.status_code
+        diag["response_body"] = r.text[:500]
+        if r.status_code == 200:
+            token = r.json().get("accessToken")
+            diag["accessToken_present"] = bool(token)
+            if token:
+                _dhan_token["access_token"] = token
+                _dhan_token["expires_at"]   = time.time() + 23 * 3600
+                _save_dhan_token(token, _dhan_token["expires_at"])
+                diag["applied"] = True
+        return jsonify(diag)
+    except Exception as e:
+        diag["exception"] = str(e)
+        return jsonify(diag)
+
+
 @app.route("/api/admin/import-dhan-pnl-bulk", methods=["POST"])
 def admin_import_dhan_pnl_bulk():
     """One-off historical backfill from Dhan's own Realised PnL Report CSV
