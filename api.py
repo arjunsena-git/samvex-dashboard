@@ -810,6 +810,48 @@ def _fetch_dhan_positions():
         return None
 
 
+_DHAN_CHARGE_FIELDS = (
+    "sebiTax", "stt", "brokerageCharges",
+    "serviceTax", "exchangeTransactionCharges", "stampDuty",
+)
+
+
+def _fetch_dhan_trades(date_str: str):
+    """GET /v2/trades/{from}/{to}/{page} for a single day, paginated —
+    unlike Positions, this carries per-trade charge fields (brokerage,
+    STT, etc.), which is the only way to net Positions' gross
+    realizedProfit down to the same basis as Dhan's own Net P&L reports.
+    Stops on the first empty page rather than assuming a fixed page size
+    (undocumented), capped as a safety valve against a runaway loop."""
+    if not _dhan_is_live():
+        return None
+    all_trades = []
+    page = 0
+    while page < 20:
+        try:
+            r = _http.get(
+                f"{DHAN_BASE}/trades/{date_str}/{date_str}/{page}",
+                headers={"Accept": "application/json", "access-token": _dhan_token["access_token"]},
+                timeout=15,
+            )
+            if r.status_code != 200:
+                print(f"[DhanPnL] trades fetch failed (page {page}): {r.status_code} {r.text[:200]}")
+                return all_trades if all_trades else None
+            batch = r.json()
+            if not batch:
+                break
+            all_trades.extend(batch)
+            page += 1
+        except Exception as e:
+            print(f"[DhanPnL] trades fetch error (page {page}): {e}")
+            return all_trades if all_trades else None
+    return all_trades
+
+
+def _sum_dhan_charges(trades: list) -> float:
+    return round(sum(float(t.get(f, 0) or 0) for t in trades for f in _DHAN_CHARGE_FIELDS), 2)
+
+
 # ── Dhan realised P&L history — persistent across restarts ──────────
 # Same Redis-first/disk-fallback pattern as daily reports/trade journal.
 _DHAN_PNL_REDIS_KEY     = _REDIS_KEY_PREFIX + "samvex_dhan_pnl"
@@ -873,17 +915,42 @@ def _dhan_pnl_sync(force: bool = False) -> dict:
         p for p in positions
         if p.get("positionType") == "CLOSED" or (p.get("netQty", 0) == 0 and p.get("realizedProfit"))
     ]
+    gross_pnl = round(sum(p.get("realizedProfit", 0) for p in closed), 2)
+
+    # Positions' realizedProfit is gross (pre-charges) — confirmed against
+    # Dhan's own Realised PnL Report, which matched it to the paisa against
+    # their "Gross P&L". Net it down the same way that report does, using
+    # the actual per-trade charges rather than an estimate, so daily-tracked
+    # figures stay on the same basis as the historical import instead of
+    # silently overstating profit by whatever the day's charges were.
+    trades = _fetch_dhan_trades(today_str) if closed else []
+    charges_verified = trades is not None
+    total_charges = _sum_dhan_charges(trades) if trades else 0.0
+    net_pnl = round(gross_pnl - total_charges, 2) if charges_verified else gross_pnl
 
     history = _load_dhan_pnl_history()
-    history[today_str] = closed
+    history[today_str] = {
+        "positions": closed,
+        "gross_pnl": gross_pnl,
+        "total_charges": total_charges,
+        "net_pnl": net_pnl,
+        "charges_verified": charges_verified,
+    }
     cutoff  = (now - timedelta(days=DHAN_PNL_RETENTION_DAYS)).strftime("%Y-%m-%d")
     history = {d: v for d, v in history.items() if d >= cutoff}
     _save_dhan_pnl_history(history)
     _dhan_sync_state["synced_for"] = today_str
 
-    total_pnl = round(sum(p.get("realizedProfit", 0) for p in closed), 2)
-    print(f"[DhanPnL] Synced {len(closed)} closed position(s) for {today_str} — realised P&L ₹{total_pnl}")
-    return {"status": "synced", "date": today_str, "count": len(closed), "realized_pnl": total_pnl}
+    if not charges_verified:
+        print(f"[DhanPnL] WARNING: could not fetch trade charges for {today_str} — "
+              f"using gross ₹{gross_pnl} as a fallback, net figure NOT verified")
+    print(f"[DhanPnL] Synced {len(closed)} closed position(s) for {today_str} — "
+          f"gross ₹{gross_pnl}, charges ₹{total_charges}, net ₹{net_pnl}")
+    return {
+        "status": "synced", "date": today_str, "count": len(closed),
+        "gross_pnl": gross_pnl, "total_charges": total_charges,
+        "net_pnl": net_pnl, "charges_verified": charges_verified,
+    }
 
 
 # ── Dhan bulk historical import — one-off, from Dhan's own "Realised
@@ -3691,28 +3758,43 @@ def admin_import_dhan_pnl_bulk():
     return jsonify(result), status_code
 
 
+def _dhan_day_entry_normalized(v):
+    """v is either the current {"positions", "gross_pnl", "net_pnl", ...}
+    dict, or an older flat list of positions from before charges were
+    netted out — normalize both to the same shape so callers don't need
+    to care which one a given date was stored as."""
+    if isinstance(v, dict):
+        return v
+    positions = v or []
+    gross = round(sum(p.get("realizedProfit", 0) for p in positions), 2)
+    return {
+        "positions": positions, "gross_pnl": gross,
+        "total_charges": 0.0, "net_pnl": gross, "charges_verified": False,
+    }
+
+
 @app.route("/api/dhan/pnl")
 def api_dhan_pnl():
     ist    = pytz.timezone("Asia/Kolkata")
     cutoff = (datetime.now(ist) - timedelta(days=30)).strftime("%Y-%m-%d")
-    full_history = _load_dhan_pnl_history()
+    full_history = {d: _dhan_day_entry_normalized(v) for d, v in _load_dhan_pnl_history().items()}
     history = {d: v for d, v in full_history.items() if d >= cutoff}
 
     days = []
-    for d, positions in sorted(history.items()):
-        realized = round(sum(p.get("realizedProfit", 0) for p in positions), 2)
+    for d, entry in sorted(history.items()):
         days.append({
             "date": d,
-            "realized_pnl": realized,
-            "trade_count": len(positions),
-            "positions": positions,
+            "realized_pnl": entry["net_pnl"],
+            "gross_pnl": entry["gross_pnl"],
+            "total_charges": entry["total_charges"],
+            "charges_verified": entry["charges_verified"],
+            "trade_count": len(entry["positions"]),
+            "positions": entry["positions"],
         })
     total_30d = round(sum(day["realized_pnl"] for day in days), 2)
 
     bulk = _load_dhan_pnl_bulk()
-    tracked_total = round(sum(
-        p.get("realizedProfit", 0) for positions in full_history.values() for p in positions
-    ), 2)
+    tracked_total = round(sum(entry["net_pnl"] for entry in full_history.values()), 2)
     all_time = round(bulk.get("net_pnl", 0) + tracked_total, 2) if bulk else None
 
     return jsonify({

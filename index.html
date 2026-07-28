@@ -2488,6 +2488,7 @@
           <td>${x.trade_count}</td>
           <td style="color:${x.realized_pnl > 0 ? 'var(--green)' : x.realized_pnl < 0 ? 'var(--red)' : 'var(--text-muted)'};font-weight:700;">
             ₹${x.realized_pnl.toLocaleString('en-IN', {maximumFractionDigits: 0})}
+            ${!x.charges_verified ? '<span title="Trade-charge data unavailable that day — this is gross P&L, not net of brokerage/STT/etc." style="color:var(--yellow);cursor:help;">&nbsp;⚠</span>' : ''}
           </td>
         </tr>`).join('');
       daysEl.innerHTML = `
@@ -2496,7 +2497,7 @@
             ${_dhanPnlDaysExpanded ? '▲ Hide daily-tracked breakdown' : '▼ Show daily-tracked breakdown'}
           </button>
           ${_dhanPnlDaysExpanded ? `<div class="table-wrap" style="margin-top:8px;"><table class="journal-table">
-            <thead><tr><th>Date</th><th>Closed Trades</th><th>Realised P&amp;L</th></tr></thead>
+            <thead><tr><th>Date</th><th>Closed Trades</th><th>Realised P&amp;L (net of charges)</th></tr></thead>
             <tbody>${rows}</tbody>
           </table></div>` : ''}
         </div>
