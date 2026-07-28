@@ -742,7 +742,7 @@ def _dhan_generate_token_via_totp():
     try:
         import pyotp
         code = pyotp.TOTP(totp_secret).now()
-        r = _http.get(
+        r = _http.post(
             "https://auth.dhan.co/app/generateAccessToken",
             params={"dhanClientId": client_id, "pin": pin, "totp": code},
             timeout=15,
@@ -3643,7 +3643,7 @@ def admin_dhan_totp_diag():
         import pyotp
         code = pyotp.TOTP(totp_secret).now()
         diag["totp_code_generated"] = len(code) == 6 and code.isdigit()
-        r = _http.get(
+        r = _http.post(
             "https://auth.dhan.co/app/generateAccessToken",
             params={"dhanClientId": client_id, "pin": pin, "totp": code},
             timeout=15,
