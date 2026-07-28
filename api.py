@@ -854,6 +854,16 @@ def _dhan_pnl_sync(force: bool = False) -> dict:
     if not _dhan_is_live():
         return {"status": "no_token"}
 
+    # A historical bulk import already covers everything through its
+    # to_date — without this, a server restart on the same calendar day as
+    # an import resets _dhan_sync_state in memory (Redis-persisted history
+    # survives, but the in-memory dedup doesn't), and the watch loop's next
+    # tick re-syncs "today" right back into the daily store, double-counting
+    # whatever the import already covered. This happened for real once.
+    bulk = _load_dhan_pnl_bulk()
+    if bulk and today_str <= bulk.get("to_date", ""):
+        return {"status": "already_covered_by_historical_import", "to_date": bulk.get("to_date")}
+
     positions = _fetch_dhan_positions()
     if positions is None:
         return {"status": "fetch_failed"}
