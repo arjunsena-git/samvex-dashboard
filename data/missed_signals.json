@@ -68,5 +68,15 @@
     "blocking_gate": "prev_day_rally",
     "actual_value": 0.23,
     "threshold": 6.0
+  },
+  {
+    "date": "2026-08-07",
+    "symbol": "CROMPTON",
+    "actual_fall_pct": 7.41,
+    "day_high": 269.95,
+    "day_close": 249.95,
+    "blocking_gate": "prev_day_rally",
+    "actual_value": 1.47,
+    "threshold": 6.0
   }
 ]
