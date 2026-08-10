@@ -2028,6 +2028,8 @@ PDH_RSI_PERIOD = 14
 PDH_RSI_MIN    = 60.0
 PDH_VOL_MIN    = 600_000   # 10 lakh shares — rolled back 2026-07-13, auto-tuner had been tuning off production's data (API_BASE bug), see commit
 _PDH_FRESH     = 3           # breakout candle must be within the last 3 bars (45 min)
+PDH_MAX_STRETCH_ATR = 0.5   # max (price - PDH) / daily_ATR14 — reject entries already extended past this
+PDH_REQUIRE_VWAP    = True  # price must be above today's intraday VWAP at signal time
 
 
 def _ema(values: list, period: int):
@@ -2060,6 +2062,22 @@ def _wilder_rsi(closes: list, period: int = 14):
         return 100.0
     rs = avg_gain / avg_loss
     return 100 - (100 / (1 + rs))
+
+
+def _wilder_atr(highs: list, lows: list, closes: list, period: int = 14):
+    """Wilder's ATR (oldest → newest). True range uses the prior close, so
+    the first usable TR starts at index 1 — needs period+1 bars minimum."""
+    n = len(closes)
+    if n < period + 1:
+        return None
+    trs = []
+    for i in range(1, n):
+        tr = max(highs[i] - lows[i], abs(highs[i] - closes[i-1]), abs(lows[i] - closes[i-1]))
+        trs.append(tr)
+    atr = sum(trs[:period]) / period
+    for i in range(period, len(trs)):
+        atr = (atr * (period - 1) + trs[i]) / period
+    return atr
 
 
 def _screen_pdh_trend(_debug: dict = None) -> list:
@@ -2144,11 +2162,52 @@ def _screen_pdh_trend(_debug: dict = None) -> list:
                 _dbg_fail(_debug, "rsi_too_low", symbol, rsi=round(rsi,1) if rsi is not None else None, needed=PDH_RSI_MIN)
                 continue
 
+            # Stretch filter: reject entries already extended too far past PDH
+            # relative to the stock's own daily volatility — a breakout that's
+            # drifted more than half an ATR beyond the level has likely priced
+            # itself past any rational structural SL.
+            daily_highs  = daily["High"].astype(float).tolist()
+            daily_lows   = daily["Low"].astype(float).tolist()
+            atr14_daily  = _wilder_atr(daily_highs, daily_lows, daily_closes, PDH_RSI_PERIOD)
+            if atr14_daily is None or atr14_daily <= 0:
+                _dbg_fail(_debug, "no_data", symbol)
+                continue
+            stretch_atr = (current_price - pdh) / atr14_daily
+            if stretch_atr > PDH_MAX_STRETCH_ATR:
+                _dbg_fail(_debug, "stretch_too_far", symbol, stretch_atr=round(stretch_atr,2), needed=PDH_MAX_STRETCH_ATR)
+                continue
+
             # Liquidity filter: day volume so far >= 10 lakh shares
             day_vol = sum(vols)
             if day_vol < PDH_VOL_MIN:
                 _dbg_fail(_debug, "day_volume", symbol, day_vol=int(day_vol), needed=PDH_VOL_MIN)
                 continue
+
+            # Participation filter: price must be above today's intraday VWAP —
+            # a PDH break below VWAP is happening against the day's own weight
+            # of volume, not with it.
+            if PDH_REQUIRE_VWAP:
+                batch_5m   = _get_5m_batch()
+                intra5     = _get_ticker_df(batch_5m, symbol)
+                vwap = None
+                if intra5 is not None:
+                    try:
+                        if intra5.index.tz is not None:
+                            today5_mask = intra5.index.tz_convert(ist).date == today_date
+                        else:
+                            today5_mask = [ts.date() == today_date for ts in intra5.index]
+                        today_bars5 = intra5[today5_mask]
+                        if len(today_bars5) > 0:
+                            typ_price = (today_bars5["High"] + today_bars5["Low"] + today_bars5["Close"]) / 3.0
+                            vol5      = today_bars5["Volume"].astype(float)
+                            vol_sum   = float(vol5.sum())
+                            if vol_sum > 0:
+                                vwap = float((typ_price * vol5).sum() / vol_sum)
+                    except Exception:
+                        vwap = None
+                if vwap is None or current_price <= vwap:
+                    _dbg_fail(_debug, "vwap_alignment", symbol, price=round(current_price,2), vwap=round(vwap,2) if vwap else None)
+                    continue
 
             prev_close = float(daily["Close"].iloc[-2])
             pdl        = float(daily["Low"].iloc[-2])
@@ -2212,6 +2271,9 @@ def _screen_pdh_trend(_debug: dict = None) -> list:
                 "demand_zone":      round(pdl, 2),
                 "supply_zone":      round(pdh, 2),
                 "bos_time":         bos_time,
+                "atr14_daily":      round(atr14_daily, 2),
+                "stretch_atr":      round(stretch_atr, 2),
+                "vwap":             round(vwap, 2) if PDH_REQUIRE_VWAP and vwap else None,
             })
 
         except Exception:
@@ -2709,6 +2771,7 @@ def _screen_momentum_breakout(direction: str, _debug: dict = None) -> list:
 # a full BOS to the opposite side of the range.
 TRAP_NEAR_LEVEL_PCT   = 1.0   # open can be up to 1% beyond PDL/PDH and still qualify ("near" the level)
 TRAP_VOL_RATIO        = 1.1   # reversal candle's volume vs avg volume of bars so far today — rolled back 2026-07-13, see PDH_VOL_MIN note
+TRAP_SPIKE_VOL_RATIO  = 1.3   # trap candle itself must be a volume spike vs avg volume before it — genuine trapped participants, not a quiet drift
 TRAP_FRESHNESS_BARS   = 6     # the reversal must be within the last 6 5-min bars (30 min)
 TRAP_RECLAIM_MAX_BARS = 12    # the reclaim must happen within this many bars of the trap bar (60 min)
 
@@ -2788,6 +2851,19 @@ def _screen_trap(direction: str, _debug: dict = None) -> list:
                     break
             if trap_bar < 0:
                 _dbg_fail(_debug, "no_breakdown_or_breakout_yet", symbol)
+                continue
+
+            # Trap candle itself must be a volume spike — a genuine trap needs
+            # trapped participants, which only exist in size if the original
+            # false breakout drew real buying/selling volume. A quiet drift
+            # past the level that fails is just noise, not a trap.
+            avg_vol_at_trap = sum(vols[:trap_bar]) / trap_bar if trap_bar > 0 else vols[0]
+            if avg_vol_at_trap <= 0:
+                _dbg_fail(_debug, "no_data", symbol)
+                continue
+            trap_vol_ratio = vols[trap_bar] / avg_vol_at_trap
+            if trap_vol_ratio < TRAP_SPIKE_VOL_RATIO:
+                _dbg_fail(_debug, "trap_candle_low_volume", symbol, vol_ratio=round(trap_vol_ratio,2), needed=TRAP_SPIKE_VOL_RATIO)
                 continue
 
             # Find the reversal bar: first LATER close back on the right side
