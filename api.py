@@ -2291,7 +2291,9 @@ def _screen_pdh_trend(_debug: dict = None) -> list:
 # high-volume breakout out of that range tends to run one-sided, since it's
 # effectively a fresh intraday BOS with a well-defined risk level (the
 # opposite side of the range).
-ORB_MAX_RANGE_PCT         = 0.4    # opening 5-min candle range must be <= 0.4% of price (narrow)
+ORB_MAX_RANGE_PCT         = 0.8    # absolute fallback cap regardless of ATR — opening range must never exceed this outright
+ORB_MAX_RANGE_ATR_MULT    = 0.5    # primary gate: opening range must be <= this x the prior day's 5-min ATR(10) — "narrow" relative to the stock's own volatility, not a fixed %
+ORB_ATR_PERIOD            = 10     # bars of the prior session used for the 5-min ATR
 ORB_VOL_RATIO             = 1.1    # breakout candle volume vs avg volume of the consolidation bars — rolled back 2026-07-13, see PDH_VOL_MIN note
 ORB_FRESHNESS_BARS        = 6      # breakout candle must be within the last 6 5-min bars (30 min)
 ORB_NO_REVERSAL_PCT       = 1.5    # current price must stay within 1.5% of the day extreme (one-side rally, no round-trip)
@@ -2374,10 +2376,48 @@ def _screen_orb(direction: str, _debug: dict = None) -> list:
                 _dbg_fail(_debug, "no_data", symbol)
                 continue
 
-            # Narrow opening range gate
+            # Narrow opening range gate — relative to the stock's own recent
+            # volatility (prior day's 5-min ATR), not a fixed %. A 0.4% range
+            # is wide on a low-vol stock and tight on a high-vol one; ATR
+            # tells them apart. Absolute cap still applies regardless of ATR
+            # so a data glitch can't wave through something genuinely wide.
             or_range_pct = or_range / or_close * 100
             if or_range_pct > ORB_MAX_RANGE_PCT:
                 _dbg_fail(_debug, "opening_range_too_wide", symbol, or_range_pct=round(or_range_pct,2), needed_max=ORB_MAX_RANGE_PCT)
+                continue
+
+            try:
+                if intra5.index.tz is not None:
+                    prior_mask5 = intra5.index.tz_convert(ist).date < today_date
+                else:
+                    prior_mask5 = [ts.date() < today_date for ts in intra5.index]
+                prior_bars5 = intra5[prior_mask5]
+                if len(prior_bars5) == 0:
+                    raise ValueError("no prior bars")
+                prior_dates = prior_bars5.index.tz_convert(ist).date if prior_bars5.index.tz is not None \
+                    else [ts.date() for ts in prior_bars5.index]
+                last_session_date = max(prior_dates)
+                last_session_mask = [d == last_session_date for d in prior_dates]
+                last_session5 = prior_bars5[last_session_mask]
+            except Exception:
+                last_session5 = None
+
+            if last_session5 is None or len(last_session5) < ORB_ATR_PERIOD + 1:
+                _dbg_fail(_debug, "no_data", symbol)
+                continue
+
+            atr5 = _wilder_atr(
+                last_session5["High"].astype(float).tolist(),
+                last_session5["Low"].astype(float).tolist(),
+                last_session5["Close"].astype(float).tolist(),
+                ORB_ATR_PERIOD,
+            )
+            if atr5 is None or atr5 <= 0:
+                _dbg_fail(_debug, "no_data", symbol)
+                continue
+            or_range_atr_mult = or_range / atr5
+            if or_range_atr_mult > ORB_MAX_RANGE_ATR_MULT:
+                _dbg_fail(_debug, "opening_range_too_wide_vs_atr", symbol, or_range_atr_mult=round(or_range_atr_mult,2), needed_max=ORB_MAX_RANGE_ATR_MULT)
                 continue
 
             # Find the first bar (after the opening candle) whose close breaks
@@ -2531,6 +2571,8 @@ def _screen_orb(direction: str, _debug: dict = None) -> list:
                 "demand_zone":      round(or_low, 2),
                 "supply_zone":      round(or_high, 2),
                 "bos_time":         bos_time,
+                "atr5_prior_day":   round(atr5, 2),
+                "or_range_atr_mult": round(or_range_atr_mult, 2),
             })
 
         except Exception:
