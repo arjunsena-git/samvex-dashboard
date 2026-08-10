@@ -1156,7 +1156,7 @@ OI_OPT_MIN_TURNOVER  = 50_00_00_000   # ₹50 crore min day turnover on the futu
                                        # proxy for the stock's options chain also being liquid
 OI_OPT_BUILDUP_MAX   = 10.0    # OI buildup % that maxes the confidence score
 OI_OPT_SECTOR_MIN_PCT = 0.3    # min sector-index % change (same direction as the stock) — "Strong Sector"
-OI_OPT_REL_VOL_MIN    = 1.2    # underlying stock's own paced volume vs prev day — the "> 2x" leg
+OI_OPT_REL_VOL_MIN    = 1.0    # underlying stock's own paced volume vs prev day — the "> 2x" leg
 OI_OPT_REL_VOL_MAX    = 6.0    # relative volume that maxes the confidence score
 
 
@@ -1425,7 +1425,7 @@ def _screen_oi_options(direction: str, _debug: dict = None) -> list:
 # originally defended, so it has a real chance of holding and rallying again.
 DZ_BASE_MAX_RANGE_PCT = 2.0   # base candle's high-low range, as % of its close — defines a "narrow base"
 DZ_IMPULSE_MIN_PCT    = 4.0   # min % move away from the base on the very next daily candle
-DZ_IMPULSE_VOL_RATIO  = 1.4   # impulse candle's volume vs the avg volume of the days before the base — rolled back 2026-07-13, see PDH_VOL_MIN note
+DZ_IMPULSE_VOL_RATIO  = 1.3   # impulse candle's volume vs the avg volume of the days before the base — rolled back 2026-07-13, see PDH_VOL_MIN note
 DZ_ZONE_LOOKBACK_DAYS = 15    # how far back (trading days) to search for a qualifying base+impulse
 DZ_VOL_BASELINE_DAYS  = 5     # candles before the base used to compute the volume baseline
 DZ_PROXIMITY_PCT      = 1.0   # current price must be within this % of the zone level — the retest gate
@@ -2026,7 +2026,7 @@ def _screen_exhaustion_short(_debug: dict = None) -> list:
 PDH_EMA_PERIOD = 200
 PDH_RSI_PERIOD = 14
 PDH_RSI_MIN    = 60.0
-PDH_VOL_MIN    = 600_000   # 10 lakh shares — rolled back 2026-07-13, auto-tuner had been tuning off production's data (API_BASE bug), see commit
+PDH_VOL_MIN    = 500_000   # 10 lakh shares — rolled back 2026-07-13, auto-tuner had been tuning off production's data (API_BASE bug), see commit
 _PDH_FRESH     = 3           # breakout candle must be within the last 3 bars (45 min)
 PDH_MAX_STRETCH_ATR = 0.5   # max (price - PDH) / daily_ATR14 — reject entries already extended past this
 PDH_REQUIRE_VWAP    = True  # price must be above today's intraday VWAP at signal time
@@ -2294,7 +2294,7 @@ def _screen_pdh_trend(_debug: dict = None) -> list:
 ORB_MAX_RANGE_PCT         = 0.8    # absolute fallback cap regardless of ATR — opening range must never exceed this outright
 ORB_MAX_RANGE_ATR_MULT    = 0.5    # primary gate: opening range must be <= this x the prior day's 5-min ATR(10) — "narrow" relative to the stock's own volatility, not a fixed %
 ORB_ATR_PERIOD            = 10     # bars of the prior session used for the 5-min ATR
-ORB_VOL_RATIO             = 1.1    # breakout candle volume vs avg volume of the consolidation bars — rolled back 2026-07-13, see PDH_VOL_MIN note
+ORB_VOL_RATIO             = 1.0    # breakout candle volume vs avg volume of the consolidation bars — rolled back 2026-07-13, see PDH_VOL_MIN note
 ORB_FRESHNESS_BARS        = 6      # breakout candle must be within the last 6 5-min bars (30 min)
 ORB_NO_REVERSAL_PCT       = 1.5    # current price must stay within 1.5% of the day extreme (one-side rally, no round-trip)
 ORB_PRIOR_DAYS            = 3      # also require the stock to have been rangebound over the last N trading days
@@ -2591,7 +2591,7 @@ def _screen_orb(direction: str, _debug: dict = None) -> list:
 # small and in the same direction (green after a PDH break, red after a PDL
 # break) shows the move being absorbed calmly rather than immediately
 # round-tripping — read as room for a real follow-through rally/fall.
-MB_VOL_RATIO          = 1.1   # breakout candle volume vs avg volume of bars so far today — rolled back 2026-07-13, see PDH_VOL_MIN note
+MB_VOL_RATIO          = 1.0   # breakout candle volume vs avg volume of bars so far today — rolled back 2026-07-13, see PDH_VOL_MIN note
 MB_CONFIRM_MAX_RANGE_PCT = 0.5   # the very next 5-min candle's range, as % of price, must be < 0.5%
 MB_FRESHNESS_BARS     = 6     # the breakout+confirm pair must be within the last 6 5-min bars (30 min)
 MB_NO_REVERSAL_PCT    = 1.5   # current price must stay within 1.5% of the day extreme
@@ -2812,7 +2812,7 @@ def _screen_momentum_breakout(direction: str, _debug: dict = None) -> list:
 # at the reversal candle — earlier and lighter than Setup 1, which waits for
 # a full BOS to the opposite side of the range.
 TRAP_NEAR_LEVEL_PCT   = 1.0   # open can be up to 1% beyond PDL/PDH and still qualify ("near" the level)
-TRAP_VOL_RATIO        = 1.1   # reversal candle's volume vs avg volume of bars so far today — rolled back 2026-07-13, see PDH_VOL_MIN note
+TRAP_VOL_RATIO        = 1.0   # reversal candle's volume vs avg volume of bars so far today — rolled back 2026-07-13, see PDH_VOL_MIN note
 TRAP_SPIKE_VOL_RATIO  = 1.3   # trap candle itself must be a volume spike vs avg volume before it — genuine trapped participants, not a quiet drift
 TRAP_FRESHNESS_BARS   = 6     # the reversal must be within the last 6 5-min bars (30 min)
 TRAP_RECLAIM_MAX_BARS = 12    # the reclaim must happen within this many bars of the trap bar (60 min)
