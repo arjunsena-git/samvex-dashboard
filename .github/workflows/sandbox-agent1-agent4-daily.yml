@@ -36,4 +36,7 @@ jobs:
           git remote set-url origin https://x-access-token:${{ secrets.SAMVEX_GH_PAT }}@github.com/arjunsena-git/samvex-dashboard.git
 
       - name: Run daily analysis (agents 1 + 4)
+        env:
+          NOTION_API_KEY: ${{ secrets.NOTION_API_KEY }}
+          REPORT_PUSH_SECRET: ${{ secrets.REPORT_PUSH_SECRET }}
         run: python scripts/daily_analysis.py
