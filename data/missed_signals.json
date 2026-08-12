@@ -78,5 +78,25 @@
     "blocking_gate": "prev_day_rally",
     "actual_value": 1.47,
     "threshold": 6.0
+  },
+  {
+    "date": "2026-08-12",
+    "symbol": "GODREJIND",
+    "actual_fall_pct": 5.68,
+    "day_high": 1305.0,
+    "day_close": 1230.9,
+    "blocking_gate": "prev_day_rally",
+    "actual_value": -0.19,
+    "threshold": 6.0
+  },
+  {
+    "date": "2026-08-12",
+    "symbol": "BATAINDIA",
+    "actual_fall_pct": 5.05,
+    "day_high": 756.55,
+    "day_close": 718.35,
+    "blocking_gate": "prev_day_rally",
+    "actual_value": -1.29,
+    "threshold": 6.0
   }
 ]
