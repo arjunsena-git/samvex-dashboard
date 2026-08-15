@@ -24,7 +24,9 @@
       "reasoning": "The missed-signals data is unambiguous: 6 out of 6 missed exhaustion events were blocked solely by prev_day_rally. The actual_values for the blocking gate range from -6.21% to +1.47% \u2014 not even close to the 6.0% threshold. BANDHANBNK fell 7.32% on a day when the prior close was DOWN 0.87%; HINDUNILVR fell 8.72% on a day when the prior close was up only 1.38%. The premise that exhaustion only follows a prior-day rally is simply wrong \u2014 gap-up opens into prior supply also cause exhaustion selling. The fix is an OR-logic expansion, not a lower threshold, because lowering EXH_PREV_DAY_RALLY_PCT to near zero would destroy the gate's meaning entirely.",
       "expected_impact": "Would have caught approximately 3-4 of the 6 missed signals based on the sample (those with flat or modest prior-day moves but gap-up opens or high intraday positions). May slightly increase false-positive rate on low-rally, low-gap stocks \u2014 mitigated by the fact that the spike candle, volume, and turnover gates still apply downstream.",
       "confidence": "HIGH",
-      "status": "proposed_for_review"
+      "status": "approved_implemented",
+      "approved_at": "2026-08-15",
+      "approved_by": "user"
     },
     {
       "type": "logic_change",
@@ -34,7 +36,9 @@
       "reasoning": "Bear Trap had 6 signals with 0 wins and 6 expirations; Bull Trap had 9 signals with 0 wins, 1 loss, and 8 expirations. A 94% expiration rate across 15 combined signals is not a signal-quality problem \u2014 it is a trade-plan problem. When the SL is the full day extreme (e.g., a stock that wicked to -2.5% intraday), T1 at 1.5R requires a +3.75% move from entry, which almost never happens intraday after a trap. By capping max SL at 1.5%, T1 becomes reachable at +2.25% from entry. Signals with SL > 1.5% should simply not be surfaced \u2014 they are structurally too wide for an intraday setup. The 0% win rate on a combined 15 signals with near-zero losses (only 1 total loss) confirms these are not wrong-direction calls; they simply never move enough to hit targets before 3:30 PM.",
       "expected_impact": "Will reduce total Trap signals generated (filtering out wide-SL setups), but the remaining signals will have achievable targets. Expected to convert expirations to wins on tight-structure traps. May drop signal count by 40-60% but win rate should improve from near-0% to a range comparable to Momentum Breakout.",
       "confidence": "HIGH",
-      "status": "proposed_for_review"
+      "status": "approved_implemented",
+      "approved_at": "2026-08-15",
+      "approved_by": "user"
     },
     {
       "type": "logic_change",
@@ -44,7 +48,9 @@
       "reasoning": "Momentum Breakout (bullish) has 7 total signals with 2 wins, 1 loss, and 4 expirations. The 4 expirations (57% of signals) suggest entries are frequently taken after price has already moved away from the structure. The freshness gate (MB_FRESHNESS_BARS = 6 bars = 30 min) allows entries up to 30 minutes after the confirm candle, during which time price may have already moved 1-2% above the breakout close, making T1 (1.5R above current price) unreachable. MB breakdown is even worse: 8 signals, 12.5% win rate, 5 expirations. Capping chase at 1.5% ensures the risk-reward is computed from a price still close to the structure, not from a chased entry.",
       "expected_impact": "Will reduce signal count (some signals will be filtered for chasing) but should improve win rate by ensuring T1/T2 remain geometrically achievable. The 2 wins in the bullish panel are likely from timely entries \u2014 the 4 expirations are likely from chased ones. Expected win rate improvement from ~28% to ~40-50% on a smaller sample.",
       "confidence": "MEDIUM",
-      "status": "proposed_for_review"
+      "status": "approved_implemented",
+      "approved_at": "2026-08-15",
+      "approved_by": "user"
     },
     {
       "type": "logic_change",
@@ -54,7 +60,9 @@
       "reasoning": "PDH Breakout has 0 wins, 3 losses, and 1 expiration across 4 signals \u2014 0.0% win rate. While the sample is small (flag: 4 signals is too few for statistical certainty), the pattern of 3 losses (not expirations) suggests the breakouts are reversing rather than running. The RSI >= 60 and EMA200 filters should theoretically ensure trend alignment. A likely culprit is low-ATR stocks where PDH is only 0.5-0.8% above PDL \u2014 the SL (PDH * 0.997) is just 0.3% below PDH, but if the stock's daily range is only 1%, T1 requires a 0.45% move which is achievable, yet any small reversal triggers the SL. A minimum ADR of 1.8% ensures the stock has enough intrinsic volatility for the trade geometry to work. This is directional: 0/4 with 3 losses is suspicious and warrants a structural filter, not just a parameter nudge.",
       "expected_impact": "Will reduce PDH signals (filtering out low-ADR names). Given 0% win rate and 3 losses, even filtering out 1-2 loss signals improves win rate. May reduce signal count by 20-40% depending on how many Nifty 500 names have ADR below 1.8%. Small sample warning: 4 signals is insufficient to be highly confident \u2014 flag as MEDIUM.",
       "confidence": "MEDIUM",
-      "status": "proposed_for_review"
+      "status": "approved_implemented",
+      "approved_at": "2026-08-15",
+      "approved_by": "user"
     },
     {
       "type": "logic_change",
@@ -64,7 +72,9 @@
       "reasoning": "Demand Zone has 2 signals with 0 wins and 2 expirations; Supply Zone has 1 signal with 0 wins and 1 expiration. All 3 signals expired \u2014 price reached the zone but never followed through. The current screener fires solely on proximity to a daily-chart zone with no intraday participation check: a stock can be near its zone on near-zero volume (thin tape, no real buyers/sellers showing up) and still generate a signal. Adding even a below-average volume filter (0.8x) ensures some intraday participation exists at the time of the retest. Small sample warning: 3 signals total is not statistically meaningful \u2014 this is a structural addition rather than a data-driven tune, but it closes an obvious logical gap.",
       "expected_impact": "Will reduce Demand/Supply Zone signals generated (filtering zero-participation retests). Will not fix the fundamental small-sample problem but prevents the panel from firing on completely illiquid retests. Likely reduces signal count by 15-30%.",
       "confidence": "LOW",
-      "status": "proposed_for_review"
+      "status": "approved_implemented",
+      "approved_at": "2026-08-15",
+      "approved_by": "user"
     }
   ],
   "applied_count": 1,

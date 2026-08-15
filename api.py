@@ -1429,13 +1429,16 @@ DZ_IMPULSE_VOL_RATIO  = 1.3   # impulse candle's volume vs the avg volume of the
 DZ_ZONE_LOOKBACK_DAYS = 15    # how far back (trading days) to search for a qualifying base+impulse
 DZ_VOL_BASELINE_DAYS  = 5     # candles before the base used to compute the volume baseline
 DZ_PROXIMITY_PCT      = 1.0   # current price must be within this % of the zone level — the retest gate
+DZ_RETEST_REL_VOL_MIN = 0.8   # min today's paced volume vs prev day at the time of the retest — some participation must exist, deliberately lenient
 
 
 def _screen_demand_supply_zone(direction: str, _debug: dict = None) -> list:
     """Demand Zone (bullish) / Supply Zone (bearish) screener — see module comment above."""
     universe    = _load_nifty500() or _get_fno_universe()
     batch_daily = _get_daily_batch()
+    batch_15m   = _get_15m_batch()
     ist         = pytz.timezone("Asia/Kolkata")
+    today_date  = datetime.now(ist).date()
     bullish     = direction == "bullish"
 
     live_quotes = None
@@ -1538,6 +1541,32 @@ def _screen_demand_supply_zone(direction: str, _debug: dict = None) -> list:
             if zone_dist_pct > DZ_PROXIMITY_PCT:
                 _dbg_fail(_debug, "not_near_zone", symbol, zone_level=round(zone_level,2), dist_pct=round(zone_dist_pct,2), price=round(current_price,2))
                 continue
+
+            # Retest volume confirmation: some intraday participation must
+            # exist at the time of the retest — a proximity-only gate lets a
+            # thin, near-zero-volume tape near the zone fire a signal with no
+            # real buyers/sellers showing up to defend it.
+            intra15 = _get_ticker_df(batch_15m, symbol)
+            if intra15 is not None:
+                try:
+                    if intra15.index.tz is not None:
+                        today_mask15 = intra15.index.tz_convert(ist).date == today_date
+                    else:
+                        today_mask15 = [ts.date() == today_date for ts in intra15.index]
+                    today_bars15 = intra15[today_mask15]
+                except Exception:
+                    today_bars15 = intra15.iloc[:0]
+
+                if len(today_bars15) > 0:
+                    prev_vol = vols[today_idx - 1]
+                    if prev_vol > 0:
+                        day_vol_so_far = float(today_bars15["Volume"].sum())
+                        elapsed_min    = max(15.0, len(today_bars15) * 15.0)
+                        paced_vol      = (day_vol_so_far / elapsed_min) * 375.0
+                        rel_vol_ratio  = paced_vol / prev_vol
+                        if rel_vol_ratio < DZ_RETEST_REL_VOL_MIN:
+                            _dbg_fail(_debug, "retest_volume_too_low", symbol, rel_vol_ratio=round(rel_vol_ratio,2), needed=DZ_RETEST_REL_VOL_MIN)
+                            continue
 
             entry = round(current_price, 2)
             sl    = round(zone_level * 0.99, 2) if bullish else round(zone_level * 1.01, 2)
@@ -1769,8 +1798,9 @@ def _get_ticker_df(batch, ticker):
 #   • That same 5-min candle's volume > avg volume of the same time slot
 #     on the previous 2–3 trading days (unusual participation, not routine)
 #   • Nifty 50 not up more than 1% (don't fight a strongly bullish market)
-EXH_PREV_DAY_RALLY_PCT = 3.5      # min single-day (prev session) gain — OR use cumulative below
+EXH_PREV_DAY_RALLY_PCT = 3.5      # min single-day (prev session) gain — OR use cumulative/gap below
 EXH_CUMUL_RALLY_PCT    = 5.0     # min 3-day cumulative gain (catches distributed rallies)
+EXH_GAP_UP_PCT         = 2.0     # min today's gap-up vs prev close — a gap into supply also causes exhaustion, no prior-day rally required
 EXH_VOL_RATIO          = 0.9      # min paced-volume ratio vs prev day
 EXH_IMPULSE_MOVE_PCT      = 1.5   # min % move (close vs open) on the confirming 5-min candle
 EXH_IMPULSE_TURNOVER_PCT  = 5.0   # spike candle turnover must be ≥ this % of avg daily turnover (last 5 sessions)
@@ -1851,10 +1881,16 @@ def _screen_exhaustion_short(_debug: dict = None) -> list:
             prev_day_rally_pct = (prev_close - prev_prev_close) / prev_prev_close * 100
             close_3d_ago       = float(daily["Close"].iloc[-5])
             cumul_rally_pct    = (prev_close - close_3d_ago) / close_3d_ago * 100 if close_3d_ago > 0 else 0.0
-            if prev_day_rally_pct < EXH_PREV_DAY_RALLY_PCT and cumul_rally_pct < EXH_CUMUL_RALLY_PCT:
+            today_open_early   = float(today_bars["Open"].iloc[0])
+            gap_up_pct         = (today_open_early - prev_close) / prev_close * 100 if prev_close > 0 else 0.0
+            had_rally   = prev_day_rally_pct >= EXH_PREV_DAY_RALLY_PCT
+            had_cumul   = cumul_rally_pct >= EXH_CUMUL_RALLY_PCT
+            had_gap_up  = gap_up_pct >= EXH_GAP_UP_PCT
+            if not (had_rally or had_cumul or had_gap_up):
                 _dbg_fail(_debug, "prev_day_rally", symbol,
                           rally_pct=round(prev_day_rally_pct, 2), needed=EXH_PREV_DAY_RALLY_PCT,
-                          cumul_3d_pct=round(cumul_rally_pct, 2), cumul_needed=EXH_CUMUL_RALLY_PCT)
+                          cumul_3d_pct=round(cumul_rally_pct, 2), cumul_needed=EXH_CUMUL_RALLY_PCT,
+                          gap_up_pct=round(gap_up_pct, 2), gap_needed=EXH_GAP_UP_PCT)
                 continue
 
             # Relative turnover threshold: spike candle must represent ≥5% of avg daily turnover
@@ -2030,6 +2066,7 @@ PDH_VOL_MIN    = 500_000   # 10 lakh shares — rolled back 2026-07-13, auto-tun
 _PDH_FRESH     = 3           # breakout candle must be within the last 3 bars (45 min)
 PDH_MAX_STRETCH_ATR = 0.5   # max (price - PDH) / daily_ATR14 — reject entries already extended past this
 PDH_REQUIRE_VWAP    = True  # price must be above today's intraday VWAP at signal time
+PDH_MIN_ADR_PCT     = 1.8   # min 5-day average daily range (%) — low-ADR names can't structurally reach T1 intraday
 
 
 def _ema(values: list, period: int):
@@ -2161,6 +2198,18 @@ def _screen_pdh_trend(_debug: dict = None) -> list:
             if rsi is None or rsi < PDH_RSI_MIN:
                 _dbg_fail(_debug, "rsi_too_low", symbol, rsi=round(rsi,1) if rsi is not None else None, needed=PDH_RSI_MIN)
                 continue
+
+            # ADR filter: reject stocks whose recent daily range is too small
+            # for T1 (1.5R above entry) to be structurally reachable intraday.
+            recent_daily_adr = daily.iloc[-6:-1]
+            if len(recent_daily_adr) > 0:
+                adr_pct = float(
+                    ((recent_daily_adr["High"].astype(float) - recent_daily_adr["Low"].astype(float))
+                     / recent_daily_adr["Close"].astype(float) * 100).mean()
+                )
+                if adr_pct < PDH_MIN_ADR_PCT:
+                    _dbg_fail(_debug, "adr_too_low", symbol, adr_pct=round(adr_pct,2), needed=PDH_MIN_ADR_PCT)
+                    continue
 
             # Stretch filter: reject entries already extended too far past PDH
             # relative to the stock's own daily volatility — a breakout that's
@@ -2595,6 +2644,7 @@ MB_VOL_RATIO          = 1.0   # breakout candle volume vs avg volume of bars so 
 MB_CONFIRM_MAX_RANGE_PCT = 0.5   # the very next 5-min candle's range, as % of price, must be < 0.5%
 MB_FRESHNESS_BARS     = 6     # the breakout+confirm pair must be within the last 6 5-min bars (30 min)
 MB_NO_REVERSAL_PCT    = 1.5   # current price must stay within 1.5% of the day extreme
+MB_MAX_CHASE_PCT      = 1.5   # max distance current price may have run from the breakout candle's close — beyond this the entry is chasing, not breaking out
 
 
 def _screen_momentum_breakout(direction: str, _debug: dict = None) -> list:
@@ -2718,6 +2768,19 @@ def _screen_momentum_breakout(direction: str, _debug: dict = None) -> list:
                 _dbg_fail(_debug, "price_below_100", symbol, price=round(current_price,2))
                 continue
 
+            # Chase gate: entry must still be close to the breakout candle's
+            # own close — a price that's already run past that widens the
+            # true risk beyond what the PDH/PDL-based SL accounts for.
+            breakout_close = closes[breakout_bar]
+            if breakout_close > 0:
+                chase_pct = abs(current_price - breakout_close) / breakout_close * 100
+                if bullish and current_price > breakout_close * (1 + MB_MAX_CHASE_PCT / 100):
+                    _dbg_fail(_debug, "chasing_entry", symbol, chase_pct=round(chase_pct,2), allowed=MB_MAX_CHASE_PCT)
+                    continue
+                if not bullish and current_price < breakout_close * (1 - MB_MAX_CHASE_PCT / 100):
+                    _dbg_fail(_debug, "chasing_entry", symbol, chase_pct=round(chase_pct,2), allowed=MB_MAX_CHASE_PCT)
+                    continue
+
             day_high = max(highs)
             day_low  = min(lows)
 
@@ -2816,6 +2879,7 @@ TRAP_VOL_RATIO        = 1.0   # reversal candle's volume vs avg volume of bars s
 TRAP_SPIKE_VOL_RATIO  = 1.3   # trap candle itself must be a volume spike vs avg volume before it — genuine trapped participants, not a quiet drift
 TRAP_FRESHNESS_BARS   = 6     # the reversal must be within the last 6 5-min bars (30 min)
 TRAP_RECLAIM_MAX_BARS = 12    # the reclaim must happen within this many bars of the trap bar (60 min)
+TRAP_MAX_SL_PCT       = 1.5   # max SL distance as % of price — day-extreme SLs are too wide for T1/T2 to reach intraday
 
 
 def _screen_trap(direction: str, _debug: dict = None) -> list:
@@ -2980,10 +3044,21 @@ def _screen_trap(direction: str, _debug: dict = None) -> list:
             prev_close = float(daily["Close"].iloc[-2])
             gap_pct    = round((opens[0] - prev_close) / prev_close * 100, 2) if prev_close > 0 else 0.0
 
-            sl   = round(day_low * 0.997, 2) if bullish else round(day_high * 1.003, 2)
+            # SL anchored to the trap candle's own structure, not the full day
+            # extreme — the day extreme is always the trap's wicking low/high,
+            # so it produces an SL wider than the setup actually needs.
+            trap_prior = trap_bar - 1 if trap_bar > 0 else trap_bar
+            if bullish:
+                sl = round(min(lows[trap_bar], lows[trap_prior]) * 0.997, 2)
+            else:
+                sl = round(max(highs[trap_bar], highs[trap_prior]) * 1.003, 2)
             risk = abs(current_price - sl)
             if risk <= 0:
                 _dbg_fail(_debug, "invalid_risk", symbol)
+                continue
+            sl_dist_pct = risk / current_price * 100
+            if sl_dist_pct > TRAP_MAX_SL_PCT:
+                _dbg_fail(_debug, "sl_too_wide", symbol, sl_pct=round(sl_dist_pct, 2), allowed=TRAP_MAX_SL_PCT)
                 continue
             sign_ = 1 if bullish else -1
             t1    = round(current_price + sign_ * risk * 1.5, 2)
