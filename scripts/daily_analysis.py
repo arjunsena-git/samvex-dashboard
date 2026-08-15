@@ -377,7 +377,20 @@ PANEL_TUNERS = {
 # win-rate improvement to show for it. Sandbox stays live (that's its job —
 # production is the one paused) but runs the same fixed decision logic below
 # so it can't repeat the same collapse while iterating.
-AUTO_TUNE_ENABLED = True
+#
+# 2026-08-15: sandbox hit the mirror-image ratchet. Every panel has run
+# chronically below TARGET_MIN_SIGNALS_PER_DAY for the whole month, and the
+# "starved" check is evaluated before the win-rate check (see below) — so
+# the win-rate branch never once fired. All 34 tunes to date were
+# "loosened"/volume_starved, 0 were win-rate-driven. Meanwhile win rate sat
+# at 0-17% every week with heavy expiry, which is a trade-plan/geometry
+# problem (wide SLs, chased entries, no volatility floor), not a volume
+# problem — loosening the volume gate just pushed more of the same broken
+# setups through. Paused while the 5 structural fixes landed the same day
+# (trap SL, PDH ADR floor, MB chase cap, DZ retest volume, EXH OR-logic gate)
+# get a clean 2-3 week read without this daily loosening confounding it.
+# Re-enable once there's enough post-fix signal to judge win rate on its own.
+AUTO_TUNE_ENABLED = False
 
 WIN_RATE_LOW_THRESHOLD     = 25
 WIN_RATE_HIGH_THRESHOLD    = 65
