@@ -98,5 +98,15 @@
     "blocking_gate": "prev_day_rally",
     "actual_value": -1.29,
     "threshold": 6.0
+  },
+  {
+    "date": "2026-08-17",
+    "symbol": "VOLTAS",
+    "actual_fall_pct": 5.41,
+    "day_high": 1339.5,
+    "day_close": 1267.0,
+    "blocking_gate": "prev_day_rally",
+    "actual_value": 2.4,
+    "threshold": 6.0
   }
 ]
