@@ -1051,6 +1051,7 @@
     <button id="chart-mode-btn" class="chart-mode-toggle active" onclick="toggleChartMode()">&#9776; Full Table View</button>
     <button id="journal-btn" class="chart-mode-toggle" onclick="toggleJournalView()">&#128209; Trade Journal</button>
     <button id="analysis-btn" class="chart-mode-toggle" onclick="toggleAnalysisView()">&#128202; Daily Signal Analysis</button>
+    <button id="flow-btn" class="chart-mode-toggle" onclick="toggleFlowScannerView()">&#128225; Flow Scanner (V1A)</button>
     <a id="download-all-btn" class="csv-btn" style="text-decoration:none;display:inline-flex;align-items:center;"
        title="Every signal captured today across all panels, active and inactive">
       ↓ Download All Signals (Today)
@@ -1141,6 +1142,25 @@
       <div class="journal-empty"><div class="spinner"></div>Loading…</div>
     </div>
     <div class="col-filter-popover" id="col-filter-popover"></div>
+  </div>
+
+  <!-- ── Institutional-Style Order-Flow Scanner — V1A (proxy layer) ──── -->
+  <div class="journal-page" id="flow-scanner-page">
+    <div class="journal-hdr">
+      <h2>&#128225; Flow Scanner — V1A</h2>
+      <div class="journal-stats" id="flow-summary"></div>
+      <button class="csv-btn" onclick="loadFlowScanner()">&#8635; Refresh</button>
+    </div>
+    <div id="flow-disclaimer" style="background:#3a2a00;border:1px solid #7a5a00;color:#ffcc66;padding:10px 14px;border-radius:6px;margin:0 0 16px;font-size:12.5px;line-height:1.5;">
+      <b>⚠ Proxy data, not true order flow.</b> Delta/CVD here are estimated from 5-min OHLCV candles
+      (a money-flow-multiplier), not real tick-by-tick trade classification or market depth — this
+      codebase has no tick/depth feed wired in yet. Treat scores as a flow-style participation ranking
+      to investigate further, never as confirmed institutional buying/selling. Thresholds are
+      uncalibrated pending forward-test.
+    </div>
+    <div id="flow-scanner-body">
+      <div class="journal-empty"><div class="spinner"></div>Loading…</div>
+    </div>
   </div>
 
   <!-- ── Exhaustion Short: Profit Booking After Rally ─────────────── -->
@@ -2122,6 +2142,7 @@
   function toggleChartMode() {
     if (_journalActive) _closeJournalView();
     if (_analysisActive) _closeAnalysisView();
+    if (_flowActive) _closeFlowScannerView();
     _chartModeActive = !_chartModeActive;
     _applyChartModeDisplay();
   }
@@ -2354,6 +2375,7 @@
 
   function toggleJournalView() {
     if (_analysisActive) _closeAnalysisView();
+    if (_flowActive) _closeFlowScannerView();
     _journalActive = !_journalActive;
     document.getElementById('journal-btn').classList.toggle('active', _journalActive);
     document.getElementById('journal-page').style.display = _journalActive ? 'flex' : 'none';
@@ -2664,6 +2686,7 @@
 
   // ── Daily Signal Analysis — last 30 days, filterable/sortable ───
   let _analysisActive    = false;
+  let _flowActive        = false;
   let _analysisRows      = [];        // raw rows from /api/signals/history, never mutated
   let _analysisSort      = null;      // {field, dir}
   let _analysisExpanded  = new Set(); // dates currently expanded
@@ -2685,6 +2708,7 @@
 
     if (_analysisActive) {
       if (_journalActive) _closeJournalView();
+      if (_flowActive) _closeFlowScannerView();
       document.getElementById('chart-fullpage').classList.remove('visible');
       _SCANNER_ELS.forEach(id => { const el = document.getElementById(id); if (el) el.style.display = 'none'; });
       loadAnalysis();
@@ -2704,6 +2728,111 @@
       const el = document.getElementById(id);
       if (el) el.style.display = '';
     });
+  }
+
+  function toggleFlowScannerView() {
+    _flowActive = !_flowActive;
+    document.getElementById('flow-btn').classList.toggle('active', _flowActive);
+    document.getElementById('flow-scanner-page').style.display = _flowActive ? 'flex' : 'none';
+    document.querySelector('.summary-row').style.display = _flowActive ? 'none' : '';
+    _ANALYSIS_HIDE_ELS.forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.style.display = _flowActive ? 'none' : '';
+    });
+
+    if (_flowActive) {
+      if (_journalActive) _closeJournalView();
+      if (_analysisActive) _closeAnalysisView();
+      document.getElementById('chart-fullpage').classList.remove('visible');
+      _SCANNER_ELS.forEach(id => { const el = document.getElementById(id); if (el) el.style.display = 'none'; });
+      loadFlowScanner();
+    } else {
+      _applyChartModeDisplay();
+    }
+  }
+
+  // Used by toggleChartMode()/toggleJournalView()/toggleAnalysisView() so
+  // switching away from this view while it's open closes it first, without
+  // double-toggling state.
+  function _closeFlowScannerView() {
+    _flowActive = false;
+    document.getElementById('flow-btn').classList.remove('active');
+    document.getElementById('flow-scanner-page').style.display = 'none';
+    document.querySelector('.summary-row').style.display = '';
+    _ANALYSIS_HIDE_ELS.forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.style.display = '';
+    });
+  }
+
+  const _FLOW_BAND_COLOR = { ELITE: 'var(--green)', STRONG: '#8fd18f', WATCH: '#e0c060', IGNORE: 'var(--text-muted)' };
+
+  function _flowRowHtml(r, direction, rank) {
+    const score  = direction === 'long' ? r.long_score_100  : r.short_score_100;
+    const band   = direction === 'long' ? r.long_band        : r.short_band;
+    const cvd    = direction === 'long'
+      ? (r.cvd_rising  ? (r.cvd_accelerating ? 'Rising (accel)' : 'Rising') : 'Flat/Falling')
+      : (r.cvd_falling ? (r.cvd_accelerating ? 'Falling (accel)' : 'Falling') : 'Flat/Rising');
+    const color  = _FLOW_BAND_COLOR[band] || 'var(--text-muted)';
+    return `<tr>
+      <td>${rank}</td>
+      <td><b>${r.symbol}</b></td>
+      <td>₹${r.price}</td>
+      <td>${r.price_move_pct >= 0 ? '+' : ''}${r.price_move_pct}%</td>
+      <td>${r.rvol_time_of_day}x</td>
+      <td>${r.normalized_delta_pct >= 0 ? '+' : ''}${r.normalized_delta_pct}%</td>
+      <td>${cvd}</td>
+      <td>${r.volume_acceleration}x</td>
+      <td><b>${score}</b>/100</td>
+      <td><span style="color:${color};font-weight:600;">${band}</span></td>
+    </tr>`;
+  }
+
+  function _flowTableHtml(rows, direction, title) {
+    if (!rows.length) {
+      return `<div class="panel" style="margin-bottom:16px;">
+        <div class="panel-header">${title}</div>
+        <div class="journal-empty" style="padding:24px;">NO TRADE — nothing cleared the survival floor right now.</div>
+      </div>`;
+    }
+    return `<div class="panel" style="margin-bottom:16px;">
+      <div class="panel-header">${title}</div>
+      <table class="journal-table">
+        <thead><tr>
+          <th>Rank</th><th>Symbol</th><th>Price</th><th>Move %</th><th>RVOL (ToD)</th>
+          <th>Delta %</th><th>CVD</th><th>Vol Accel</th><th>Score</th><th>Band</th>
+        </tr></thead>
+        <tbody>${rows.map((r, i) => _flowRowHtml(r, direction, i + 1)).join('')}</tbody>
+      </table>
+    </div>`;
+  }
+
+  async function loadFlowScanner() {
+    const body = document.getElementById('flow-scanner-body');
+    body.innerHTML = `<div class="journal-empty"><div class="spinner"></div>Scanning…</div>`;
+    try {
+      const res  = await fetch(`${API}/api/flow-scanner`);
+      const data = await res.json();
+      const asOf = data.generated_at ? new Date(data.generated_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : '';
+      document.getElementById('flow-summary').innerHTML =
+        `<span>Universe: ${data.universe_size}</span>
+         <span>Scored: ${data.scored_count}</span>
+         <span>Survival floor: ${data.survival_floor_100}/100</span>
+         <span>As of: ${asOf}</span>`;
+
+      if (!data.scored_count) {
+        body.innerHTML = `<div class="journal-empty">No symbols scored this run — market may be closed, or data isn't available yet.</div>`;
+        return;
+      }
+
+      body.innerHTML =
+        _flowTableHtml(data.top_long,  'long',  '&#128994; Top LONG — Bullish Flow') +
+        _flowTableHtml(data.top_short, 'short', '&#128992; Top SHORT — Bearish Flow');
+    } catch (e) {
+      body.innerHTML = `<div class="journal-empty">
+        Server unreachable — <a href="javascript:loadFlowScanner()" style="color:var(--accent);text-decoration:underline;">Retry</a>
+      </div>`;
+    }
   }
 
   async function loadAnalysis() {
