@@ -16,6 +16,8 @@ import gzip
 import uuid
 import requests as _http
 
+import order_flow
+
 app = Flask(__name__)
 CORS(app)
 
@@ -4539,6 +4541,27 @@ def admin_delete_daily_report(date_str):
     del reports[date_str]
     _save_daily_reports(reports)
     return jsonify({"deleted": date_str, "days_stored": len(reports)})
+
+
+@app.route("/api/flow-scanner")
+def flow_scanner_v1a():
+    """Institutional-style order-flow scanner — V1A proxy layer. See
+    order_flow.py module docstring: scores are estimated from OHLCV
+    candles (money-flow-multiplier proxy for Delta/CVD), NOT true
+    tick-level order flow — that lands in V2 once a real market-depth
+    feed (Dhan 20-level WebSocket, or a vendor) is wired in. Uncalibrated
+    — forward-test before trusting the ELITE/STRONG/WATCH bands."""
+    debug = {} if flask_req.args.get("debug") else None
+    universe = _get_fno_universe() or _load_nifty500()
+    batch_5m = _get_5m_batch()
+    result = order_flow.rank_candidates(universe, batch_5m, _get_ticker_df, debug=debug)
+    try:
+        order_flow.persist_scan(result, _SIGNALS_DIR)
+    except Exception as e:
+        print(f"[FlowScannerV1A] persist_scan failed: {e}")
+    if debug is not None:
+        result["debug"] = debug
+    return jsonify(result)
 
 
 @app.route("/api/signals/history")
