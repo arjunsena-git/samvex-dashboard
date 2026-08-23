@@ -1798,7 +1798,7 @@ def _get_ticker_df(batch, ticker):
 #   • That same 5-min candle's volume > avg volume of the same time slot
 #     on the previous 2–3 trading days (unusual participation, not routine)
 #   • Nifty 50 not up more than 1% (don't fight a strongly bullish market)
-EXH_PREV_DAY_RALLY_PCT = 2.5      # min single-day (prev session) gain — OR use cumulative/gap below
+EXH_PREV_DAY_RALLY_PCT = 3.0      # min single-day (prev session) gain — OR use cumulative/gap below
 EXH_CUMUL_RALLY_PCT    = 5.0     # min 3-day cumulative gain (catches distributed rallies)
 EXH_GAP_UP_PCT         = 2.0     # min today's gap-up vs prev close — a gap into supply also causes exhaustion, no prior-day rally required
 EXH_VOL_RATIO          = 0.9      # min paced-volume ratio vs prev day
@@ -2641,7 +2641,7 @@ def _screen_orb(direction: str, _debug: dict = None) -> list:
 # break) shows the move being absorbed calmly rather than immediately
 # round-tripping — read as room for a real follow-through rally/fall.
 MB_VOL_RATIO          = 1.0   # breakout candle volume vs avg volume of bars so far today — rolled back 2026-07-13, see PDH_VOL_MIN note
-MB_CONFIRM_MAX_RANGE_PCT = 0.35   # the very next 5-min candle's range, as % of price, must be < 0.5%
+MB_CONFIRM_MAX_RANGE_PCT = 0.25   # the very next 5-min candle's range, as % of price, must be < 0.5%
 MB_FRESHNESS_BARS     = 6     # the breakout+confirm pair must be within the last 6 5-min bars (30 min)
 MB_NO_REVERSAL_PCT    = 1.5   # current price must stay within 1.5% of the day extreme
 MB_MAX_CHASE_PCT      = 1.5   # max distance current price may have run from the breakout candle's close — beyond this the entry is chasing, not breaking out
