@@ -118,5 +118,15 @@
     "blocking_gate": "prev_day_rally",
     "actual_value": 0.54,
     "threshold": 6.0
+  },
+  {
+    "date": "2026-08-26",
+    "symbol": "JUBLFOOD",
+    "actual_fall_pct": 5.07,
+    "day_high": 526.2,
+    "day_close": 499.5,
+    "blocking_gate": "prev_day_rally",
+    "actual_value": 1.4,
+    "threshold": 6.0
   }
 ]
