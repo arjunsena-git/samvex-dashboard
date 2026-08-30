@@ -2641,7 +2641,7 @@ def _screen_orb(direction: str, _debug: dict = None) -> list:
 # break) shows the move being absorbed calmly rather than immediately
 # round-tripping — read as room for a real follow-through rally/fall.
 MB_VOL_RATIO          = 1.0   # breakout candle volume vs avg volume of bars so far today — rolled back 2026-07-13, see PDH_VOL_MIN note
-MB_CONFIRM_MAX_RANGE_PCT = 0.25   # the very next 5-min candle's range, as % of price, must be < 0.5%
+MB_CONFIRM_MAX_RANGE_PCT = 0.18   # the very next 5-min candle's range, as % of price, must be < 0.5%
 MB_FRESHNESS_BARS     = 6     # the breakout+confirm pair must be within the last 6 5-min bars (30 min)
 MB_NO_REVERSAL_PCT    = 1.5   # current price must stay within 1.5% of the day extreme
 MB_MAX_CHASE_PCT      = 1.5   # max distance current price may have run from the breakout candle's close — beyond this the entry is chasing, not breaking out
@@ -2879,7 +2879,7 @@ TRAP_VOL_RATIO        = 1.0   # reversal candle's volume vs avg volume of bars s
 TRAP_SPIKE_VOL_RATIO  = 1.3   # trap candle itself must be a volume spike vs avg volume before it — genuine trapped participants, not a quiet drift
 TRAP_FRESHNESS_BARS   = 6     # the reversal must be within the last 6 5-min bars (30 min)
 TRAP_RECLAIM_MAX_BARS = 12    # the reclaim must happen within this many bars of the trap bar (60 min)
-TRAP_MAX_SL_PCT       = 1.5   # max SL distance as % of price — day-extreme SLs are too wide for T1/T2 to reach intraday
+TRAP_MAX_SL_PCT       = 1.0   # max SL distance as % of price — day-extreme SLs are too wide for T1/T2 to reach intraday
 
 
 def _screen_trap(direction: str, _debug: dict = None) -> list:
