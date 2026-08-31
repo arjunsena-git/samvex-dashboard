@@ -128,5 +128,35 @@
     "blocking_gate": "prev_day_rally",
     "actual_value": 1.4,
     "threshold": 6.0
+  },
+  {
+    "date": "2026-08-31",
+    "symbol": "ADANIENT",
+    "actual_fall_pct": 9.18,
+    "day_high": 3148.1,
+    "day_close": 2859.1,
+    "blocking_gate": "prev_day_rally",
+    "actual_value": 0.63,
+    "threshold": 6.0
+  },
+  {
+    "date": "2026-08-31",
+    "symbol": "ADANIPORTS",
+    "actual_fall_pct": 6.79,
+    "day_high": 1709.1,
+    "day_close": 1593.1,
+    "blocking_gate": "prev_day_rally",
+    "actual_value": 0.09,
+    "threshold": 6.0
+  },
+  {
+    "date": "2026-08-31",
+    "symbol": "ADANIGREEN",
+    "actual_fall_pct": 6.88,
+    "day_high": 1304.6,
+    "day_close": 1214.9,
+    "blocking_gate": "prev_day_rally",
+    "actual_value": -0.48,
+    "threshold": 6.0
   }
 ]
