@@ -158,5 +158,15 @@
     "blocking_gate": "prev_day_rally",
     "actual_value": -0.48,
     "threshold": 6.0
+  },
+  {
+    "date": "2026-09-01",
+    "symbol": "GODREJIND",
+    "actual_fall_pct": 5.14,
+    "day_high": 1215.4,
+    "day_close": 1152.9,
+    "blocking_gate": "prev_day_rally",
+    "actual_value": -0.1,
+    "threshold": 6.0
   }
 ]
