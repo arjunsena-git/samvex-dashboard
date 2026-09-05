@@ -1,7 +1,7 @@
 {
-  "generated_at": "2026-08-29",
-  "week_start": "2026-08-22",
-  "week_end": "2026-08-29",
+  "generated_at": "2026-09-05",
+  "week_start": "2026-08-29",
+  "week_end": "2026-09-05",
   "total_signals": 0,
   "wins": 0,
   "losses": 0,
@@ -10,30 +10,50 @@
   "best_signal": null,
   "worst_signal": null,
   "panels": {},
-  "missed_count": 2,
+  "missed_count": 4,
   "top_gate": "prev_day_rally",
   "gate_counts": {
-    "prev_day_rally": 2
+    "prev_day_rally": 4
   },
   "top_missed": [
     {
-      "date": "2026-08-24",
-      "symbol": "GODREJIND",
-      "actual_fall_pct": 5.48,
-      "day_high": 1248.4,
-      "day_close": 1180.0,
+      "date": "2026-08-31",
+      "symbol": "ADANIENT",
+      "actual_fall_pct": 9.18,
+      "day_high": 3148.1,
+      "day_close": 2859.1,
       "blocking_gate": "prev_day_rally",
-      "actual_value": 0.54,
+      "actual_value": 0.63,
       "threshold": 6.0
     },
     {
-      "date": "2026-08-26",
-      "symbol": "JUBLFOOD",
-      "actual_fall_pct": 5.07,
-      "day_high": 526.2,
-      "day_close": 499.5,
+      "date": "2026-08-31",
+      "symbol": "ADANIGREEN",
+      "actual_fall_pct": 6.88,
+      "day_high": 1304.6,
+      "day_close": 1214.9,
       "blocking_gate": "prev_day_rally",
-      "actual_value": 1.4,
+      "actual_value": -0.48,
+      "threshold": 6.0
+    },
+    {
+      "date": "2026-08-31",
+      "symbol": "ADANIPORTS",
+      "actual_fall_pct": 6.79,
+      "day_high": 1709.1,
+      "day_close": 1593.1,
+      "blocking_gate": "prev_day_rally",
+      "actual_value": 0.09,
+      "threshold": 6.0
+    },
+    {
+      "date": "2026-09-01",
+      "symbol": "GODREJIND",
+      "actual_fall_pct": 5.14,
+      "day_high": 1215.4,
+      "day_close": 1152.9,
+      "blocking_gate": "prev_day_rally",
+      "actual_value": -0.1,
       "threshold": 6.0
     }
   ],
@@ -45,25 +65,38 @@
       "parameter": "EXH_PREV_DAY_RALLY_PCT",
       "current_value": "6.0",
       "proposed_value": "3.0",
-      "reasoning": "All 6 missed signals were blocked by this gate. The highest actual prior-day rally among the missed samples was VOLTAS at 2.4% \u2014 still well below the current 6.0% threshold. CROMPTON was at 1.47%. A threshold of 6.0% was designed for post-results momentum stocks; it is structurally too high for the broader Nifty 500 universe where a 3% single-day move already represents meaningful supply accumulation. Lowering to 3.0% would have unblocked VOLTAS (2.4%) and CROMPTON (1.47%) while still requiring a genuine prior-day directional move. The other three missed signals (DMART 0.23%, GODREJIND -0.19%, BATAINDIA -1.29%) would still require the logic_change proposal above since they have no meaningful prior-day rally at all.",
-      "expected_impact": "Unblocks approximately 2 of the 6 missed signals directly. Increases signal frequency; the existing impulse-candle and turnover gates remain as quality filters so raw win rate should not degrade materially.",
+      "reasoning": "All 6 missed exhaustion signals in 30 days were blocked exclusively by this gate. The actual prior-day moves were -1.29%, -0.19%, 0.54%, 1.4%, 2.4%, and the sixth sample at VOLTAS was 2.4%. None of these came anywhere near 6.0%. The stocks still fell 5.05%\u20135.68% from their intraday highs, confirming exhaustion was real. A 3.0% threshold would have admitted VOLTAS (2.4%) and JUBLFOOD (1.4%) while still filtering out flat or negative prior days \u2014 though GODREJIND at -0.19% and BATAINDIA at -1.29% would still be blocked. Pairing this with the existing cumul_rally and gap_up_pct OR paths (already in the code) means those two would need to qualify on a different leg, which is structurally correct.",
+      "expected_impact": "Estimated 3\u20134 additional signals per 30-day period admitted. Will also admit some lower-quality setups that rested on smaller prior moves, so confidence score weighting on rally_s (currently up to 40 pts) will naturally down-rank them relative to genuine 6%+ movers. Net: more coverage, marginal quality dilution at the low-confidence tier.",
       "confidence": "HIGH",
       "status": "auto_applied",
-      "applied_at": "2026-08-23",
+      "applied_at": "2026-08-31",
       "formatted_value": "3.0"
     },
     {
       "type": "parameter_tune",
-      "panel": "Momentum Breakout Bullish",
+      "panel": "Momentum Breakout/Breakdown",
       "parameter": "MB_CONFIRM_MAX_RANGE_PCT",
-      "current_value": "0.35",
-      "proposed_value": "0.25",
-      "reasoning": "Momentum Breakout Bullish has 2 wins, 2 losses, 4 expired across 8 signals \u2014 25% win rate. This is the best-performing panel in the dataset but still only 25%. The confirmation candle gate (MB_CONFIRM_MAX_RANGE_PCT) is the panel's primary quality filter for 'calm absorption after the break'. At 0.35% range, a candle on a Rs 500 stock can be Rs 1.75 wide \u2014 still a meaningful indecision candle. Tightening to 0.25% enforces a genuinely narrow, absorbed confirmation. The 2 losses likely include cases where the confirm candle was wide enough to indicate two-way interest rather than one-sided continuation. This is the one parameter in Momentum Breakout that directly filters signal quality rather than just presence-of-signal. The change from 0.35 to 0.25 is a 29% tightening \u2014 meaningful but not extreme.",
-      "expected_impact": "Reduces total Momentum Breakout Bullish signals by an estimated 20-30%, filtering out the less cleanly absorbed breakouts. Expected to improve win rate above 25% by removing marginal setups. The 4 expired signals are a secondary concern \u2014 tighter confirmation does not directly address time-in-session, but cleaner setups tend to move faster post-entry.",
+      "current_value": "0.25",
+      "proposed_value": "0.18",
+      "reasoning": "Momentum Breakout and Breakdown together went 0W/4L/4E across 8 signals in 30 days (0% win rate). The sample is small (n=8), but the 2026-07-13 rollback of MB_VOL_RATIO to 1.0 from a higher auto-tuned value is a documented quality regression. Rather than raising MB_VOL_RATIO (which risks cutting signal count further), tightening the confirmation candle range from 0.25% to 0.18% enforces that the post-breakout bar is genuinely absorbed quietly \u2014 a 0.25% range on a \u20b9500 stock is a \u20b91.25 range, which is not meaningfully 'tight'. At 0.18% that becomes \u20b90.90, closer to true absorption behaviour. This was the original design intent per the comment 'tighter = more calmly absorbed = higher score'.",
+      "expected_impact": "Reduces signal count by an estimated 20\u201330%, cutting the noisier setups where the confirm candle was borderline wide. Given 0% win rate, fewer but better-filtered signals is the right direction. Small sample caveat applies.",
       "confidence": "MEDIUM",
       "status": "auto_applied",
-      "applied_at": "2026-08-23",
-      "formatted_value": "0.25"
+      "applied_at": "2026-08-31",
+      "formatted_value": "0.18"
+    },
+    {
+      "type": "parameter_tune",
+      "panel": "Trap Reversal",
+      "parameter": "TRAP_MAX_SL_PCT",
+      "current_value": "1.5",
+      "proposed_value": "1.0",
+      "reasoning": "9 out of 9 Trap signals expired without resolution (neither T1 nor SL hit). An SL of up to 1.5% away from entry on a 1.5R target means T1 is 2.25% from entry \u2014 for an intraday reversal setup that must resolve within the same day, this is a wide move requirement on a stock that just showed a failed breakdown (implying the range is compressed). Tightening TRAP_MAX_SL_PCT to 1.0% forces T1 to be reachable at 1.5% from entry, which is a more realistic intraday move. This also implicitly filters out situations where the trap candle wicked deeply (producing a wide SL), which are the lower-quality trap setups. The 9-expired outcome directly supports that the current geometry is too wide for same-day resolution.",
+      "expected_impact": "Reduces signal count by blocking the wider-SL cases. More importantly, the signals that do pass will have T1 at 1.5% rather than 2.25%, making same-day resolution structurally more likely. Small sample caveat: n=9, all expired \u2014 cannot distinguish between 'SL too wide so T1 unreachable' and 'setup just fired in low-volatility market', but the SL tightening is the lower-risk intervention.",
+      "confidence": "MEDIUM",
+      "status": "auto_applied",
+      "applied_at": "2026-08-31",
+      "formatted_value": "1.0"
     }
   ],
   "pending_proposals": 0,
@@ -71,43 +104,33 @@
     {
       "type": "logic_change",
       "panel": "Exhaustion Short",
-      "title": "Add intraday gap-up OR earnings-spike as an alternative exhaustion trigger, replacing the sole reliance on prev_day_rally",
-      "proposed_change": "Introduce a fourth 'had_spike_open' condition alongside had_rally, had_cumul, and had_gap_up. Define: had_spike_open = (today_open_early > daily['High'].iloc[-2]) AND (gap_up_pct >= EXH_GAP_UP_PCT). The existing gate is: 'if not (had_rally or had_cumul or had_gap_up): continue'. Extend it to: 'if not (had_rally or had_cumul or had_gap_up or had_spike_open): continue'. Also independently lower EXH_PREV_DAY_RALLY_PCT (handled in parameter_tune proposal below) so that moderate prior-day moves like VOLTAS at 2.4% are not flatly excluded. had_spike_open captures cases where a stock gaps above its own PDH on open \u2014 already a structural supply zone \u2014 even when the prior close-to-close move was flat or negative (DMART: 0.23%, GODREJIND: -0.19%, BATAINDIA: -1.29%). Suggested new constant: EXH_GAP_ABOVE_PDH = True (boolean flag enabling this path). Place this logic immediately after the existing had_gap_up assignment, before the combined OR check.",
-      "reasoning": "All 6 missed signals were blocked by prev_day_rally. Three of the five shown samples (DMART 0.23%, GODREJIND -0.19%, BATAINDIA -1.29%) had essentially flat or down prior days yet still produced 5-7% intraday falls from the high \u2014 the defining characteristic in each case was a gap-up open above PDH creating an immediate supply cluster, not a multi-day rally. The current logic has no path for this condition at all. VOLTAS at 2.4% and CROMPTON at 1.47% also failed the 6.0% threshold despite being genuine exhaustion moves.",
-      "expected_impact": "Captures 3-4 of the 6 missed signals that opened above PDH with no meaningful prior-day rally. Minor increase in false positives possible on news-driven gap-ups that continue higher \u2014 mitigated by the existing spike-candle turnover and Bollinger band gates which must still pass.",
+      "title": "Add intraday gap-up as a standalone rally qualifier with its own threshold",
+      "proposed_change": "Introduce a constant EXH_GAP_UP_STANDALONE_PCT = 2.0. In the existing OR-gate block that checks had_rally OR had_cumul OR had_gap_up, keep the logic identical but change the gap_up_pct threshold from EXH_GAP_UP_PCT (current value presumably low, since it never fired for any of the 6 missed cases) to EXH_GAP_UP_STANDALONE_PCT = 2.0. This sits at the same position in the gate sequence as the current gap_up check \u2014 no structural reordering needed. The idea: a stock that gaps up \u22652% on the day and then shows a blow-off spike candle is a classic exhaustion pattern even if the prior day's close-to-close was flat. This is already in the OR logic conceptually, but the threshold may be too permissive or too strict \u2014 making it an explicit named constant allows it to be tuned independently of EXH_GAP_UP_PCT.",
+      "reasoning": "GODREJIND (actual_value -0.19%, fell 5.68%) and BATAINDIA (actual_value -1.29%, fell 5.05%) would not be caught even by reducing EXH_PREV_DAY_RALLY_PCT to 3.0%, since their prior-day moves were negative. Both could qualify if they gapped up sufficiently on the signal day \u2014 the missed-signal data shows the day_high was significantly above the day_close (5.68% and 5.05% falls respectively), which is consistent with a gap-up open followed by reversal. The existing EXH_GAP_UP_PCT path is the right structural hook; it just needs a standalone named constant so its threshold is independently auditable.",
+      "expected_impact": "Potentially recovers 1\u20132 of the 6 missed signals (specifically the negative prior-day cases). Low incremental noise risk since the gap-up path still requires the full impulse candle and volume spike gates downstream.",
       "confidence": "MEDIUM",
       "status": "proposed_for_review"
     },
     {
       "type": "logic_change",
-      "panel": "Bear Trap Reversal / Bull Trap Reversal",
-      "title": "Add a session-time gate: suppress signals generated after 13:00 IST when T1/T2 are unlikely to be reached before 15:30",
-      "proposed_change": "Add a time-of-day check at the top of _screen_trap(), analogous to the Exhaustion Short window check. Introduce constant: TRAP_LATEST_ENTRY_TIME = time(13, 0). At the start of the function (before the universe loop), check: if datetime.now(ist).time() > TRAP_LATEST_ENTRY_TIME: return []. Additionally, within the loop, after computing t1 and t2 but before appending results, compute minutes_remaining = (datetime.combine(today_date, time(15, 20)) - datetime.now(ist).replace(tzinfo=None)).total_seconds() / 60 and skip any result where minutes_remaining < risk / current_price * 100 * 10 (a rough proxy: if the SL is 1% wide, you need at least 10 minutes of runway minimum \u2014 tune the multiplier as TRAP_MIN_RUNWAY_MINUTES = 45). Place this check immediately before the results.append() call.",
-      "reasoning": "Bear Trap has 8 signals total: 0 wins, 0 losses, 8 expired. Bull Trap has 6 signals: 0 wins, 1 loss, 5 expired. The 'expired' category dominates both panels \u2014 signals that neither hit T1 nor SL before market close. This is a timing problem, not a gate-quality problem. A trap reversal by definition fires mid-session (after the trap bar and then the reversal bar, which requires at minimum 2-3 bars = 10-15 minutes into the session, often later). Signals firing at 13:30-14:30 with a 1.5R target have insufficient time to reach T1 before 15:30, so they expire. The current code has no time-of-day check for Trap panels at all.",
-      "expected_impact": "Reduces total signal count for both Trap panels, but eliminates the dominant 'expired' outcome. Remaining signals will have adequate session time to resolve. Win rate percentage should improve as expired signals (which have zero win contribution) are suppressed.",
+      "panel": "Momentum Breakout/Breakdown",
+      "title": "Require confirm candle to not exceed the breakout candle's range \u2014 relative tightness gate",
+      "proposed_change": "Add a new gate immediately after the existing confirm_range_pct < MB_CONFIRM_MAX_RANGE_PCT check. Introduce constant MB_CONFIRM_REL_RANGE_MAX = 0.6. Compute breakout_candle_range_pct = (highs[breakout_bar] - lows[breakout_bar]) / closes[breakout_bar] * 100. Require: confirm_range_pct / breakout_candle_range_pct <= MB_CONFIRM_REL_RANGE_MAX. This means the confirm candle's range must be no more than 60% of the breakout candle's range \u2014 ensuring the follow-through bar is genuinely tighter relative to the expansion bar, not just absolutely small. A breakout candle that moved 0.8% and a confirm candle of 0.24% both pass the absolute gate but the relative ratio (0.30) shows real compression; a breakout of 0.15% with confirm of 0.22% also passes the absolute gate but is actually expanding, which the relative check would block.",
+      "reasoning": "The current absolute MB_CONFIRM_MAX_RANGE_PCT gate is blind to whether the confirm candle is tighter than the breakout candle or wider. In a 0W/4L market for this panel, the most likely failure mode is false confirmation: a confirm candle that passes the absolute threshold but is proportionally not compressed at all relative to the move. This gate costs nothing on the win side (a genuine calm absorption will always be relatively tight) and blocks the edge cases. No direct gate-block data exists for this specific failure mode since the debug logs don't track it, but the 0% win rate across both directions justifies a structural tightening.",
+      "expected_impact": "Estimated 15\u201325% further reduction in signal count on top of the MB_CONFIRM_MAX_RANGE_PCT tightening. Focuses the panel on only the cleanest absorption setups.",
+      "confidence": "LOW",
+      "status": "proposed_for_review"
+    },
+    {
+      "type": "logic_change",
+      "panel": "Trap Reversal",
+      "title": "Require reversal candle volume to exceed the trap candle's volume, not just today's average",
+      "proposed_change": "Add a new constant TRAP_REVERSAL_VS_TRAP_VOL_MIN = 0.8. After the existing vol_ratio >= TRAP_VOL_RATIO check on the reversal candle, add: reversal_vs_trap_ratio = vols[reversal_bar] / vols[trap_bar]; if reversal_vs_trap_ratio < TRAP_REVERSAL_VS_TRAP_VOL_MIN: _dbg_fail and continue. This gate sits immediately after the existing reversal volume check. Rationale: the trap candle already required TRAP_SPIKE_VOL_RATIO >= 1.3x vs prior average, so it was a high-volume bar. If the reversal candle can't reach at least 80% of that volume, the buying/selling conviction at the reclaim is weaker than the original false breakout \u2014 a structurally unfavourable setup. Setting 0.8 (not 1.0) acknowledges that reversals are often slightly quieter than the panic bar.",
+      "reasoning": "Bear Trap and Bull Trap combined: 0W/0L/9E across 9 signals (0 resolved either way, all expired). All 9 signals expired without hitting T1 or SL, which is a classic sign of setups firing too early or in the wrong volatility environment. The trap candle requires 1.3x volume, but the reversal candle only needs 1.0x of today's average \u2014 meaning a tepid reclaim candle against a high-volume breakdown still fires. Requiring reversal volume to approach the trap candle's own volume ensures the reclaim has comparable force to the original move it's reversing.",
+      "expected_impact": "Expected to cut Trap signal count by 25\u201335% (the 9 expired signals suggest many setups are firing on technically valid but low-conviction reversals). The expired-heavy outcome (9/9 expired, 0 resolved) is particularly consistent with entries that didn't have enough momentum behind the reversal to reach T1 within the day.",
       "confidence": "MEDIUM",
-      "status": "proposed_for_review"
-    },
-    {
-      "type": "logic_change",
-      "panel": "Momentum Breakdown Bearish",
-      "title": "Require Nifty to be down on the day (not just not strongly up) before firing a bearish breakdown signal",
-      "proposed_change": "The current code checks 'if nifty_chg > 1.0: continue' for bearish direction \u2014 only filtering out a strongly bullish Nifty. Change the threshold to a new constant: MB_NIFTY_BEARISH_MAX_PCT = 0.3. Apply as: 'if nifty_chg > MB_NIFTY_BEARISH_MAX_PCT: continue' for the bearish direction only. This means a bearish momentum breakdown signal will only fire when Nifty is flat-to-down on the day (change <= +0.3%), not merely 'not up more than 1%'. Place this check where the existing nifty_chg > 1.0 check sits in the bearish branch.",
-      "reasoning": "Momentum Breakdown Bearish shows 0 wins, 2 losses, 3 expired across 5 signals \u2014 0% win rate. While the sample is small (caution warranted), a stock breaking PDL on a day when Nifty is rising +0.5% to +0.9% is fighting the broad tape. The current gate of +1.0% is too permissive for a pure trend-following breakdown \u2014 a stock that breaks down while the index is up 0.6% has a structurally lower probability of follow-through than one breaking down when the index is flat or negative. This is a directional alignment issue not a gate-threshold issue.",
-      "expected_impact": "Reduces bearish breakdown signal frequency on mixed-market days. On genuinely weak market days the signal count is unchanged. Small sample means this is a hypothesis to monitor over the next 30 days rather than a confirmed fix.",
-      "confidence": "LOW",
-      "status": "proposed_for_review"
-    },
-    {
-      "type": "logic_change",
-      "panel": "PDH Breakout",
-      "title": "Require the breakout candle's volume to exceed not just the day's volume minimum but also the same time-slot's historical average \u2014 ruling out thin-tape false breakouts",
-      "proposed_change": "After the existing day_vol >= PDH_VOL_MIN check, add a same-slot volume check using the 15-min batch (already loaded as batch_15m / intra). For the bar at index bos_bar in today_bars, retrieve its timestamp, then look back across the prior 3 sessions for bars at the same HH:MM slot. Compute avg_same_slot_vol_15m = mean of those prior-session volumes. Require that today_bars['Volume'].iloc[bos_bar] >= avg_same_slot_vol_15m * PDH_BREAKOUT_SLOT_VOL_MULT where PDH_BREAKOUT_SLOT_VOL_MULT = 1.2. If fewer than 2 prior-session same-slot bars are available, skip this check (data guard). Insert this gate immediately after the PDH_VOL_MIN check, before the VWAP check. This mirrors the same-slot logic already proven in Exhaustion Short.",
-      "reasoning": "PDH Breakout has 0 wins, 1 loss, 1 expired across only 2 signals \u2014 0% win rate, but the sample is too small to draw strong conclusions. The panel already passed RSI >= 60, EMA200, VWAP, ADR, and stretch filters. The most likely remaining source of false breakouts in a trend-following screen is thin-volume breakouts at atypical intraday times (e.g., a close above PDH in the 9:30 bar on unusually low volume for that time of day). The same-slot volume check is already validated in Exhaustion Short's architecture and adds specificity without requiring a new data source.",
-      "expected_impact": "Further reduces the already-low signal count for PDH Breakout. Quality of remaining signals should improve. Cannot confirm win-rate impact from 2 signals \u2014 treat as a hygiene improvement pending a larger sample.",
-      "confidence": "LOW",
       "status": "proposed_for_review"
     }
   ],
-  "narrative": "No signals were evaluated this week. Agent 4 made no automatic adjustments \u2014 all panels within healthy bounds. Agent 3 applied 2 parameter changes on Sunday: EXH_PREV_DAY_RALLY_PCT 6.0\u21923.0 [HIGH]; MB_CONFIRM_MAX_RANGE_PCT 0.35\u21920.25 [MEDIUM]. Agent 3 also flagged 4 structural ideas \u2014 new gates/parameters the current code doesn't have, not auto-applied, needs real review: Exhaustion Short: Add intraday gap-up OR earnings-spike as an alternative exhaustion trigger, replacing the sole reliance on prev_day_rally; Bear Trap Reversal / Bull Trap Reversal: Add a session-time gate: suppress signals generated after 13:00 IST when T1/T2 are unlikely to be reached before 15:30; Momentum Breakdown Bearish: Require Nifty to be down on the day (not just not strongly up) before firing a bearish breakdown signal; PDH Breakout: Require the breakout candle's volume to exceed not just the day's volume minimum but also the same time-slot's historical average \u2014 ruling out thin-tape false breakouts. Agent 2 found 2 missed setups \u2014 prev_day_rally was the top blocker (2 stocks, 100% of misses)."
+  "narrative": "No signals were evaluated this week. Agent 4 made no automatic adjustments \u2014 all panels within healthy bounds. Agent 3 applied 3 parameter changes on Sunday: EXH_PREV_DAY_RALLY_PCT 6.0\u21923.0 [HIGH]; MB_CONFIRM_MAX_RANGE_PCT 0.25\u21920.18 [MEDIUM]; TRAP_MAX_SL_PCT 1.5\u21921.0 [MEDIUM]. Agent 3 also flagged 3 structural ideas \u2014 new gates/parameters the current code doesn't have, not auto-applied, needs real review: Exhaustion Short: Add intraday gap-up as a standalone rally qualifier with its own threshold; Momentum Breakout/Breakdown: Require confirm candle to not exceed the breakout candle's range \u2014 relative tightness gate; Trap Reversal: Require reversal candle volume to exceed the trap candle's volume, not just today's average. Agent 2 found 4 missed setups \u2014 prev_day_rally was the top blocker (4 stocks, 100% of misses)."
 }
