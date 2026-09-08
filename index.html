@@ -979,17 +979,17 @@
   </div>
 
   <div class="header-indices" id="header-indices">
-    <a class="idx-card" id="idx-nifty" href="https://www.tradingview.com/chart/?symbol=NSE:NIFTY" target="_blank" rel="noopener noreferrer">
+    <a class="idx-card" id="idx-nifty" href="https://gocharting.com/terminal?ticker=NSE:NIFTY" target="_blank" rel="noopener noreferrer">
       <div class="idx-label">NIFTY 50</div>
       <div class="idx-price">—</div>
       <div class="idx-change">—</div>
     </a>
-    <a class="idx-card" id="idx-sensex" href="https://www.tradingview.com/chart/?symbol=BSE:SENSEX" target="_blank" rel="noopener noreferrer">
+    <a class="idx-card" id="idx-sensex" href="https://gocharting.com/terminal?ticker=BSE:SENSEX" target="_blank" rel="noopener noreferrer">
       <div class="idx-label">SENSEX</div>
       <div class="idx-price">—</div>
       <div class="idx-change">—</div>
     </a>
-    <a class="idx-card" id="idx-banknifty" href="https://www.tradingview.com/chart/?symbol=NSE:BANKNIFTY" target="_blank" rel="noopener noreferrer">
+    <a class="idx-card" id="idx-banknifty" href="https://gocharting.com/terminal?ticker=NSE:BANKNIFTY" target="_blank" rel="noopener noreferrer">
       <div class="idx-label">BANK NIFTY</div>
       <div class="idx-price">—</div>
       <div class="idx-change">—</div>
@@ -1914,7 +1914,7 @@
         data-symbol="${s.symbol}" data-price="${s.price}" data-gap="${s.gap_pct}"
         data-reflevel="${refLevel}" data-vol="${s.volume_ratio ?? ""}" data-score="${s.confidence_score ?? ""}">
         <td>
-          <a class="sym" href="https://www.tradingview.com/chart/?symbol=NSE:${s.symbol}" target="_blank" rel="noopener noreferrer">${s.symbol}</a>
+          <a class="sym" href="https://gocharting.com/terminal?ticker=NSE:${s.symbol}" target="_blank" rel="noopener noreferrer">${s.symbol}</a>
           ${setupBadge}
           ${sectorBadge}
           ${detectedBadge}
@@ -2298,7 +2298,7 @@
     content.innerHTML = `
       <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px;">
         <div>
-          <a href="https://www.tradingview.com/chart/?symbol=NSE:${s.symbol}" target="_blank" rel="noopener"
+          <a href="https://gocharting.com/terminal?ticker=NSE:${s.symbol}" target="_blank" rel="noopener"
              style="font-size:19px;font-weight:800;color:var(--text);text-decoration:none;">${s.symbol}</a>
           <div style="font-size:11px;color:var(--text-muted);margin-top:3px;">${s.setup || ''} ${detected}</div>
         </div>
@@ -2595,7 +2595,7 @@
       <tr>
         <td>${e.date || ''}</td>
         <td>${e.trader || '—'}</td>
-        <td><a class="sym" href="https://www.tradingview.com/chart/?symbol=NSE:${e.symbol}" target="_blank" rel="noopener noreferrer">${e.symbol}</a></td>
+        <td><a class="sym" href="https://gocharting.com/terminal?ticker=NSE:${e.symbol}" target="_blank" rel="noopener noreferrer">${e.symbol}</a></td>
         <td><span class="pill pill-${e.direction === 'Long' ? 'green' : 'red'}">${e.direction}</span></td>
         <td>${e.setup || '—'}</td>
         <td>${e.entry_price != null ? fmt(e.entry_price) : '—'}</td>
@@ -2931,7 +2931,7 @@
               ${dayRows.map(r => `
               <tr>
                 <td>${r.detected_at || ''}</td>
-                <td><a class="sym" href="https://www.tradingview.com/chart/?symbol=NSE:${r.symbol}" target="_blank" rel="noopener noreferrer">${r.symbol}</a></td>
+                <td><a class="sym" href="https://gocharting.com/terminal?ticker=NSE:${r.symbol}" target="_blank" rel="noopener noreferrer">${r.symbol}</a></td>
                 <td>${(r.panel || '').split(' — ')[0].split(' (')[0]}</td>
                 <td>${_ANALYSIS_DIR_ICON[r.direction] || r.direction || ''}</td>
                 <td>${r.entry ?? '—'}</td>
@@ -3550,11 +3550,11 @@
                Re-authenticate Upstox &#8594;
              </a>`
           : isNotFound
-          ? `<a href="https://www.tradingview.com/chart/?symbol=NSE:${symbol}" target="_blank" rel="noopener"
+          ? `<a href="https://gocharting.com/terminal?ticker=NSE:${symbol}" target="_blank" rel="noopener"
                style="margin-top:10px;padding:9px 22px;background:rgba(79,142,247,.12);
                       color:var(--accent);border:1px solid var(--accent);border-radius:6px;
                       font-size:12px;font-weight:700;text-decoration:none;">
-               View on TradingView &#8594;
+               View on GoCharting &#8594;
              </a>`
           : "";
         container.innerHTML = `
