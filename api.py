@@ -523,6 +523,45 @@ def _prune_daily_reports(reports: dict) -> dict:
     return {d: r for d, r in reports.items() if d >= cutoff}
 
 
+# ── GoCharting order-flow webhook signals ───────────────────────────
+# GoCharting's Lipi Script alerts (true tick-level order-flow conditions —
+# delta, aggressor imbalance, absorption — that our own Upstox/Yahoo OHLCV
+# screeners can't see) POST here. We store the most recent entries only —
+# this is a live intraday feed, not a historical archive like the daily
+# reports above. Same Redis-first/disk-fallback pattern as the rest of the
+# app for surviving Render cold-starts.
+GOCHARTING_WEBHOOK_SECRET = os.environ.get("GOCHARTING_WEBHOOK_SECRET", "")
+_GOCHARTING_REDIS_KEY     = _REDIS_KEY_PREFIX + "samvex_gocharting_signals"
+_GOCHARTING_FILE          = os.path.join(_SIGNALS_DIR, "gocharting_signals.json")
+GOCHARTING_SIGNALS_MAX    = 200
+
+
+def _load_gocharting_signals() -> list:
+    raw = _upstash(["GET", _GOCHARTING_REDIS_KEY])
+    if raw:
+        try:
+            return json.loads(raw)
+        except Exception as e:
+            print(f"[GoCharting] Redis parse error: {e}")
+    try:
+        if os.path.exists(_GOCHARTING_FILE):
+            with open(_GOCHARTING_FILE) as fh:
+                return json.load(fh)
+    except Exception as e:
+        print(f"[GoCharting] disk load error: {e}")
+    return []
+
+
+def _save_gocharting_signals(entries: list) -> None:
+    payload = json.dumps(entries[:GOCHARTING_SIGNALS_MAX])
+    _upstash(["SET", _GOCHARTING_REDIS_KEY, payload])
+    try:
+        with open(_GOCHARTING_FILE, "w") as fh:
+            fh.write(payload)
+    except Exception as e:
+        print(f"[GoCharting] disk save error: {e}")
+
+
 def _num_or_none(v):
     try:
         return float(v) if v not in (None, "") else None
@@ -4001,6 +4040,58 @@ def api_zone_supply():
         return jsonify([])
     active = _cached("zone_supply", _screen_demand_supply_zone, "bearish", ttl=SCREEN_TTL)
     return jsonify(_merge_with_history(active, 6, "bearish"))
+
+
+# ── GoCharting order-flow webhook ────────────────────────────────────
+# GoCharting fires a Lipi Script webhook alert here the moment a real
+# tick-level order-flow condition (delta, aggressor imbalance, absorption —
+# whatever Lipi Script condition the trading team defines) triggers on their
+# platform. We don't recompute order flow ourselves; we just receive,
+# authenticate, store, and surface it. Accepts either a JSON body or a
+# plain-text message (GoCharting sends the alert "Message" field as-is,
+# format is whatever the alert author typed into GoCharting's UI) so a
+# still-unconfirmed template on their end doesn't hard-fail the webhook.
+@app.route("/api/gocharting/webhook", methods=["POST"])
+def gocharting_webhook():
+    secret = flask_req.args.get("secret") or flask_req.headers.get("X-Webhook-Secret")
+    if not GOCHARTING_WEBHOOK_SECRET or secret != GOCHARTING_WEBHOOK_SECRET:
+        return jsonify({"error": "Unauthorized"}), 403
+
+    data = flask_req.get_json(force=True, silent=True)
+    raw_text = flask_req.get_data(as_text=True) or ""
+
+    if isinstance(data, dict):
+        symbol    = str(data.get("symbol", "") or "").upper().strip()
+        direction = str(data.get("direction", "") or "").lower().strip()
+        setup     = str(data.get("setup", "") or "GoCharting Alert").strip()
+        price     = _num_or_none(data.get("price"))
+        message   = str(data.get("message", "") or "").strip()
+    else:
+        symbol, direction, setup, price, message = "", "", "GoCharting Alert", None, raw_text.strip()
+
+    ist = pytz.timezone("Asia/Kolkata")
+    entry = {
+        "id":          uuid.uuid4().hex[:12],
+        "received_at": datetime.now(ist).strftime("%Y-%m-%d %H:%M:%S"),
+        "symbol":      symbol,
+        "direction":   direction if direction in ("bullish", "bearish") else "",
+        "setup":       setup,
+        "price":       price,
+        "message":     message,
+        "raw":         raw_text[:2000],
+    }
+
+    signals = _load_gocharting_signals()
+    signals.insert(0, entry)
+    _save_gocharting_signals(signals)
+
+    return jsonify({"status": "stored", "id": entry["id"]})
+
+
+@app.route("/api/gocharting/signals")
+def api_gocharting_signals():
+    limit = min(int(flask_req.args.get("limit", 50) or 50), GOCHARTING_SIGNALS_MAX)
+    return jsonify(_load_gocharting_signals()[:limit])
 
 
 # ── Per-panel diagnostics ────────────────────────────────────────────

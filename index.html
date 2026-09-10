@@ -1046,6 +1046,28 @@
     </div>
   </div>
 
+  <!-- ── GoCharting order-flow signals ──────────────────────────────
+       Fed by a GoCharting Lipi Script webhook alert (true tick-level
+       order flow — delta, aggressor imbalance, absorption — not our own
+       OHLCV pattern screeners below). Empty until an alert is wired up
+       on the GoCharting side. ─────────────────────────────────────── -->
+  <div class="panel" id="gocharting-panel" style="margin-bottom:20px;">
+    <div class="panel-header">
+      <div class="panel-title"><span class="dot dot-green"></span> GoCharting Order-Flow Signals</div>
+      <span style="font-size:11px;color:var(--text-muted);">True tick order flow via GoCharting Lipi Script alerts</span>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>Time</th><th>Symbol</th><th>Direction</th><th>Setup</th><th>Price</th><th>Message</th></tr>
+        </thead>
+        <tbody id="gocharting-signals-body">
+          <tr><td colspan="6" class="empty-state">Loading…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
   <!-- ── CSV download row ─────────────────────────────────────────── -->
   <div class="csv-toolbar" style="gap:8px;flex-wrap:wrap;">
     <button id="chart-mode-btn" class="chart-mode-toggle active" onclick="toggleChartMode()">&#9776; Full Table View</button>
@@ -3446,6 +3468,37 @@
                       "OI Options Buy — Fresh Short Buildup (Buy Put Candidates)");
   }
 
+  // ── GoCharting order-flow signals ───────────────────────────────
+  async function loadGoChartingSignals() {
+    const body = document.getElementById("gocharting-signals-body");
+    try {
+      const res  = await fetch(`${API}/api/gocharting/signals?limit=25`);
+      const rows = await res.json();
+
+      if (!Array.isArray(rows) || rows.length === 0) {
+        body.innerHTML = `<tr><td colspan="6" class="empty-state">No order-flow alerts yet — configure a GoCharting webhook alert to populate this panel.</td></tr>`;
+        return;
+      }
+
+      body.innerHTML = rows.map(r => {
+        const dirColor = r.direction === "bullish" ? "var(--green)" : r.direction === "bearish" ? "var(--red)" : "var(--text-muted)";
+        const symLink  = r.symbol
+          ? `<a class="sym" href="https://gocharting.com/terminal?ticker=NSE:${r.symbol}" target="_blank" rel="noopener noreferrer">${r.symbol}</a>`
+          : "—";
+        return `<tr>
+          <td>${r.received_at || "—"}</td>
+          <td>${symLink}</td>
+          <td style="color:${dirColor};text-transform:capitalize;">${r.direction || "—"}</td>
+          <td>${r.setup || "—"}</td>
+          <td>${r.price != null ? "₹" + Number(r.price).toLocaleString("en-IN") : "—"}</td>
+          <td style="max-width:320px;white-space:normal;">${r.message || ""}</td>
+        </tr>`;
+      }).join("");
+    } catch (err) {
+      body.innerHTML = `<tr><td colspan="6" class="empty-state">Failed to load GoCharting signals — ${err.message}</td></tr>`;
+    }
+  }
+
   // ── Last updated ──────────────────────────────────────────────
   function stampUpdated() {
     const now = new Date();
@@ -3809,6 +3862,11 @@
       await Promise.all([loadMarket(), loadTicker(), loadStatus()]);
     }
   }, 60 * 1000);
+
+  // GoCharting order-flow alerts land in real time — poll faster than the
+  // 5-min OHLCV screener cycle so a signal doesn't sit stale for minutes.
+  loadGoChartingSignals();
+  setInterval(loadGoChartingSignals, 30 * 1000);
 </script>
 
 <!-- ── Chart Modal ──────────────────────────────────────────────── -->
