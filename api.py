@@ -4533,6 +4533,7 @@ def debug_universe():
         "fno_source":             "upstox_futures_map" if len(fno_live) > 50 else "hardcoded_fallback",
         "coverage_checks":        checks,
         "sample_first10":         symbols[:10],
+        "fno_symbols":            sorted(s.replace(".NS", "") for s in fno_live),
         "note": (
             "source=fno_fallback means Nifty 500 CSV failed — "
             "screener used the live F&O list from Upstox futures map. "
