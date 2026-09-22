@@ -4067,7 +4067,16 @@ def gocharting_webhook():
         price     = _num_or_none(data.get("price"))
         message   = str(data.get("message", "") or "").strip()
     else:
-        symbol, direction, setup, price, message = "", "", "GoCharting Alert", None, raw_text.strip()
+        # GoCharting's Message field is sent as-is, plain text — no variable
+        # interpolation on their end. Alerts typed as "SYMBOL|direction|setup
+        # text" (our own convention) get split into proper fields; anything
+        # else falls back to a single opaque message.
+        parts = raw_text.strip().split("|", 2)
+        if len(parts) == 3 and parts[0].strip():
+            symbol, direction, setup = parts[0].strip().upper(), parts[1].strip().lower(), (parts[2].strip() or "GoCharting Alert")
+            price, message = None, parts[2].strip()
+        else:
+            symbol, direction, setup, price, message = "", "", "GoCharting Alert", None, raw_text.strip()
 
     ist = pytz.timezone("Asia/Kolkata")
     entry = {
