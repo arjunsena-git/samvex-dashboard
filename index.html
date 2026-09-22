@@ -1055,11 +1055,12 @@
     <div class="panel-header">
       <div class="panel-title"><span class="dot dot-green"></span> GoCharting Order-Flow Signals</div>
       <span style="font-size:11px;color:var(--text-muted);">True tick order flow via GoCharting Lipi Script alerts</span>
+      <button class="csv-btn" style="margin-left:auto;padding:4px 10px;font-size:11px;" onclick="clearGoChartingSignals()">Clear All</button>
     </div>
     <div class="table-wrap">
       <table>
         <thead>
-          <tr><th>Time</th><th>Symbol</th><th>Direction</th><th>Setup</th><th>Price</th><th>Message</th></tr>
+          <tr><th>Time</th><th>Symbol</th><th>Direction</th><th>Setup</th><th>Price</th><th>Message</th><th></th></tr>
         </thead>
         <tbody id="gocharting-signals-body">
           <tr><td colspan="6" class="empty-state">Loading…</td></tr>
@@ -3476,7 +3477,7 @@
       const rows = await res.json();
 
       if (!Array.isArray(rows) || rows.length === 0) {
-        body.innerHTML = `<tr><td colspan="6" class="empty-state">No order-flow alerts yet — configure a GoCharting webhook alert to populate this panel.</td></tr>`;
+        body.innerHTML = `<tr><td colspan="7" class="empty-state">No order-flow alerts yet — configure a GoCharting webhook alert to populate this panel.</td></tr>`;
         return;
       }
 
@@ -3492,10 +3493,30 @@
           <td>${r.setup || "—"}</td>
           <td>${r.price != null ? "₹" + Number(r.price).toLocaleString("en-IN") : "—"}</td>
           <td style="max-width:320px;white-space:normal;">${r.message || ""}</td>
+          <td><button class="csv-btn" style="padding:2px 8px;font-size:11px;" onclick="deleteGoChartingSignal('${r.id}')">✕</button></td>
         </tr>`;
       }).join("");
     } catch (err) {
-      body.innerHTML = `<tr><td colspan="6" class="empty-state">Failed to load GoCharting signals — ${err.message}</td></tr>`;
+      body.innerHTML = `<tr><td colspan="7" class="empty-state">Failed to load GoCharting signals — ${err.message}</td></tr>`;
+    }
+  }
+
+  async function deleteGoChartingSignal(id) {
+    try {
+      await fetch(`${API}/api/gocharting/signals/${id}`, { method: "DELETE" });
+      loadGoChartingSignals();
+    } catch (err) {
+      alert("Failed to delete signal — " + err.message);
+    }
+  }
+
+  async function clearGoChartingSignals() {
+    if (!confirm("Clear all GoCharting order-flow signals?")) return;
+    try {
+      await fetch(`${API}/api/gocharting/signals`, { method: "DELETE" });
+      loadGoChartingSignals();
+    } catch (err) {
+      alert("Failed to clear signals — " + err.message);
     }
   }
 

@@ -4103,6 +4103,22 @@ def api_gocharting_signals():
     return jsonify(_load_gocharting_signals()[:limit])
 
 
+@app.route("/api/gocharting/signals/<sig_id>", methods=["DELETE"])
+def gocharting_signal_delete(sig_id):
+    signals     = _load_gocharting_signals()
+    new_signals = [s for s in signals if s.get("id") != sig_id]
+    if len(new_signals) == len(signals):
+        return jsonify({"error": "not found"}), 404
+    _save_gocharting_signals(new_signals)
+    return jsonify({"status": "deleted"})
+
+
+@app.route("/api/gocharting/signals", methods=["DELETE"])
+def gocharting_signals_clear():
+    _save_gocharting_signals([])
+    return jsonify({"status": "cleared"})
+
+
 # ── Per-panel diagnostics ────────────────────────────────────────────
 # Each panel runs the SAME screener function used to generate its live
 # signals, with an extra _debug accumulator — so "why didn't X show up"
